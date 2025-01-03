@@ -1,0 +1,36 @@
+<< Header >>
+
+[ENABLE]
+
+aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+<< Alloc >>
+
+label(o_<< HookName >> r_<< HookName >>)
+label(<< HookName >>Ptr << HookName >>Multiplier)
+
+n_<< HookName >>:
+  mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+  
+o_<< HookName >>:
+<< OriginalOpcodes >>
+    mulss reg,[<< HookName >>Multiplier]
+  jmp r_<< HookName >>
+  
+<< HookName >>Ptr:
+ << PointerType >> 0
+<< HookName >>Multiplier:
+ dd (float)3.00
+
+<< HookNameParsed >><< AoBOffset>>:
+  << JumpType >> n_<< HookName >>
+  << NopPadding >>
+r_<< HookName >>:
+registersymbol(<< HookNameParsed >> << HookName >>Ptr << HookName >>Multiplier)
+
+[DISABLE]
+
+<< HookNameParsed >><< AoBOffset>>:
+  db << OriginalBytes >>
+
+unregisterSymbol(*)
+dealloc(*)
