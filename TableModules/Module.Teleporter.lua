@@ -3,6 +3,10 @@ local AUTHOR = {"Leunsel", "LeFiXER"}
 local VERSION = "1.0.0"
 local DESCRIPTION = "Cheat Table Interface (Teleporter)"
 
+--
+--- Several configuration properties that can be customized.
+--- Set within the Table Lua Script and passed to the constructor of the class.
+----------
 Teleporter = {
     ---
     ---- Required Offsets for Teleporter;
@@ -39,6 +43,10 @@ Teleporter.SaveMemoryRecordName = "[— Teleporter Saves —] ()->"
 Teleporter.UseSmoothTeleport = false
 Teleporter.MaxDuration = 200
 
+--
+--- This checks if the required modules (json, Logger) are already loaded.
+--- If not, it attempts to load them using the CETrequire function.
+----------
 if not json then
     CETrequire("json")
 end
@@ -47,6 +55,13 @@ if not Logger then
     CETrequire("Module.Logger")
 end
 
+--
+--- This function resolves the address of a given symbol.
+--- It checks if the symbol is a pointer, and if so, uses readPointer to resolve its address.
+--- If the symbol is not a pointer, it simply retrieves its address using getAddress.
+--- @param symbol: The symbol (address or pointer) to resolve.
+--- @param isPointer: A boolean flag indicating whether the symbol is a pointer.
+--- @return The resolved address of the symbol, or nil if the resolution fails.
 local function resolveAddress(symbol, isPointer)
     if isPointer then
         return readPointer(symbol)
@@ -55,24 +70,44 @@ local function resolveAddress(symbol, isPointer)
     end
 end
 
+--
+--- These tables map different data types (such as Byte, Word, Dword, etc.) 
+--- to their corresponding read and write functions, providing an abstraction layer
+--- for reading and writing data to memory in different formats.
+
+--
+--- The `readFunctions` table maps data types to the appropriate read function.
+--- It is used to easily read different types of data from memory based on the data type.
+--- Map of data types to corresponding read functions
+----------
 local readFunctions = {
-    [vtByte] = readBytes,
-    [vtWord] = readSmallInteger,
-    [vtDword] = readInteger,
-    [vtQword] = readQword,
-    [vtSingle] = readFloat,
-    [vtDouble] = readDouble,
+    [vtByte] = readBytes,          -- Byte: readBytes function
+    [vtWord] = readSmallInteger,   -- Word: readSmallInteger function
+    [vtDword] = readInteger,       -- Dword: readInteger function
+    [vtQword] = readQword,         -- Qword: readQword function
+    [vtSingle] = readFloat,        -- Single (Float): readFloat function
+    [vtDouble] = readDouble,       -- Double: readDouble function
 }
 
+--
+--- The `writeFunctions` table maps data types to the appropriate write function.
+--- It is used to easily write different types of data to memory based on the data type.
+--- Map of data types to corresponding write functions
+----------
 local writeFunctions = {
-    [vtByte] = writeBytes,
-    [vtWord] = writeSmallInteger,
-    [vtDword] = writeInteger,
-    [vtQword] = writeQword,
-    [vtSingle] = writeFloat,
-    [vtDouble] = writeDouble,
+    [vtByte] = writeBytes,         -- Byte: writeBytes function
+    [vtWord] = writeSmallInteger,  -- Word: writeSmallInteger function
+    [vtDword] = writeInteger,      -- Dword: writeInteger function
+    [vtQword] = writeQword,        -- Qword: writeQword function
+    [vtSingle] = writeFloat,       -- Single (Float): writeFloat function
+    [vtDouble] = writeDouble,      -- Double: writeDouble function
 }
 
+--
+--- This function creates a new instance of the Teleporter object.
+--- It initializes the object with the properties passed as arguments and sets up
+--- the Logger components.
+----------
 function Teleporter:new(properties)
     local obj = setmetatable({}, self)
     obj.logger = Logger:new()
@@ -87,7 +122,9 @@ function Teleporter:new(properties)
     return obj
 end
 
--- Old logging utility...
+--
+--- ... Unused actually but preserved.
+----------
 function Teleporter:LogTeleportAction(actionType, details)
     if self.DebugMode then
         local timestamp = os.date("%Y-%m-%d %H:%M:%S")
@@ -115,19 +152,37 @@ function Teleporter:LogTeleportAction(actionType, details)
     end
 end
 
+--
+--- Sets the value type for the Teleporter class.
+--- This defines the type of data (e.g., byte, integer, float) used when reading/writing position values.
+--- @param valueType: The value type to set for reading and writing positions.
+--- Valid types are defined in the readFunctions and writeFunctions tables.
+----------
 function Teleporter:SetValueType(valueType)
     if readFunctions[valueType] and writeFunctions[valueType] then
         self.ValueType = valueType
-        self:LogTeleportAction("Set Value Type", { ValueType = valueType })
+        self.logger:info("Set Teleporter Value Type", { ValueType = valueType })
     else
-        error("Invalid ValueType: " .. tostring(valueType))
+        self.logger:error("Invalid Value Type: " .. tostring(valueType))
     end
 end
 
+--
+--- Toggles the smooth teleportation setting.
+--- Smooth teleportation is used to move between positions with gradual interpolation.
+----------
 function Teleporter:ToggleSmoothTeleport()
     self.UseSmoothTeleport = not self.UseSmoothTeleport
 end
 
+--
+--- Reads the position from memory using the provided symbol and offsets.
+--- It resolves the base address and reads the position based on the value type.
+--- @param symbol: The memory symbol representing the base address of the position.
+--- @param offsets: The list of offsets to access the position data in memory.
+--- @param isPointerRead: A flag indicating whether the base address is a pointer.
+--- @return A table containing the position data, or nil if the read fails.
+----------
 function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead)
     local baseAddress = resolveAddress(symbol, isPointerRead)
     if not baseAddress then
@@ -147,6 +202,14 @@ function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead)
     return position
 end
 
+--
+--- Writes a position to memory using the provided symbol, offsets, and position data.
+--- It resolves the base address and writes the position based on the value type.
+--- @param symbol: The memory symbol representing the base address of the position.
+--- @param offsets: The list of offsets to write the position data to.
+--- @param position: The table containing the position values to write.
+--- @param isPointerWrite: A flag indicating whether the base address is a pointer.
+----------
 function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWrite)
     local baseAddress = resolveAddress(symbol, isPointerWrite)
     if not baseAddress then
@@ -164,11 +227,20 @@ function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWr
     self.logger:info("Write Position To Memory", { Symbol = symbol, Position = position })
 end
 
+--
+--- Calculates the Euclidean distance between two 3D positions.
+--- @param pos_start: The starting position (table with 3 values: x, y, z).
+--- @param pos_end: The ending position (table with 3 values: x, y, z).
+--- @return The 3D distance between the two positions.
+----------
 function Teleporter:CalculateDistance3D(pos_start, pos_end)
     local dx, dy, dz = pos_end[1] - pos_start[1], pos_end[2] - pos_start[2], pos_end[3] - pos_start[3]
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+--
+--- Saves the current position by reading it from memory and writing it to a saved position symbol.
+----------
 function Teleporter:SaveCurrentPosition()
     local currentPosition = self:ReadPositionFromMemory(self.TransformSymbol, self.TransformOffsets, true)
     if not currentPosition then
@@ -224,6 +296,11 @@ function Teleporter:SmoothTeleport(startPos, endPos, maxDuration)
 end
 ]]
 
+--
+--- Loads the saved position from memory and teleports to it.
+--- If smooth teleportation is enabled, it performs a smooth transition; otherwise, it jumps directly.
+--- It also saves the current position to a backup location.
+----------
 function Teleporter:LoadSavedPosition()
     local currentPosition = self:ReadPositionFromMemory(self.TransformSymbol, self.TransformOffsets, true)
     local savedPosition = self:ReadPositionFromMemory(self.SavedPositionSymbol, self.SymbolOffsets, false)
@@ -240,6 +317,10 @@ function Teleporter:LoadSavedPosition()
     end
 end
 
+--
+--- Loads the backup position from memory and teleports to it.
+--- Similar to LoadSavedPosition but uses a backup position.
+----------
 function Teleporter:LoadBackupPosition()
     local currentPosition = self:ReadPositionFromMemory(self.TransformSymbol, self.TransformOffsets, true)
     local backupPosition = self:ReadPositionFromMemory(self.BackupPositionSymbol, self.SymbolOffsets, false)
@@ -256,6 +337,10 @@ function Teleporter:LoadBackupPosition()
     end
 end
 
+--
+--- Teleports to a waypoint by reading the waypoint's position from memory and moving the character there.
+--- Similar to LoadSavedPosition, but it uses a specific waypoint symbol to teleport.
+----------
 function Teleporter:TeleportToWaypoint()
     local currentPosition = self:ReadPositionFromMemory(self.TransformSymbol, self.TransformOffsets, true)
     local waypointPosition = self:ReadPositionFromMemory(self.WaypointSymbol, self.WaypointOffsets, true)
@@ -272,6 +357,10 @@ function Teleporter:TeleportToWaypoint()
     end
 end
 
+--
+--- Teleports to a specific set of coordinates (x, y, z).
+--- Similar to LoadSavedPosition but allows for teleporting to arbitrary coordinates.
+----------
 function Teleporter:TeleportToCoordinates(x, y, z)
     local currentPosition = self:ReadPositionFromMemory(self.TransformSymbol, self.TransformOffsets, true)
     local targetPosition = { x, y, z }
@@ -284,10 +373,19 @@ function Teleporter:TeleportToCoordinates(x, y, z)
     self.logger:info("Teleported To Coordinates", { Position = targetPosition })
 end
 
+--
+--- Reads the current position from memory.
+--- @returns the current coordinates as a table (x, y, z).
+----------
 function Teleporter:GetCurrentCoordinates()
     return self:ReadPositionFromMemory(self.TransformSymbol, self.TransformOffsets, true)
 end
 
+--
+--- Saves the current state (positions) to a file in JSON format.
+--- If no save file name is provided, it uses the default file name.
+--- If no saves exist, it logs a warning.
+----------
 function Teleporter:WriteSavesToFile(fileName)
     fileName = fileName or self.SaveFileName
     self.logger:info("Writing Saves to File", { File = fileName })
@@ -314,6 +412,10 @@ function Teleporter:WriteSavesToFile(fileName)
     self.logger:info("Saves written to file successfully", { File = fileName })
 end
 
+--
+--- Reads the saved state (positions) from a file in JSON format.
+--- If the file is not found or there is an error during deserialization, it logs the error.
+----------
 function Teleporter:ReadSavesFromFile(fileName)
     fileName = fileName or self.SaveFileName
     self.logger:info("Reading Saves from File", { File = fileName })
@@ -334,13 +436,19 @@ function Teleporter:ReadSavesFromFile(fileName)
     self.logger:info("Loaded Saves from File", { File = fileName })
 end
 
--- Example:
--- teleporter:AddSave("Home Base") -- Saves the current location as "Home Base".
 --
--- Created Table Entry Example:
--- {
---     ["Home Base"] = { X = 100.0, Y = 50.0, Z = 200.0 }
--- }
+--- Example:
+--- teleporter:AddSave("Home Base") -- Saves the current location as "Home Base".
+---
+--- Created Table Entry Example:
+--- {
+---     ["Home Base"] = { X = 100.0, Y = 50.0, Z = 200.0 }
+--- }
+---
+--- Adds a new teleportation save with a specified name.
+--- If the name is not provided or invalid, it prompts the user to enter one.
+--- It saves the current coordinates (X, Y, Z) under the provided name and logs the action.
+----------
 function Teleporter:AddSave(name)
     if not inMainThread() then
         synchronize(function(thread)
@@ -370,6 +478,11 @@ function Teleporter:AddSave(name)
     end
 end
 
+--
+--- Deletes an existing save by its name.
+--- If the save doesn't exist, it logs a warning. 
+--- It prompts the user for a name if one isn't provided.
+----------
 function Teleporter:DeleteSave(name)
     if not inMainThread() then
         synchronize(function(thread)
@@ -392,7 +505,7 @@ function Teleporter:DeleteSave(name)
     self.logger:info("Deleted Save", { Name = name })
 end
 
-
+--
 --- Before Renaming:
 --- self.Saves = {
 ---     ["Home Base"] = { X = 100.0, Y = 50.0, Z = 200.0 },
@@ -408,6 +521,12 @@ end
 ---     ["Castle"] = { X = 100.0, Y = 50.0, Z = 200.0 },
 ---     ["Village"] = { X = 300.0, Y = 75.0, Z = 400.0 }
 --- }
+---
+--- Renames an existing save.
+--- Prompts the user for the old name and new name. 
+--- If the new name is already taken or invalid, it logs an error.
+--- If the renaming is successful, it logs the action.
+----------
 function Teleporter:RenameSave()
     if not inMainThread() then
         synchronize(function(thread)
@@ -440,6 +559,11 @@ function Teleporter:RenameSave()
     end
 end
 
+--
+--- Teleports the player to a saved location by its name.
+--- If the name is invalid or the save is not found, it logs an error.
+--- If SmoothTeleport is enabled, it performs a smooth teleport; otherwise, it writes the new position to memory.
+----------
 function Teleporter:TeleportToSave(name)
     if not name or type(name) ~= "string" then
         self.logger:error("Invalid Save Name", { Name = name })
@@ -460,7 +584,7 @@ function Teleporter:TeleportToSave(name)
     self.logger:info("Teleported To Save", { Name = name, Position = savePosition })
 end
 
-
+--
 --- Example:
 --- Given the following saves:
 --- self.Saves = {
@@ -480,6 +604,10 @@ end
 ---     	utility:autoDisable(memrec.ID)
 ---     	[DISABLE]
 ---     	}
+---
+--- Creates teleportation memory records for all saved locations.
+--- It generates teleport records in an address list for each save, sorted by save name.
+----------
 function Teleporter:CreateTeleporterSaves()
     local addressList = getAddressList()
     local root = addressList.getMemoryRecordByDescription(self.SaveMemoryRecordName)
@@ -514,12 +642,20 @@ utility:autoDisable(memrec.ID)
     self:LogTeleportAction("Created Teleporter Saves", { Count = tonumber(#self.Saves) })
 end
 
+--
+--- Clears all child memory records under the given root record.
+--- It recursively deletes subrecords until none remain.
+----------
 function Teleporter:ClearSubrecords(record)
     while record ~= nil and record.Count > 0 do
         memoryrecord_delete(record.Child[0])
     end
 end
 
+--
+--- Prints the list of saved locations, including their names and coordinates.
+--- If no saves are found, it logs a warning.
+----------
 function Teleporter:PrintSaves()
     local restoreDebugState = self.DebugMode
     self.DebugMode = true
@@ -539,6 +675,10 @@ function Teleporter:PrintSaves()
     self.DebugMode = restoreDebugState
 end
 
+--
+--- Creates a teleport memory record for the current position.
+--- This allows a teleport action to be executed based on the current position when the record is enabled.
+----------
 function Teleporter:CreateTeleportMemoryRecord()
     local currentPosition = self:ReadPositionFromMemory(self.TransformSymbol, self.TransformOffsets, true)
     local x, y, z = currentPosition[1], currentPosition[2], currentPosition[3]
