@@ -36,8 +36,11 @@ Teleporter = {
     ---- Table Stored Saves for Teleporter;
     Saves = {}
 }
-
+--
+--- Set the metatable for the Teleporter object so that it behaves as an "object-oriented class".
+----------
 Teleporter.__index = Teleporter
+
 Teleporter.SaveFileName = "Teleporter.Saves.txt"
 Teleporter.SaveMemoryRecordName = "[— Teleporter Saves —] ()->"
 Teleporter.UseSmoothTeleport = false
