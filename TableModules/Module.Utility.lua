@@ -19,8 +19,6 @@ if not FormManager then
     CETrequire('Module.FormManager')
 end
 
-local helper = Helper:new({})
-
 --
 --- Several configuration properties that can be customized.
 --- Set within the Table Lua Script and passed to the constructor of the class.
@@ -73,10 +71,10 @@ end
 ---                        Defaults to `self.AutoDisableTimerInterval` if not provided.
 --- @return None.
 ----------
-function Utility:autoDisable(id, customInterval)
+function Utility:AutoDisable(id, customInterval)
     if not inMainThread() then
         synchronize(function()
-            self:autoDisable(id, customInterval)
+            self:AutoDisable(id, customInterval)
         end)
         return
     end
@@ -100,6 +98,7 @@ function Utility:autoDisable(id, customInterval)
     autoDisableTimer.Interval = customInterval or self.AutoDisableTimerInterval
     autoDisableTimer.OnTimer = autoDisableTimer_tick
 end
+registerLuaFunctionHighlight('AutoDisable')
 
 --
 --- Sets all memory records of type "Auto Assembler" in the address list to async mode.
@@ -107,7 +106,7 @@ end
 ---     [+] Disclaimer: Script(s) need(s) to support async mode!
 --- @return None.
 ----------
-function Utility:setAllScriptsToAsync()
+function Utility:SetAllScriptsToAsync()
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr.Type == vtAutoAssembler and not mr.Async then
@@ -115,13 +114,14 @@ function Utility:setAllScriptsToAsync()
         end
     end
 end
+registerLuaFunctionHighlight('SetAllScriptsToAsync')
 
 --
 --- Sets all memory records of type "Auto Assembler" in the address list to non-async mode.
 --- This ensures the scripts execute synchronously.
 --- @return None.
 ----------
-function Utility:setAllScriptsToNotAsync()
+function Utility:SetAllScriptsToNotAsync()
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr.Type == vtAutoAssembler and mr.Async then
@@ -129,6 +129,7 @@ function Utility:setAllScriptsToNotAsync()
         end
     end
 end
+registerLuaFunctionHighlight('SetAllScriptsToNotAsync')
 
 --
 --- Message Dialog Preset - Info
@@ -139,6 +140,7 @@ end
 function Utility:ShowInfo(message)
     messageDialog(message, mtInformation, mbOK)
 end
+registerLuaFunctionHighlight('ShowInfo')
 
 --
 --- Message Dialog Preset - Warning
@@ -149,6 +151,7 @@ end
 function Utility:ShowWarning(message)
     messageDialog(message, mtWarning, mbOK)
 end
+registerLuaFunctionHighlight('ShowWarning')
 
 --
 --- Message Dialog Preset - Error
@@ -159,6 +162,7 @@ end
 function Utility:ShowError(message)
     messageDialog(message, mtError, mbOK)
 end
+registerLuaFunctionHighlight('ShowError')
 
 --
 --- Message Dialog Preset - Confirmation
@@ -170,6 +174,7 @@ function Utility:ShowConfirmation(message)
     local result = messageDialog(message, mtConfirmation, mbYes, mbNo)
     return result == mrYes
 end
+registerLuaFunctionHighlight('ShowConfirmation')
 
 --
 --- Handler: BYTE Read
@@ -177,14 +182,15 @@ end
 --- @param address: The memory address to read from.
 --- @return The byte value, or nil if the read fails.
 ----------
-function Utility:safeReadByte(address)
+function Utility:SafeReadByte(address)
     local value = readBytes(address, 1)
     if value == nil then
-        logger:error("Unable to read byte value at address " .. address)
+        logger:Error("Unable to read byte value at address " .. address)
         return nil
     end
     return value
 end
+registerLuaFunctionHighlight('SafeReadByte')
 
 --
 --- Handler: BYTE Write
@@ -193,14 +199,15 @@ end
 --- @param value: The byte value to write.
 --- @return true if the write succeeds, false otherwise.
 ----------
-function Utility:safeWriteByte(address, value)
+function Utility:SafeWriteByte(address, value)
     local success = writeBytes(address, value)
     if not success then
-        logger:error("Unable to write byte value to address " .. address)
+        logger:Error("Unable to write byte value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeWriteByte')
 
 --
 --- Handler: BYTE Add
@@ -209,20 +216,21 @@ end
 --- @param value: The value to add.
 --- @return true if the operation succeeds, false otherwise.
 ----------
-function Utility:safeAddByte(address, value)
-    local currentValue = self:safeReadByte(address)
+function Utility:SafeAddByte(address, value)
+    local currentValue = self:SafeReadByte(address)
     if currentValue == nil then
-        logger:error("Unable to add byte value due to read failure at address " .. address)
+        logger:Error("Unable to add byte value due to read failure at address " .. address)
         return false
     end
     local newValue = currentValue + value
-    local success = self:safeWriteByte(address, newValue)
+    local success = self:SafeWriteByte(address, newValue)
     if not success then
-        logger:error("Unable to write new byte value to address " .. address)
+        logger:Error("Unable to write new byte value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeAddByte')
 
 --
 --- Handler: INTEGER Read
@@ -230,14 +238,15 @@ end
 --- @param address: The memory address to read from.
 --- @return The integer value, or nil if the read fails.
 ----------
-function Utility:safeReadInteger(address)
+function Utility:SafeReadInteger(address)
     local value = readInteger(address)
     if value == nil then
-        logger:error("Unable to read integer value at address " .. address)
+        logger:Error("Unable to read integer value at address " .. address)
         return nil
     end
     return value
 end
+registerLuaFunctionHighlight('SafeReadInteger')
 
 --
 --- Handler: INTEGER Write
@@ -246,14 +255,15 @@ end
 --- @param value: The integer value to write.
 --- @return true if the write succeeds, false otherwise.
 ----------
-function Utility:safeWriteInteger(address, value)
+function Utility:SafeWriteInteger(address, value)
     local success = writeInteger(address, value)
     if not success then
-        logger:error("Unable to write integer value to address " .. address)
+        logger:Error("Unable to write integer value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeWriteInteger')
 
 --
 --- Handler: INTEGER Add
@@ -262,20 +272,21 @@ end
 --- @param value: The value to add.
 --- @return true if the operation succeeds, false otherwise.
 ----------
-function Utility:safeAddInteger(address, value)
-    local currentValue = self:safeReadInteger(address)
+function Utility:SafeAddInteger(address, value)
+    local currentValue = self:SafeReadInteger(address)
     if currentValue == nil then
-        logger:error("Unable to add integer value due to read failure at address " .. address)
+        logger:Error("Unable to add integer value due to read failure at address " .. address)
         return false
     end
     local newValue = currentValue + value
-    local success = self:safeWriteInteger(address, newValue)
+    local success = self:SafeWriteInteger(address, newValue)
     if not success then
-        logger:error("Unable to write new integer value to address " .. address)
+        logger:Error("Unable to write new integer value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeAddInteger')
 
 --
 --- Handler: FLOAT Read
@@ -286,11 +297,12 @@ end
 function Utility:SafeReadFloat(address)
     local value = readFloat(address)
     if value == nil then
-        logger:error("Unable to read float value at address " .. address)
+        logger:Error("Unable to read float value at address " .. address)
         return nil
     end
     return value
 end
+registerLuaFunctionHighlight('SafeReadFloat')
 --
 --- Handler: FLOAT Write
 --- Writes a float to the specified address.
@@ -301,11 +313,12 @@ end
 function Utility:SafeWriteFloat(address, value)
     local success = writeFloat(address, value)
     if not success then
-        logger:error("Unable to write float value to address " .. address)
+        logger:Error("Unable to write float value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeWriteFloat')
 
 --
 --- Handler: FLOAT Add
@@ -315,19 +328,20 @@ end
 --- @return true if the operation succeeds, false otherwise.
 ----------
 function Utility:SafeAddFloat(address, value)
-    local currentValue = self:safeReadFloat(address)
+    local currentValue = self:SafeReadFloat(address)
     if currentValue == nil then
-        logger:error("Unable to add float value due to read failure at address " .. address)
+        logger:Error("Unable to add float value due to read failure at address " .. address)
         return false
     end
     local newValue = currentValue + value
-    local success = self:safeWriteFloat(address, newValue)
+    local success = self:SafeWriteFloat(address, newValue)
     if not success then
-        logger:error("Unable to write new float value to address " .. address)
+        logger:Error("Unable to write new float value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeAddFloat')
 
 --
 --- Handler: DOUBLE Read
@@ -338,11 +352,12 @@ end
 function Utility:SafeReadDouble(address)
     local value = readDouble(address)
     if value == nil then
-        logger:error("Unable to read double value at address " .. address)
+        logger:Error("Unable to read double value at address " .. address)
         return nil
     end
     return value
 end
+registerLuaFunctionHighlight('SafeReadDouble')
 
 --
 --- Handler: DOUBLE Write
@@ -354,11 +369,12 @@ end
 function Utility:SafeWriteDouble(address, value)
     local success = writeDouble(address, value)
     if not success then
-        logger:error("Unable to write double value to address " .. address)
+        logger:Error("Unable to write double value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeWriteDouble')
 
 --
 --- Handler: DOUBLE Add
@@ -368,19 +384,20 @@ end
 --- @return true if the operation succeeds, false otherwise.
 ----------
 function Utility:SafeAddDouble(address, value)
-    local currentValue = self:safeReadDouble(address)
+    local currentValue = self:SafeReadDouble(address)
     if currentValue == nil then
-        logger:error("Unable to add double value due to read failure at address " .. address)
+        logger:Error("Unable to add double value due to read failure at address " .. address)
         return false
     end
     local newValue = currentValue + value
-    local success = self:safeWriteDouble(address, newValue)
+    local success = self:SafeWriteDouble(address, newValue)
     if not success then
-        logger:error("Unable to write new double value to address " .. address)
+        logger:Error("Unable to write new double value to address " .. address)
         return false
     end
     return true
 end
+registerLuaFunctionHighlight('SafeAddDouble')
 
 --
 --- Conversion Table(s)
@@ -393,7 +410,7 @@ end
 --- - Reverse scaling is applied for writing values back to memory.
 --- @return None.
 ----------
-function Utility:registerTimeTypes()
+function Utility:RegisterTimeTypes()
     local TypeName = 'Military Hours'
     local ByteCount = 4
     local IsFloat = true
@@ -407,6 +424,7 @@ function Utility:registerTimeTypes()
     end
     registerCustomTypeLua(TypeName, ByteCount, BytesToValue, ValueToBytes, IsFloat)
 end
+registerLuaFunctionHighlight('RegisterTimeTypes')
 
 --
 --- Resolves a multi-level pointer path to its final address.
@@ -416,38 +434,39 @@ end
 --- @param offsets: A table (array) of numerical offsets to apply sequentially.
 --- @return The final resolved address, or nil if an error occurs during resolution.
 ----------
-function Utility:resolvePointerPath(baseAddress, offsets)
-    local address = getAddress(baseAddress)
+function Utility:ResolvePointerPath(baseAddress, offsets)
+    local address = getAddressSafe(baseAddress)
     if not address then
-        logger:error("Base address or symbol '" .. baseAddress .. "' not found.")
+        logger:Error("Base address or symbol '" .. baseAddress .. "' not found.")
         return nil
     end
-    logger:debug("Starting base address: " .. string.format("0x%X", address))
+    logger:Debug("Starting base address: " .. string.format("0x%X", address))
     for i, offset in ipairs(offsets) do
         if type(offset) ~= "number" then
-            logger:error("Offset must be a number. Offset " .. i .. " is not a number.", {offset = offset, index = i})
+            logger:Error("Offset must be a number. Offset " .. i .. " is not a number.", {offset = offset, index = i})
             return nil
         end
-        logger:debug("Applying offset " .. i .. ": " .. string.format("0x%X", offset))
+        logger:Debug("Applying offset " .. i .. ": " .. string.format("0x%X", offset))
         local value = readPointer(address)
         if not value then
-            logger:error("Unable to read memory at address " .. string.format("0x%X", address))
+            logger:Error("Unable to read memory at address " .. string.format("0x%X", address))
             return nil
         end
-        logger:debug("Value read from address " .. string.format("0x%X", address) .. ": " .. string.format("0x%X", value))
+        logger:Debug("Value read from address " .. string.format("0x%X", address) .. ": " .. string.format("0x%X", value))
         address = value + offset
-        logger:debug("New address after applying offset " .. i .. ": " .. string.format("0x%X", address))
+        logger:Debug("New address after applying offset " .. i .. ": " .. string.format("0x%X", address))
     end
-    logger:debug("Final resolved address: " .. string.format("0x%X", address))
+    logger:Debug("Final resolved address: " .. string.format("0x%X", address))
     return address
 end
+registerLuaFunctionHighlight('ResolvePointerPath')
 
 --
 --- Opens a specified link after confirming with the user.
 --- @param link: The URL or link to open.
 --- @return None.
 ----------
-function Utility:openLink(link)
+function Utility:OpenLink(link)
     local result = messageDialog(
         "Do you really want to open this link?\n" .. link,
         mtConfirmation,
@@ -456,17 +475,19 @@ function Utility:openLink(link)
         ShellExecute(link)
     end
 end
+registerLuaFunctionHighlight('OpenLink')
 
 --
 --- Displays a startup message dialog with the provided string.
 --- @param str: The message to display.
 --- @return None.
 ----------
-function Utility:startupMessage(str)
+function Utility:StartupMessage(str)
     if str then
         messageDialog(str, 2)
     end
 end
+registerLuaFunctionHighlight('StartupMessage')
 
 --
 --- Attaches the program to a specified process by name.
@@ -474,7 +495,7 @@ end
 --- @param processName: The name of the process to attach to.
 --- @return None.
 ----------
-function Utility:attachToProcess(processName)
+function Utility:AttachToProcess(processName)
     processName = processName or self.ProcessName
     local processID = getProcessIDFromProcessName(processName)
     if processID ~= nil then
@@ -483,13 +504,14 @@ function Utility:attachToProcess(processName)
         -- messageDialog("Process not found: " .. processName, mtError, mbOK)
     end
 end
+registerLuaFunctionHighlight('AttachToProcess')
 
 --
 --- Prompts the user to confirm if they want to terminate the currently attached process.
 --- If confirmed, the process is terminated.
 --- @return None.
 ----------
-function Utility:closeProcess()
+function Utility:CloseProcess()
     local processID = getOpenedProcessID()
     if processID == 0 then
         messageDialog("No process is currently attached.", mtError, mbOK)
@@ -503,6 +525,7 @@ function Utility:closeProcess()
         os.execute(command)
     end
 end
+registerLuaFunctionHighlight('CloseProcess')
 
 --
 --- Automatically attempts to attach to a process at regular intervals until successful.
@@ -510,7 +533,7 @@ end
 --- @param processName: The name of the process to auto-attach to.
 --- @return None. 
 ----------
-function Utility:autoAttach(processName)
+function Utility:AutoAttach(processName)
     processName = processName or self.ProcessName
     local function autoAttachTimer_tick(timer)
         if self.AutoAttachTimerTickMax > 0 and self.AutoAttachTimerTicks >= self.AutoAttachTimerTickMax then
@@ -528,15 +551,16 @@ function Utility:autoAttach(processName)
     autoAttachTimer.Interval = self.AutoAttachTimerInterval
     autoAttachTimer.OnTimer = autoAttachTimer_tick
 end
+registerLuaFunctionHighlight('AutoAttach')
 
 --
 --- Updates the main form's window title to reflect the current table, game, and Cheat Engine version.
 --- @return None.
 ----------
-function Utility:setTitle()
+function Utility:SetTitle()
     if not inMainThread() then
         synchronize(function()
-            self:setTitle()
+            self:SetTitle()
         end)
         return
     end
@@ -557,25 +581,27 @@ function Utility:setTitle()
     getMainForm().Caption = titleStr
     -- return titleStr
 end
+registerLuaFunctionHighlight('SetTitle')
 
 --
 --- Initializes and configures the table by setting up form management, applying themes, 
 --- and configuring UI components like the table signature and slogan.
 --- @return None.
 ----------
-function Utility:setupTable()
+function Utility:SetupTable()
     if not formManager then
         formManager = FormManager:new({ Signature = self.Signature, Slogan = self.Slogan })
     end
     getMainForm().Show()
-    formManager:disableHeaderSorting()
-    formManager:hideSignatureControls()
-    formManager:enableCompactMode()
-    formManager:createSloganStr(self.Slogan)
-    formManager:createSignatureStr(self.Signature)
-    formManager:loadThemes()
-    formManager:applyTheme(self.DefaultTheme)
-    self:setTitle()
+    formManager:DisableHeaderSorting()
+    formManager:HideSignatureControls()
+    formManager:EnableCompactMode()
+    formManager:CreateSloganStr(self.Slogan)
+    formManager:CreateSignatureStr(self.Signature)
+    formManager:LoadThemes()
+    formManager:ApplyTheme(self.DefaultTheme)
+    self:SetTitle()
 end
+registerLuaFunctionHighlight('SetupTable')
 
 return Utility
