@@ -119,7 +119,7 @@ function TableFileExplorer:new()
     self:InitializeSynEdits()
     self:InitializeStatusBar()
     self:ApplyTheme("Monokai")
-    self.Logger:info("TableFileExplorer initialized.")
+    self.Logger:Info("TableFileExplorer initialized.")
     self.Instance = self
     self.Form.Hide()
     self.Form.CenterScreen()
@@ -162,6 +162,7 @@ function TableFileExplorer:ToggleVisibility()
         self.Form.Show()
     end
 end
+registerLuaFunctionHighlight('ToggleVisibility')
 
 --
 --- This function initializes the menu strip for the Table File Explorer.
@@ -172,7 +173,7 @@ end
 function TableFileExplorer:InitializeMenuStrip()
     local menuStrip = createMainMenu(self.Form)
     if not menuStrip then
-        self.Logger:error("Failed to create main menu.")
+        self.Logger:Error("Failed to create main menu.")
         return
     end
     local fileMenu = createMenuItem(menuStrip)
@@ -286,10 +287,10 @@ end
 --- @return None.
 ----------
 function TableFileExplorer:UpdateTreeView()
-    self.Logger:info("Updating TreeView.")
+    self.Logger:Info("Updating TreeView.")
     self.TreeView.Items.clear()
     self:PopulateTreeView()
-    self.Logger:info("TreeView updated successfully.")
+    self.Logger:Info("TreeView updated successfully.")
 end
 
 --
@@ -299,7 +300,7 @@ end
 --- @return None.
 ----------
 function TableFileExplorer:PopulateTreeView()
-    self.Logger:debug("Populating TreeView with table files.")
+    self.Logger:Debug("Populating TreeView with table files.")
     local rootNode = self.TreeView.Items.add(nil, "Table Files")
     local fileTypeNodes = {}
     for _, fileName in ipairs(self:SearchForTableFiles()) do
@@ -307,16 +308,16 @@ function TableFileExplorer:PopulateTreeView()
         if fileExtension then
             if not fileTypeNodes[fileExtension] then
                 fileTypeNodes[fileExtension] = rootNode.add(fileExtension)
-                self.Logger:debug("Created node for file type.", { FileType = fileExtension })
+                self.Logger:Debug("Created node for file type.", { FileType = fileExtension })
             end
             fileTypeNodes[fileExtension].add(fileName)
-            self.Logger:debug("Added file to file type node.", { FileType = fileExtension, File = fileName })
+            self.Logger:Debug("Added file to file type node.", { FileType = fileExtension, File = fileName })
         else
-            self.Logger:warn("File without extension found, skipping.", { File = fileName })
+            self.Logger:Warn("File without extension found, skipping.", { File = fileName })
         end
     end
     rootNode.Expand()
-    self.Logger:info("TreeView populated with file type grouping.")
+    self.Logger:Info("TreeView populated with file type grouping.")
 end
 
 --
@@ -328,7 +329,7 @@ end
 function TableFileExplorer:ApplyTheme(theme)
     local themeConfig = Themes[theme]
     if not themeConfig then
-        self.Logger:error("Theme not found: " .. theme)
+        self.Logger:Error("Theme not found: " .. theme)
         return
     end
     self.Form.Color = themeConfig.FormColor
@@ -346,7 +347,7 @@ function TableFileExplorer:ApplyTheme(theme)
     self.SynEditLua.Gutter.Parts.SynGutterLineNumber1.MarkupInfo.Background = themeConfig.SynEditGutterLineNumberBackground
     self.SynEditLua.Gutter.Parts.SynGutterLineNumber1.MarkupInfo.Foreground = themeConfig.SynEditGutterLineNumberForeground
     self.SynEditLua.Gutter.Parts.SynGutterSeparator1.MarkupInfo.Background = themeConfig.SynEditGutterSeparatorBackground
-    self.Logger:info("Applied theme: " .. theme)
+    self.Logger:Info("Applied theme: " .. theme)
 end
 
 --
@@ -415,7 +416,7 @@ function TableFileExplorer:LoadFileContent()
         local fileName = selectedNode.Text
         local fileExtension = fileName:match("^.+(%..+)$")
         if not self:IsValidFileType(fileExtension) then
-            self.Logger:error("Error: Invalid file type for " .. fileName)
+            self.Logger:Error("Error: Invalid file type for " .. fileName)
             return
         end
         self:SetSynEditVisibility(fileExtension)
@@ -428,7 +429,7 @@ function TableFileExplorer:LoadFileContent()
         end
         local fileDetailsStr = self:GetFileDetailsStr(fileContent, fileName)
         self:UpdateStatusBarFileInfo(fileDetailsStr)
-        self.Logger:info("File content loaded successfully.", { File = fileName })
+        self.Logger:Info("File content loaded successfully.", { File = fileName })
     end
 end
 
@@ -440,13 +441,13 @@ end
 function TableFileExplorer:SaveFileContent()
     local selectedNode = self.TreeView.Selected
     if not selectedNode or selectedNode.Text == "Table Files" then
-        self.Logger:error("Error: No file selected to save.")
+        self.Logger:Error("Error: No file selected to save.")
         return
     end
     local fileName = selectedNode.Text
     local fileExtension = fileName:match("^.+(%..+)$")
     if not self:IsValidFileType(fileExtension) then
-        self.Logger:error("Error: Invalid file type for saving.", { File = fileName })
+        self.Logger:Error("Error: Invalid file type for saving.", { File = fileName })
         return
     end
     local fileContent = ""
@@ -456,22 +457,22 @@ function TableFileExplorer:SaveFileContent()
         fileContent = self.SynEditLua.Lines.Text
     end
     if not fileContent or fileContent == "" then
-        self.Logger:warn("Attempted to save empty file content.", { File = fileName })
+        self.Logger:Warn("Attempted to save empty file content.", { File = fileName })
         return
     end
-    self.Logger:info("Saving file content to table file.", { File = fileName })
+    self.Logger:Info("Saving file content to table file.", { File = fileName })
     local tableFile = findTableFile(fileName)
     if not tableFile then
         tableFile = createTableFile(fileName)
     end
     if not tableFile then
-        self.Logger:error("Failed to create or find table file.", { File = fileName })
+        self.Logger:Error("Failed to create or find table file.", { File = fileName })
         return
     end
     local stream = tableFile.getData()
     local bytes = { string.byte(fileContent, 1, -1) }
     stream.write(bytes)
-    self.Logger:info("File content saved successfully.", { File = fileName })
+    self.Logger:Info("File content saved successfully.", { File = fileName })
 end
 
 --
@@ -494,10 +495,10 @@ end
 --- @return A table containing the names of the valid table files.
 ----------
 function TableFileExplorer:SearchForTableFiles()
-    self.Logger:debug("Initiating search for table files.")
+    self.Logger:Debug("Initiating search for table files.")
     local tableMenu = MainForm.findComponentByName("miTable")
     if not tableMenu then
-        self.Logger:error("Error: MainForm does not contain 'miTable' component.")
+        self.Logger:Error("Error: MainForm does not contain 'miTable' component.")
         error("Error: MainForm does not contain 'miTable' component.")
     end
     local tableFiles = {}
@@ -505,10 +506,10 @@ function TableFileExplorer:SearchForTableFiles()
         local item = tableMenu[i]
         if self:IsValidFileType(item.Caption:match("^.+(%..+)$")) then
             table.insert(tableFiles, item.Caption)
-            self.Logger:debug("Found table file.", { File = item.Caption })
+            self.Logger:Debug("Found table file.", { File = item.Caption })
         end
     end
-    self.Logger:info("Search for table files completed.", { FileCount = #tableFiles })
+    self.Logger:Info("Search for table files completed.", { FileCount = #tableFiles })
     return tableFiles
 end
 
