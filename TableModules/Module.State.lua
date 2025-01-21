@@ -37,7 +37,7 @@ local DESCRIPTION = "Cheat Table Interface (State)"
                 print(data.age)   -- Output: 30
                 print(data.isEmployed)  -- Output: true
 
-    Example Output - Using: State:saveTableState(stateName)
+    Example Output - Using: State:SaveTableState(stateName)
         [
         {
             "type": "ScriptID",
@@ -60,7 +60,9 @@ local DESCRIPTION = "Cheat Table Interface (State)"
 --- Set within the Table Lua Script and passed to the constructor of the class.
 --- None in this case.
 ----------
-State = {}
+State = {
+    trainerOrigin = TrainerOrigin or ""
+}
 
 --
 --- Set the metatable for the Teleporter object so that it behaves as an "object-oriented class".
@@ -85,10 +87,8 @@ end
 --- the Logger components.
 ----------
 function State:new()
-    local instance = setmetatable({
-        trainerOrigin = TrainerOrigin or "",
-        logger = Logger:new()
-    }, self)
+    local instance = setmetatable({}, self)
+    self.logger = Logger:new()
     return instance
 end
 
@@ -98,10 +98,15 @@ end
 --- @param stateName: The name of the state to generate the file path for.
 --- @return string: The file path for the specified state.
 ----------
-function State:getStateFilePath(stateName)
+function State:GetStateFilePath(stateName)
+    if not process then
+        self.logger:Error("No process found, cannot save state.")
+        return
+    end
     assert(type(stateName) == "string" and stateName ~= "", '"stateName" must be a non-empty string')
     return string.format("%s/%s.%s.state", self.trainerOrigin, process:gsub("%.exe$", ""), stateName)
 end
+registerLuaFunctionHighlight('GetStateFilePath')
 
 --
 --- Save Table State
@@ -110,10 +115,14 @@ end
 --- @param stateName: The name of the state to be saved.
 --- @return None.
 ----------
-function State:saveTableState(stateName)
-    local filePath = self:getStateFilePath(stateName)
+function State:SaveTableState(stateName)
+    local filePath = self:GetStateFilePath(stateName)
+    if not filePath then
+        self.logger:Error("Failed to get state file path. Aborted.")
+        return
+    end
     local records = {}
-    self.logger:info("Starting to save table state: " .. stateName)
+    self.logger:Info("Starting to save table state: " .. stateName)
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr.Active then
@@ -125,13 +134,14 @@ function State:saveTableState(stateName)
     end
     -- Sorting the list will cause more problems than it would solve.
     -- table.sort(records, function(a, b) return a.id < b.id end)
-    local success, err = pcall(function() self:writeJsonFile(filePath, records) end)
+    local success, err = pcall(function() self:WriteJsonFile(filePath, records) end)
     if success then
-        self.logger:info("Table state saved successfully to " .. filePath)
+        self.logger:Info("Table state saved successfully to " .. filePath)
     else
-        self.logger:error("Failed to save table state: " .. (err or "Unknown error"))
+        self.logger:Error("Failed to save table state: " .. (err or "Unknown error"))
     end
 end
+registerLuaFunctionHighlight('SaveTableState')
 
 --
 --- Load Table State
@@ -139,17 +149,21 @@ end
 --- @param stateName: The name of the state to be loaded.
 --- @return None.
 ----------
-function State:loadTableState(stateName)
+function State:LoadTableState(stateName)
     if stateName == "none" then
-        self.logger:info("No state provided, deactivating all records.")
-        self:deactivateAllRecords()
+        self.logger:Info("No state provided, deactivating all records.")
+        self:DeactivateAllRecords()
         return
     end
-    local filePath = self:getStateFilePath(stateName)
-    self.logger:info("Starting to load table state: " .. stateName)
-    local records = self:readJsonFile(filePath)
+    local filePath = self:GetStateFilePath(stateName)
+    if not filePath then
+        self.logger:Error("Failed to get state file path. Aborted.")
+        return
+    end
+    self.logger:Info("Starting to load table state: " .. stateName)
+    local records = self:ReadJsonFile(filePath)
     if not records then
-        self.logger:error("Failed to load state from file: " .. filePath)
+        self.logger:Error("Failed to load state from file: " .. filePath)
         return
     end
     for _, record in ipairs(records) do
@@ -160,7 +174,7 @@ function State:loadTableState(stateName)
                 (record.type == "HeaderID" and mr.IsGroupHeader)
             if isValid then
                 mr.Active = record.active
-                self.logger:info(string.format(
+                self.logger:Info(string.format(
                     "Memory record with ID %s set to %s.",
                     record.id,
                     record.active and "active" or "inactive"))
@@ -171,19 +185,20 @@ function State:loadTableState(stateName)
                     attempts = attempts + 1
                 end
                 if mr.Active ~= record.active then
-                    self.logger:error(string.format(
+                    self.logger:Error(string.format(
                         'Error: Memory record with ID %s failed to %s.',
                         record.id,
                         record.active and "activate" or "deactivate"))
                 end
             end
         else
-            self.logger:warn(string.format('Warning: Memory record with ID %s not found.', record.id))
+            self.logger:Warn(string.format('Warning: Memory record with ID %s not found.', record.id))
         end
         sleep(10)
     end
-    self.logger:info("Table state loaded successfully.")
+    self.logger:Info("Table state loaded successfully.")
 end
+registerLuaFunctionHighlight('LoadTableState')
 
 --
 --- Deactivate All Records
@@ -191,7 +206,7 @@ end
 --- Iterates through all memory records and sets their `Active` state to `false`.
 --- @return None.
 ----------
-function State:deactivateAllRecords()
+function State:DeactivateAllRecords()
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr.Active then
@@ -199,6 +214,7 @@ function State:deactivateAllRecords()
         end
     end
 end
+registerLuaFunctionHighlight('DeactivateAllRecords')
 
 --
 --- Read JSON File
@@ -207,7 +223,7 @@ end
 --- @param filePath: The path to the file to read.
 --- @return data: The decoded Lua table from the JSON content, or `nil` if an error occurs.
 ----------
-function State:readJsonFile(filePath)
+function State:ReadJsonFile(filePath)
     local file, err = io.open(filePath, "r")
     if not file then
         print(string.format('Warning: Failed to read file "%s": %s', filePath, err))
@@ -222,6 +238,7 @@ function State:readJsonFile(filePath)
     end
     return data
 end
+registerLuaFunctionHighlight('ReadJsonFile')
 
 --
 --- Write JSON File
@@ -231,16 +248,17 @@ end
 --- @param data: The Lua table to be written to the file.
 --- @return None.
 ----------
-function State:writeJsonFile(filePath, data)
+function State:WriteJsonFile(filePath, data)
     local success, err = pcall(function()
         local file = assert(io.open(filePath, "w"))
-        file:write(self:prettyPrintJson(data))
+        file:write(self:PrettyPrintJson(data))
         file:close()
     end)
     if not success then
         error(string.format("Failed to save state to file: %s", err))
     end
 end
+registerLuaFunctionHighlight('WriteJsonFile')
 
 -- 
 --- Pretty Print JSON
@@ -250,7 +268,7 @@ end
 --- @param indentLevel: The indentation level for nested elements (default is 0).
 --- @return result: A string containing the formatted JSON-like representation of the data.
 ----------
-function State:prettyPrintJson(data, indentLevel)
+function State:PrettyPrintJson(data, indentLevel)
     local indent = indentLevel or 0
     local padding = string.rep("  ", indent)
     local result = ""
@@ -259,7 +277,7 @@ function State:prettyPrintJson(data, indentLevel)
         result = isArray and "[\n" or "{\n"
         for key, value in pairs(data) do
             local keyStr = isArray and "" or string.format('%s"%s": ', padding .. "  ", tostring(key))
-            result = result .. keyStr .. self:prettyPrintJson(value, indent + 1) .. ",\n"
+            result = result .. keyStr .. self:PrettyPrintJson(value, indent + 1) .. ",\n"
         end
         result = result:gsub(",\n$", "\n") -- Remove trailing comma
         result = result .. padding .. (isArray and "]" or "}")
@@ -270,5 +288,6 @@ function State:prettyPrintJson(data, indentLevel)
     end
     return result
 end
+registerLuaFunctionHighlight('PrettyPrintJson')
 
 return State
