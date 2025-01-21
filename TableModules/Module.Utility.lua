@@ -209,7 +209,7 @@ end
 --- @param value: The value to add.
 --- @return true if the operation succeeds, false otherwise.
 ----------
-unction Utility:safeAddByte(address, value)
+function Utility:safeAddByte(address, value)
     local currentValue = self:safeReadByte(address)
     if currentValue == nil then
         logger:error("Unable to add byte value due to read failure at address " .. address)
