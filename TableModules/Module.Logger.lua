@@ -15,7 +15,6 @@ Logger = {}
 ----------
 Logger.__index = Logger
 
-
 --
 --- This checks if the required module(s) (json) are already loaded.
 --- If not, it attempts to load them using the CETrequire function.
@@ -296,9 +295,10 @@ end
 --- @param level: A string representing the minimum log level (e.g., "ERROR", "DEBUG").
 --- @return None.
 ----------
-function Logger:setMinLevel(level)
+function Logger:SetMinLevel(level)
     self.handler:setMinLevel(level)
 end
+registerLuaFunctionHighlight('SetMinLevel')
 
 --
 --- Adds a handler for a specific log level to the logger.
@@ -318,13 +318,14 @@ end
 --- @param data: (Optional) Additional data to include in the log message.
 --- @return None.
 ----------
-function Logger:debug(message, data)
+function Logger:Debug(message, data)
     if self.useJson then
         self:logJson("DEBUG", message, data)
     else
         self.handler:handle("DEBUG", message, data)
     end
 end
+registerLuaFunctionHighlight('Debug')
 
 --
 --- Logs a message with the "INFO" level.
@@ -332,13 +333,14 @@ end
 --- @param data: (Optional) Additional data to include in the log message.
 --- @return None.
 ----------
-function Logger:info(message, data)
+function Logger:Info(message, data)
     if self.useJson then
         self:logJson("INFO", message, data)
     else
         self.handler:handle("INFO", message, data)
     end
 end
+registerLuaFunctionHighlight('Info')
 
 --
 --- Logs a message with the "WARN" level.
@@ -346,13 +348,14 @@ end
 --- @param data: (Optional) Additional data to include in the log message.
 --- @return None.
 ----------
-function Logger:warn(message, data)
+function Logger:Warn(message, data)
     if self.useJson then
         self:logJson("WARN", message, data)
     else
         self.handler:handle("WARN", message, data)
     end
 end
+registerLuaFunctionHighlight('Warn')
 
 --
 --- Logs a message with the "ERROR" level.
@@ -360,13 +363,14 @@ end
 --- @param data: (Optional) Additional data to include in the log message.
 --- @return None.
 ----------
-function Logger:error(message, data)
+function Logger:Error(message, data)
     if self.useJson then
         self:logJson("ERROR", message, data)
     else
         self.handler:handle("ERROR", message, data)
     end
 end
+registerLuaFunctionHighlight('Error')
 
 --
 --- Logs a message with the "FATAL" level.
@@ -374,13 +378,14 @@ end
 --- @param data: (Optional) Additional data to include in the log message.
 --- @return None.
 ----------
-function Logger:fatal(message, data)
+function Logger:Fatal(message, data)
     if self.useJson then
         self:logJson("FATAL", message, data)
     else
         self.handler:handle("FATAL", message, data)
     end
 end
+registerLuaFunctionHighlight('Fatal')
 
 --
 --- Adds a file handler to the logger, which writes log messages to a specified file.
@@ -450,8 +455,9 @@ end
 --- @param enabled: A boolean indicating whether to enable or disable JSON mode.
 --- @return None.
 ----------
-function Logger:setJsonMode(enabled)
+function Logger:SetJsonMode(enabled)
     self.useJson = enabled
 end
+registerLuaFunctionHighlight('SetJsonMode')
 
 return Logger
