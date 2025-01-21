@@ -65,6 +65,7 @@ end
 --- @param symbol: The symbol (address or pointer) to resolve.
 --- @param isPointer: A boolean flag indicating whether the symbol is a pointer.
 --- @return The resolved address of the symbol, or nil if the resolution fails.
+----------
 local function resolveAddress(symbol, isPointer)
     if isPointer then
         return readPointer(symbol)
