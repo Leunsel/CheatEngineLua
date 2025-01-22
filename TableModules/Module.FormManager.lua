@@ -478,46 +478,28 @@ end
 --- @return None.
 ----------
 function FormManager:LoadThemes()
-    local jsonThemes = {}
     if not json then
         json = CETrequire('json')
         self.logger:Info("JSON library loaded successfully.")
     end
-    -- Helper function to read the content of a table file.
-    --- @param name string - The name of the table file to read.
-    --- @return string - The content of the table file.
-    ----------
-    local function readTableFile(name)
-        if name == nil then
-            self.logger:Error("Invalid Table File Name.")
-            error("Invalid Table File Name.")
-        end
-        local mainStringStream = createStringStream()
-        local tableFile = findTableFile(name)
-        if not tableFile then
-            self.logger:Error("Table file not found: " .. name)
-            error("Table file not found: " .. name)
-        end
-        mainStringStream.copyFrom(tableFile.Stream, tableFile.Stream.Size)
-        local data = mainStringStream.DataString
-        mainStringStream.destroy()
-        self.logger:Info("Table file " .. name .. " read successfully.")
-        return data
+    -- Load all JSON themes from the table menu
+    local jsonThemes = self:GetJsonThemesFromTableMenu()
+    self.logger:Info("Found " .. #jsonThemes .. " JSON themes.")
+    -- Load each theme and extract tokens
+    for _, themeFile in ipairs(jsonThemes) do
+        self:LoadTheme(themeFile)
     end
-    --
-    --- This "doClick()" is not optional.
-    --- Cheat Engine is so damn retarded that the Table File Menu
-    --- is not properly initialized unless you've actually interacted
-    --- with the Menu Item.
-    --- By default, Cheat Engine loads:
-    ---     [+] Lua Files
-    --- Nothing else.
-    MainForm.findComponentByName("miTable").doClick()
+end
+registerLuaFunctionHighlight('LoadThemes')
+
+--
+--- Retrieves JSON theme file names from the table menu.
+--- @return table - A list of JSON theme file names.
+----------
+function FormManager:GetJsonThemesFromTableMenu()
+    local jsonThemes = {}
+    self:InitializeTableMenu()
     local tableMenu = MainForm.findComponentByName("miTable")
-    if not tableMenu then
-        self.logger:Error("Error: MainForm does not contain 'miTable' component.")
-        error("Error: MainForm does not contain 'miTable' component.")
-    end
     local count = tableMenu.getCount()
     if count == 0 then
         self.logger:Error("Error: 'miTable' component does not contain any items.")
@@ -525,48 +507,96 @@ function FormManager:LoadThemes()
     end
     self.logger:Info("Found " .. count .. " items in the 'miTable' component.")
     for i = 0, count - 1 do
-        if (tableMenu[i].Caption):find(".json") then
-            table.insert(jsonThemes, tableMenu[i].Caption)
-            self.logger:Debug("Found JSON theme: " .. tableMenu[i].Caption)
+        local caption = tableMenu[i].Caption
+        if caption:find(".json") then
+            table.insert(jsonThemes, caption)
+            self.logger:Debug("Found JSON theme: " .. caption)
         end
     end
-    self.logger:Info("Found " .. #jsonThemes .. " JSON themes.")
-    for i = 1, #jsonThemes do
-        local raw = json.decode(readTableFile(jsonThemes[i]))
-        local themeName = extractFileNameWithoutExt(jsonThemes[i])
-        local tokens = {
-            "editor.background",
-            "editor.foreground",
-            "comment",
-            "string",
-            "keyword",
-            "variable",
-            "variable.parameter",
-            "keyword.control",
-            "constant.numeric",
-            "entity.name.function",
-            "entity.name.class",
-            "editor.selectionHighlightBackground",
-            "editor.inactiveSelectionBackground",
-            "activityBarBadge.background",
-            "support.class",
-            "invalid",
-            "keyword.operator",
-            "constant.other.color"
-        }
-        self.themes[themeName] = {}
-        self.logger:Info("Loading theme: " .. themeName)
-        for _, token in ipairs(tokens) do
-            local dbg = false
-            if dbg and not self:TokenColor(raw, token) then
-                self.logger:Error("Error: '" .. token .. "' token not found within '" .. themeName .. "' theme!")
-            end
-            self.themes[themeName][token] = self:TokenColor(raw, token)
-        end
-        self.logger:Info("Successfully loaded theme: " .. themeName)
-    end
+    return jsonThemes
 end
-registerLuaFunctionHighlight('LoadThemes')
+
+--
+--- @return None.
+----------
+function FormManager:InitializeTableMenu()
+    local tableMenu = MainForm.findComponentByName("miTable")
+    if not tableMenu then
+        self.logger:Error("Error: MainForm does not contain 'miTable' component.")
+        error("Error: MainForm does not contain 'miTable' component.")
+    end
+    tableMenu.doClick()
+end
+
+--
+--- Loads a single theme and its tokens.
+--- @param themeFile string - The file name of the theme to load.
+----------
+function FormManager:LoadTheme(themeFile)
+    local themeName = extractFileNameWithoutExt(themeFile)
+    self.logger:Info("Loading theme: " .. themeName)
+    local rawData = json.decode(self:ReadTableFile(themeFile))
+    local tokens = self:GetThemeTokens()
+    self.themes[themeName] = {}
+    for _, token in ipairs(tokens) do
+        local color = self:TokenColor(rawData, token)
+        if not color then
+            self.logger:Warn("Warning: '" .. token .. "' token not found within '" .. themeName .. "' theme!")
+        end
+        self.themes[themeName][token] = color
+    end
+    self.logger:Info("Successfully loaded theme: " .. themeName)
+end
+
+--
+--- Reads the content of a table file.
+--- @param fileName string - The name of the table file to read.
+--- @return string - The content of the table file.
+----------
+function FormManager:ReadTableFile(fileName)
+    if not fileName then
+        self.logger:Error("Invalid Table File Name.")
+        error("Invalid Table File Name.")
+    end
+    local tableFile = findTableFile(fileName)
+    if not tableFile then
+        self.logger:Error("Table file not found: " .. fileName)
+        error("Table file not found: " .. fileName)
+    end
+    local stream = createStringStream()
+    stream.copyFrom(tableFile.Stream, tableFile.Stream.Size)
+    local data = stream.DataString
+    stream.destroy()
+    self.logger:Info("Table file " .. fileName .. " read successfully.")
+    return data
+end
+
+--
+--- Returns the list of tokens to extract from themes.
+--- @return table - A list of token names.
+----------
+function FormManager:GetThemeTokens()
+    return {
+        "editor.background",
+        "editor.foreground",
+        "comment",
+        "string",
+        "keyword",
+        "variable",
+        "variable.parameter",
+        "keyword.control",
+        "constant.numeric",
+        "entity.name.function",
+        "entity.name.class",
+        "editor.selectionHighlightBackground",
+        "editor.inactiveSelectionBackground",
+        "activityBarBadge.background",
+        "support.class",
+        "invalid",
+        "keyword.operator",
+        "constant.other.color"
+    }
+end
 
 --
 --- Logs all available themes and their associated color properties.
@@ -591,18 +621,46 @@ registerLuaFunctionHighlight('LogThemes')
 --- @param themeName string - The name of the theme to apply.
 ----------
 function FormManager:ApplyTheme(themeName)
+    local theme = self:GetTheme(themeName)
+    if not theme then return end
+    if self.currentTheme == themeName then 
+        self.logger:Warn("Theme '" .. themeName .. "' is already applied. Skipping.")
+        return
+    end
+    self:ApplyThemeToTreeView(theme)
+    self:ApplyThemeToAddressList(theme)
+    self:ApplyThemeToMainForm(theme)
+    self:ApplyThemeToAddressRecords(theme)
+    self.currentTheme = themeName
+    self.logger:Info("Theme '" .. themeName .. "' applied successfully.")
+end
+registerLuaFunctionHighlight('ApplyTheme')
+
+--
+--- Retrieves the theme by name, loading themes if necessary.
+--- @param themeName string - The name of the theme to retrieve.
+--- @return table - The theme data or nil if not found.
+----------
+function FormManager:GetTheme(themeName)
     local theme = self.themes[themeName]
-    if theme == nil then
+    if not theme then
         self.logger:Info("Theme '" .. themeName .. "' not found. Attempting to load themes.")
         self:LoadThemes()
         theme = self.themes[themeName]
-        if theme == nil then
+        if not theme then
             self.logger:Error("Error: Theme '" .. themeName .. "' could not be found after loading themes.")
-            return
         end
     else
-        self.logger:Info("Applying theme '" .. themeName .. "'")
+        self.logger:Info("Applying theme '" .. themeName .. "'.")
     end
+    return theme
+end
+
+--
+--- Applies the theme to the TreeView component.
+--- @param theme table - The theme data.
+----------
+function FormManager:ApplyThemeToTreeView(theme)
     local addressList = getAddressList()
     local treeView = addressList.Control[0]
     treeView.Color = theme["editor.background"] or treeView.Color
@@ -610,61 +668,95 @@ function FormManager:ApplyTheme(themeName)
     font.Name = "Consolas"
     font.Color = theme["editor.foreground"] or font.Color
     treeView.Font = font
-    self.logger:Info("Updated treeView background color and font.")
+    self.logger:Info("Updated TreeView background color and font.")
+end
+
+--
+--- Applies the theme to the Address List component.
+--- @param theme table - The theme data.
+----------
+function FormManager:ApplyThemeToAddressList(theme)
+    local addressList = getAddressList()
     addressList.CheckboxColor = theme["keyword"] or addressList.CheckboxColor
     addressList.CheckboxActiveColor = theme["editor.foreground"] or addressList.CheckboxActiveColor
     addressList.CheckboxSelectedColor = theme["keyword"] or addressList.CheckboxSelectedColor
     addressList.CheckboxActiveSelectedColor = theme["editor.foreground"] or addressList.CheckboxActiveSelectedColor
     addressList.List.BackgroundColor = theme["editor.background"] or addressList.Control[0].BackgroundColor
-    self.logger:Info("Updated checkbox and list colors.")
-    getMainForm().Foundlist3.Color = theme["editor.background"] or getMainForm().Foundlist3.Color
-    getMainForm().Color = theme["editor.background"] or getMainForm().Color
-    getMainForm().lblSigned.Font.Color = theme["keyword"] or getMainForm().lblSigned.Font.Color
-    self.logger:Info("Updated Main Form colors.")
+    self.logger:Info("Updated Address List checkbox and list colors.")
+end
+
+--
+--- Applies the theme to the Main Form components.
+--- @param theme table - The theme data.
+----------
+function FormManager:ApplyThemeToMainForm(theme)
+    local mainForm = getMainForm()
+    mainForm.Foundlist3.Color = theme["editor.background"] or mainForm.Foundlist3.Color
+    mainForm.Color = theme["editor.background"] or mainForm.Color
+    mainForm.lblSigned.Font.Color = theme["keyword"] or mainForm.lblSigned.Font.Color
     local sloganStr = MainForm.findComponentByName("SLOGAN_STR")
     if sloganStr then
         sloganStr.Font.Color = theme["keyword"] or sloganStr.Font.Color
         self.logger:Info("Updated 'SLOGAN_STR' font color.")
     end
+    self.logger:Info("Updated Main Form colors.")
+end
+
+--
+--- Applies the theme to all Address Records.
+--- @param theme table - The theme data.
+----------
+function FormManager:ApplyThemeToAddressRecords(theme)
+    local addressList = getAddressList()
     local stringTypes = { [vtString] = true, [vtUnicodeString] = true }
     local integerTypes = { [vtByte] = true, [vtWord] = true, [vtDword] = true, [vtQword] = true }
     local floatTypes = { [vtSingle] = true, [vtDouble] = true }
     for i = 0, addressList.Count - 1 do
-        local mr = addressList[i]
-        mr.Color = theme["editor.foreground"] or mr.Color -- other
-        if mr.Type == vtAutoAssembler then
-            mr.Color = theme["entity.name.function"] or mr.Color -- script
-            self.logger:Debug("Applied 'entity.name.function' color to AutoAssembler type.")
-        elseif mr.IsAddressGroupHeader then
-            mr.Color = theme["keyword"] or mr.Color -- group with address
-            self.logger:Debug("Applied 'keyword' color to Address Group Header.")
-        elseif mr.IsGroupHeader then
-            mr.Color = theme["comment"] or mr.Color -- group without address
-            self.logger:Debug("Applied 'comment' color to Group Header.")
-        elseif mr.OffsetCount == 0 and not tonumber(mr.AddressString, 16) then
-            mr.Color = theme["variable.parameter"] or theme["variable"] or mr.Color -- user defined values
-            self.logger:Debug("Applied 'variable' color to user-defined values.")
-        elseif mr.ShowAsHex then
-            mr.Color = theme["support.class"] or theme["keyword.control"] or mr.Color -- pointers and hex values
-            self.logger:Debug("Applied 'support.class' color to Hex values.")
-        elseif stringTypes[mr.Type] then
-            mr.Color = theme["string"] or mr.Color -- string values
-            self.logger:Debug("Applied 'string' color to String type.")
-        elseif integerTypes[mr.Type] then
-            mr.Color = theme["entity.name.class"] or mr.Color -- integer values
-            self.logger:Debug("Applied 'entity.name.class' color to Integer type.")
-        elseif floatTypes[mr.Type] then
-            mr.Color = theme["constant.other.color"] or theme["constant.numeric"] or mr.Color -- float values
-            self.logger:Debug("Applied 'constant.other.color' color to Float type.")
-        else
-            mr.Color = theme["editor.foreground"] or mr.Color -- other
-            self.logger:Debug("Applied default 'editor.foreground' color.")
-        end
+        local record = addressList[i]
+        record.Color = self:GetRecordColor(record, theme, stringTypes, integerTypes, floatTypes)
     end
-    self.currentTheme = themeName
-    self.logger:Info("Theme '" .. themeName .. "' applied successfully.")
+    self.logger:Info("Updated colors for all Address Records.")
 end
-registerLuaFunctionHighlight('ApplyTheme')
+
+--
+--- Determines the appropriate color for an address record based on its type.
+--- @param record table - The address record.
+--- @param theme table - The theme data.
+--- @param stringTypes table - The valid string types.
+--- @param integerTypes table - The valid integer types.
+--- @param floatTypes table - The valid float types.
+--- @return string - The color to apply.
+----------
+function FormManager:GetRecordColor(record, theme, stringTypes, integerTypes, floatTypes)
+    if record.Type == vtAutoAssembler then
+        self.logger:Debug("Applied 'entity.name.function' color to AutoAssembler type.")
+        return theme["entity.name.function"] or record.Color
+    elseif record.IsAddressGroupHeader then
+        self.logger:Debug("Applied 'keyword' color to Address Group Header.")
+        return theme["keyword"] or record.Color
+    elseif record.IsGroupHeader then
+        self.logger:Debug("Applied 'comment' color to Group Header.")
+        return theme["comment"] or record.Color
+    elseif record.OffsetCount == 0 and not tonumber(record.AddressString, 16) then
+        self.logger:Debug("Applied 'variable' color to user-defined values.")
+        return theme["variable.parameter"] or theme["variable"] or record.Color
+    elseif record.ShowAsHex then
+        self.logger:Debug("Applied 'support.class' color to Hex values.")
+        return theme["support.class"] or theme["keyword.control"] or record.Color
+    elseif stringTypes[record.Type] then
+        self.logger:Debug("Applied 'string' color to String type.")
+        return theme["string"] or record.Color
+    elseif integerTypes[record.Type] then
+        self.logger:Debug("Applied 'entity.name.class' color to Integer type.")
+        return theme["entity.name.class"] or record.Color
+    elseif floatTypes[record.Type] then
+        self.logger:Debug("Applied 'constant.other.color' color to Float type.")
+        return theme["constant.other.color"] or theme["constant.numeric"] or record.Color
+    else
+        self.logger:Debug("Applied default 'editor.foreground' color.")
+        return theme["editor.foreground"] or record.Color
+    end
+end
 
 --
 --- Deletes all subrecords (child memory records) of the given parent record.
