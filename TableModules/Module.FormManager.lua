@@ -620,10 +620,10 @@ registerLuaFunctionHighlight('LogThemes')
 --- Updates address list, main form colors, fonts, and other visual properties based on the selected theme.
 --- @param themeName string - The name of the theme to apply.
 ----------
-function FormManager:ApplyTheme(themeName)
+function FormManager:ApplyTheme(themeName, allowReapply)
     local theme = self:GetTheme(themeName)
     if not theme then return end
-    if self.currentTheme == themeName then 
+    if self.currentTheme == themeName and not allowReapply then 
         self.logger:Warn("Theme '" .. themeName .. "' is already applied. Skipping.")
         return
     end
@@ -779,5 +779,157 @@ function FormManager:deactivate_subrecords(record)
         record.Child[i].Active = false
     end
 end
+
+--
+--- Memory Record Factory
+--- This section provides utilities for creating and managing memory records,
+--- allowing for easy organization and nesting within an address list. 
+--- It includes functionality for creating generic records, headers, 
+--- and structures recursively, ensuring flexibility and efficiency in memory management.
+----------
+
+FormManager.FallbackDescription = "Default Description"
+FormManager.FallbackAddress = 0x0
+FormManager.FallbackType = vtByte
+
+--
+--- Value Type Map
+--- Maps value type IDs to their corresponding string representations.
+----------
+local ValueTypeMap = {
+    [0] = "vtByte",
+    [1] = "vtWord",
+    [2] = "vtDword",
+    [3] = "vtQword",
+    [4] = "vtSingle",
+    [5] = "vtDouble",
+    [6] = "vtString",
+    [7] = "vtUnicodeString",
+    [8] = "vtByteArray",
+    [9] = "vtBinary",
+    [11] = "vtAutoAssembler",
+    [12] = "vtPointer",
+    [13] = "vtCustom",
+    [14] = "vtGrouped"
+}
+
+--
+--- Retrieves the string representation of a value type by its ID.
+--- @param id Number The ID of the value type.
+--- @return String|nil The string representation of the value type, or nil if not found.
+----------
+function FormManager:GetValueTypeString(id)
+    return ValueTypeMap[id]
+end
+
+--
+--- Creates a generic memory record and adds it to the address list or a specified parent.
+--- @param parent MemoryRecord|nil Parent memory record  to nest under, or nil for root.
+--- @param description String|nil Description of the memory record.
+--- @param valueType Number|nil Value type (e.g., "vtByte", "vtDword", etc.). 
+---        vtByte=0; vtWord=1; vtDword=2; vtQword=3; vtSingle=4; vtDouble=5; vtString=6;
+---        vtUnicodeString=7; vtByteArray=8; vtBinary=9; vtAutoAssembler=11; vtPointer=12;
+---        vtCustom=13; vtGrouped=14
+--- @return MemoryRecord The newly created memory record.
+----------
+function FormManager:CreateMemoryRecord(parent, description, valueType)
+    self.logger:Info("Creating memory record with parameters - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description) .. ", ValueType: " .. self:GetValueTypeString(valueType))
+    local addressList = getAddressList()
+    local container = parent or addressList
+    local record = addressList.createMemoryRecord()
+    record.Parent = container
+    record.Description = description or self.FallbackDescription
+    record.Type = valueType or self.FallbackType
+    self.logger:Info("Memory record created: " .. record.Description)
+    return record
+end
+
+--
+--- Creates a header memory record with address support.
+--- @param parent MemoryRecord|nil Parent memory record  to nest under, or nil for root.
+--- @param description String|nil Description of the memory record.
+--- @return MemoryRecord The newly created header memory record.
+----------
+function FormManager:CreateHeaderWithAddress(parent, description, address)
+    self.logger:Info("Creating header with address - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description) .. ", Address: " .. tostring(address))
+    local record = self:CreateMemoryRecord(parent, description)
+    record.IsAddressGroupHeader = true
+    record.Description = description or self.FallbackDescription
+    record.Address = address or self.FallbackAddress
+    self.logger:Info("Header with address created: " .. record.Description .. " with Address: " .. record.Address)
+    return record
+end
+
+--
+--- Creates a generic header memory record without address support.
+--- @param parent MemoryRecord|nil Parent memory record  to nest under, or nil for root.
+--- @param description String|nil Description of the memory record.
+--- @return MemoryRecord The newly created header memory record.
+----------
+function FormManager:CreateGenericHeader(parent, description)
+    self.logger:Info("Creating generic header - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description))
+    local record = self:CreateMemoryRecord(parent, description)
+    record.IsGroupHeader = true
+    record.Description = description or self.FallbackDescription
+    self.logger:Info("Generic header created: " .. record.Description)
+    return record
+end
+
+--
+--- Retrieves a memory record by its description. If the record does not exist and "createIfNotFound" is "true", 
+--- it creates a new generic group header memory record with the given description.
+--- @param description String The description of the memory record to search for.
+--- @param createIfNotFound Boolean|nil Whether to create a new memory record if one does not exist (default: false).
+--- @return MemoryRecord|nil The memory record found or created, or "nil" if not found and creation is disabled.
+----------
+function FormManager:GetMemoryRecordByDescription(description, createIfNotFound)
+    local addressList = getAddressList()
+    local record = addressList.getMemoryRecordByDescription(description)
+    if record then
+        self.logger:Info("Memory record found: " .. description .. " with Type: " .. self:GetValueTypeString(record.Type))
+        return record
+    elseif createIfNotFound then
+        self.logger:Info("Memory record not found. Creating new generic header: " .. description)
+        record = self:CreateGenericHeader(nil, description)
+        if record then
+            self.logger:Info("New generic header created: " .. description)
+            return record
+        else
+            self.logger:Error("Memory record not found and creation failed: " .. description)
+        end
+    else
+        self.logger:Error("Memory record not found and creation not allowed: " .. description)
+    end
+end
+registerLuaFunctionHighlight('GetMemoryRecordByDescription')
+
+--
+--- Recursive function to create a memory record structure.
+--- @param parent MemoryRecord|nil The parent record or nil for root.
+--- @param structure Table The structure definition.
+----------
+function FormManager:BuildStructure(parent, structure)
+    for _,item in ipairs(structure) do 
+        self.logger:Info("Processing item: " .. tostring(item.description) .. " with isHeader: " .. tostring(item.isHeader))
+        local record
+        if item.isHeader then
+            if item.address then 
+                record = self:CreateHeaderWithAddress(parent, item.description, item.address)
+            else record = self:CreateGenericHeader(parent, item.description)
+            end
+        else
+            record = self:CreateMemoryRecord(parent, item.description, item.valueType)
+        end
+        if item.hideChildren then
+            record.Options = "[moHideChildren]"
+            self.logger:Info("Item '" .. item.description .. "' is set to hide children.")
+        end
+        if item.children then
+            self.logger:Info("Item '" .. item.description .. "' has children, building structure for them.")
+            self:BuildStructure(record, item.children)
+        end
+    end
+end
+registerLuaFunctionHighlight('BuildStructure')
 
 return FormManager
