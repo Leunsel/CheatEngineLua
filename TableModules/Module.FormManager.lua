@@ -833,7 +833,7 @@ end
 --- @return MemoryRecord The newly created memory record.
 ----------
 function FormManager:CreateMemoryRecord(parent, description, valueType)
-    self.logger:Info("Creating memory record with parameters - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description) .. ", ValueType: " .. self:GetValueTypeString(valueType))
+    -- self.logger:Info("Creating memory record with parameters - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description) .. ", ValueType: " .. self:GetValueTypeString(valueType))
     local addressList = getAddressList()
     local container = parent or addressList
     local record = addressList.createMemoryRecord()
@@ -851,7 +851,7 @@ end
 --- @return MemoryRecord The newly created header memory record.
 ----------
 function FormManager:CreateHeaderWithAddress(parent, description, address)
-    self.logger:Info("Creating header with address - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description) .. ", Address: " .. tostring(address))
+    -- self.logger:Info("Creating header with address - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description) .. ", Address: " .. tostring(address))
     local record = self:CreateMemoryRecord(parent, description)
     record.IsAddressGroupHeader = true
     record.Description = description or self.FallbackDescription
@@ -867,7 +867,7 @@ end
 --- @return MemoryRecord The newly created header memory record.
 ----------
 function FormManager:CreateGenericHeader(parent, description)
-    self.logger:Info("Creating generic header - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description))
+    -- self.logger:Info("Creating generic header - Parent: " .. tostring(parent.Description) .. ", Description: " .. tostring(description))
     local record = self:CreateMemoryRecord(parent, description)
     record.IsGroupHeader = true
     record.Description = description or self.FallbackDescription
