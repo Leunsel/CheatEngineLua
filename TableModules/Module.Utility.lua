@@ -27,6 +27,7 @@ Utility = {
     Author = "",                      --- Author of the table
     ProcessName = "",                 --- Name of the process to attach to
     GameVersion = "",                 --- Version of the game being targeted
+    MD5Hash = "",                     --- Supposed MD5 File Hash of the game's executable file
     GameID = "",                      --- Unique identifier for the game
     TableTitle = "",                  --- Title of the Cheat Table
     TableVersion = "",                --- Version of the Cheat Table
@@ -175,6 +176,20 @@ function Utility:ShowConfirmation(message)
     return result == mrYes
 end
 registerLuaFunctionHighlight('ShowConfirmation')
+
+--
+--- Verifies the integrity of a file by comparing its MD5 hash to the provided hash.
+--- If the hashes do not match, a warning is displayed to alert the user.
+--- @param hash string - The expected MD5 hash of the file.
+--- @return None.
+----------
+function Utility:VerifyFileHash()
+    local fileHash = md5file(helper:getGameModulePathToFile())
+    if self.MD5Hash ~= fileHash then
+        self:ShowWarning("File Hash Mismatch!\n\nExpected: " .. self.MD5Hash .. "\nReceived: " .. fileHash .. "\n\nThe Cheat Table might not be compatible with the current game version. Use at your own risk.")
+    end
+end
+registerLuaFunctionHighlight('VerifyFileHash')
 
 --
 --- Handler: BYTE Read
@@ -543,7 +558,8 @@ function Utility:AutoAttach(processName)
         if processID ~= nil then
             timer.destroy()
             openProcess(processID)
-            self:setupTable()
+            self:VerifyFileHash()
+            self:SetupTable()
         end
         self.AutoAttachTimerTicks = self.AutoAttachTimerTicks + 1
     end
