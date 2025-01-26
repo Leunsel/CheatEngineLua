@@ -346,7 +346,7 @@ registerLuaFunctionHighlight('AutoAssemble')
 --- @return string|nil - An error message if loading fails, or `nil` if successful.
 ----------
 function AutoAssembler:LoadFile(fileName)
-    local fileStr, err = self:read(fileName)
+    local fileStr, err = self:Read(fileName)
     if not fileStr then
         self.logger:Warn(string.format("File %s not found in primary location, attempting table file...", fileName))
         fileStr, err = self:ReadTableFile(fileName)
