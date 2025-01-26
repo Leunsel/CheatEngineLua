@@ -4,7 +4,7 @@ This repository contains a collection of Lua modules tailored for Cheat Engine t
 
 Whether you're handling memory records, automating the auto-assembly process, or managing UI components, these modules provide the functionality to create more dynamic and feature-rich Cheat Tables.
 
-![Preview](https://lowlevel.me/uploads/default/original/1X/b0d626ddea072d9171fb7f79588d5a71e4b91110.png)
+![Preview](https://i.imgur.com/VwlTQhB.png)
 
 ---
 
