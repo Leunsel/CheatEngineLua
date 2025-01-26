@@ -1,0 +1,10 @@
+{$lua}
+[ENABLE]
+if syntaxcheck then
+   return
+end
+local Addr  = "[<< HookName >>Ptr]+0"
+local Value = 25
+utility:safeWriteInteger(Addr,utility:safeReadInteger(Addr) + Value)
+utility:autoDisable(memrec.ID)
+[DISABLE]
