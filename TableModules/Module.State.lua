@@ -1,19 +1,42 @@
 local NAME = "CTI.State"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Cheat Table Interface (State)"
 
 --[[
-    Base Idea:
-    - TheyCallMeTim13
+    Script Name: Module.State.lua
+    Description: The State module provides a structured interface for saving and
+                 loading state information for memory records in Cheat Engine.
+                 It allows users to capture the current state of active memory
+                 records and restore them later, ensuring consistency across
+                 Cheat Engine sessions.
+                 This module leverages the json.lua library to serialize and
+                 deserialize state data and integrates with the CTI.Logger
+                 module for structured logging.
     
-    This module provides a simple interface for saving and loading state information for memory records in Cheat Engine.
-    It uses the JSON module to serialize and deserialize the state data.
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    1.0.1   | 14.02.2025   | Leunsel,LeFiXER | Added Version History, Diff. Json Module
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - Base Idea:
+        - TheyCallMeTim13
 
-    Json Module:
-        + https://github.com/rxi/json.lua
+    - Features:
+        - Saves the active state of memory records to a JSON file.
+        - Loads and restores the active state from a JSON file.
+        - Uses structured JSON for easy readability and data manipulation.
+        - Logs operations with different severity levels (INFO, WARN, ERROR).
+        - Includes error handling for missing memory records or corrupted JSON files.
 
-        + json.encode(value)
+    - Json Module:
+        - https://github.com/rxi/json.lua (Old Module)
+
+        - json.encode(value)
             Example:
                 local data = {
                     name = "John",
@@ -26,7 +49,7 @@ local DESCRIPTION = "Cheat Table Interface (State)"
 
                 {"name":"John","age":30,"isEmployed":true}
 
-        + json.decode(jsonString)
+        - json.decode(jsonString)
             Example:
                 local json = require("json")
 
@@ -75,6 +98,7 @@ State.__index = State
 ----------
 if not json then
     CETrequire("json")
+    json = JSON:new()
 end
 
 if not Logger then
@@ -231,8 +255,8 @@ function State:ReadJsonFile(filePath)
     end
     local content = file:read("*all")
     file:close()
-    local success, data = pcall(json.decode, content)
-    if not success then
+    local data = json:decode(content)
+    if not data then
         print(string.format("Warning: Failed to decode JSON in file %s", filePath))
         return nil
     end
@@ -251,7 +275,7 @@ registerLuaFunctionHighlight('ReadJsonFile')
 function State:WriteJsonFile(filePath, data)
     local success, err = pcall(function()
         local file = assert(io.open(filePath, "w"))
-        file:write(self:PrettyPrintJson(data))
+        file:write(json:encode_pretty(data))
         file:close()
     end)
     if not success then
@@ -259,35 +283,5 @@ function State:WriteJsonFile(filePath, data)
     end
 end
 registerLuaFunctionHighlight('WriteJsonFile')
-
--- 
---- Pretty Print JSON
---- Recursively prints a table as a formatted, indented JSON-like string.
---- Handles tables, strings, and other types (such as numbers and booleans).
---- @param data: The Lua table or value to print in JSON format.
---- @param indentLevel: The indentation level for nested elements (default is 0).
---- @return result: A string containing the formatted JSON-like representation of the data.
-----------
-function State:PrettyPrintJson(data, indentLevel)
-    local indent = indentLevel or 0
-    local padding = string.rep("  ", indent)
-    local result = ""
-    if type(data) == "table" then
-        local isArray = #data > 0
-        result = isArray and "[\n" or "{\n"
-        for key, value in pairs(data) do
-            local keyStr = isArray and "" or string.format('%s"%s": ', padding .. "  ", tostring(key))
-            result = result .. keyStr .. self:PrettyPrintJson(value, indent + 1) .. ",\n"
-        end
-        result = result:gsub(",\n$", "\n") -- Remove trailing comma
-        result = result .. padding .. (isArray and "]" or "}")
-    elseif type(data) == "string" then
-        result = string.format('"%s"', data:gsub('"', '\\"')) -- Escape quotes
-    else
-        result = tostring(data)
-    end
-    return result
-end
-registerLuaFunctionHighlight('PrettyPrintJson')
 
 return State
