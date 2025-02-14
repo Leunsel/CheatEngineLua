@@ -1,7 +1,25 @@
 local NAME = 'CTI.FormManager'
 local AUTHOR = {'Leunsel', 'LeFiXER'}
-local VERSION = '1.0.1'
+local VERSION = '1.0.2'
 local DESCRIPTION = 'Cheat Table Interface (Form Manager)'
+
+--[[
+    Script Name: Module.FormManager.lua
+    Description: Form Manager is a Module designed to customize the appearance
+                 of the Cheat Engine Main Form and it's child components.
+    
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    1.0.1   | ----------   | Leunsel         | Added TableFileExplorer
+    1.0.2   | 14.02.2025   | Leunsel,LeFiXER | Updated to a diff. Json Module
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - ...
+--]]
 
 --
 --- Several configuration properties that can be customized.
@@ -479,7 +497,8 @@ end
 ----------
 function FormManager:LoadThemes()
     if not json then
-        json = CETrequire('json')
+        CETrequire("json")
+        json = JSON:new()
         self.logger:Info("JSON library loaded successfully.")
     end
     -- Load all JSON themes from the table menu
@@ -535,7 +554,7 @@ end
 function FormManager:LoadTheme(themeFile)
     local themeName = extractFileNameWithoutExt(themeFile)
     self.logger:Info("Loading theme: " .. themeName)
-    local rawData = json.decode(self:ReadTableFile(themeFile))
+    local rawData = json:decode(self:ReadTableFile(themeFile))
     local tokens = self:GetThemeTokens()
     self.themes[themeName] = {}
     for _, token in ipairs(tokens) do
@@ -588,12 +607,7 @@ function FormManager:GetThemeTokens()
         "constant.numeric",
         "entity.name.function",
         "entity.name.class",
-        "editor.selectionHighlightBackground",
-        "editor.inactiveSelectionBackground",
-        "activityBarBadge.background",
         "support.class",
-        "invalid",
-        "keyword.operator",
         "constant.other.color"
     }
 end
@@ -759,6 +773,310 @@ function FormManager:GetRecordColor(record, theme, stringTypes, integerTypes, fl
 end
 
 --
+--- Sets a color property, prompting the user if no color is given.
+--- @param color string|nil - The color value.
+--- @param default string - The default color value.
+--- @return string - The final color value.
+----------
+function FormManager:SetColor(color)
+    if not inMainThread() then
+        self.logger:Debug("Switching to main thread to set color.")
+        synchronize(function(thread)
+            self:SetColor(color)
+        end)
+        return
+    end
+    if not color then
+        self.logger:Info("Prompting user for color input.")
+        color = inputQuery("(Hex) Color", "Enter the color to apply:", "#RRGGBB")
+    end
+    if not color:match("^#%x%x%x%x%x%x$") then
+        self.logger:Error("Invalid color format. Expected #RRGGBB.")
+        return nil
+    end
+    local r, g, b = self:ConvertToRGB(color)
+    if not (r and g and b) or r > 255 or g > 255 or b > 255 then
+        self.logger:Error("Invalid color value. Each component must be between 00 and FF.")
+        return nil
+    end
+    self.logger:Info("Color set successfully: " .. color)
+    return color:bgr()
+end
+
+--
+--- Sets a font color property for a given component.
+--- @param component table - The UI component.
+--- @param color string|nil - The color value.
+----------
+function FormManager:SetFontColor(component, color)
+    if not component then
+        self.logger:Warning("Component is nil. Cannot set font color.")
+        return
+    end
+    local font = createFont()
+    font.Name = "Consolas"
+    font.Color = self:SetColor(color) or "#FFFFFF"
+    component.Font = font
+    self.logger:Info("Font color updated for component.")
+end
+
+--
+--- Sets the color for Foundlist3
+--- @param color string|nil
+----------
+function FormManager:SetFoundlist3Color(color)
+    MainForm.Foundlist3.Color = self:SetColor(color)
+end
+registerLuaFunctionHighlight('SetFoundlist3Color')
+
+--
+--- Gets the color for Foundlist3
+--- @return string
+----------
+function FormManager:GetFoundlist3Color()
+    local colorInfo = FormManager:GetFullColorInfo(MainForm.Foundlist3.Color)
+    self.logger:Fatal("Foundlist3 Color:", { ColorInfo = colorInfo})
+    return color
+end
+registerLuaFunctionHighlight('GetFoundlist3Color')
+
+--
+--- Sets the color for MainForm
+--- @param color string|nil
+----------
+function FormManager:SetMainFormColor(color)
+    MainForm.Color = self:SetColor(color)
+end
+registerLuaFunctionHighlight('SetMainFormColor')
+
+--
+--- Gets the color for MainForm
+--- @return string
+----------
+function FormManager:GetMainFormColor()
+    local colorInfo = FormManager:GetFullColorInfo(MainForm.Color)
+    self.logger:Fatal("MainForm Color:",{ ColorInfo = colorInfo})
+    return color
+end
+registerLuaFunctionHighlight('GetMainFormColor')
+
+--
+--- Sets the color for lblSigned Font
+--- @param color string|nil
+----------
+function FormManager:SetLblSignedFontColor(color)
+    MainForm.lblSigned.Font.Color = self:SetColor(color)
+end
+registerLuaFunctionHighlight('SetLblSignedFontColor')
+
+--
+--- Gets the color for lblSigned Font
+--- @return string
+----------
+function FormManager:GetLblSignedFontColor()
+    local colorInfo = FormManager:GetFullColorInfo(MainForm.lblSigned.Font.Color)
+    self.logger:Fatal("lblSigned Font Color:",{ ColorInfo = colorInfo})
+    return color
+end
+registerLuaFunctionHighlight('GetLblSignedFontColor')
+
+--
+--- Sets the checkbox color in AddressList
+--- @param color string|nil
+----------
+function FormManager:SetCheckboxColor(color)
+    AddressList.CheckboxColor = self:SetColor(color)
+end
+registerLuaFunctionHighlight('SetCheckboxColor')
+
+--
+--- Gets the checkbox color in AddressList
+--- @return string
+----------
+function FormManager:GetCheckboxColor()
+    local colorInfo = FormManager:GetFullColorInfo(AddressList.CheckboxColor)
+    self.logger:Fatal("Addresslist Checkbox Color:",{ ColorInfo = colorInfo})
+    return color
+end
+registerLuaFunctionHighlight('GetCheckboxColor')
+
+--
+--- Sets the background color of the AddressList
+--- @param color string|nil
+----------
+function FormManager:SetAddressListBackgroundColor(color)
+    AddressList.List.BackgroundColor = self:SetColor(color)
+end
+registerLuaFunctionHighlight('SetAddressListBackgroundColor')
+
+--
+--- Gets the background color of the AddressList
+--- @return string
+----------
+function FormManager:GetAddressListBackgroundColor()
+    local colorInfo = FormManager:GetFullColorInfo(AddressList.Control[0].Color)
+    self.logger:Fatal("Addresslist Background Color:",{ ColorInfo = colorInfo})
+    return color
+end
+registerLuaFunctionHighlight('GetAddressListBackgroundColor')
+
+--
+--- Sets the color for the first control in AddressList
+--- @param color string|nil
+----------
+function FormManager:SetAddressListControlColor(color)
+    AddressList.Control[0].Color = self:SetColor(color)
+end
+registerLuaFunctionHighlight('SetAddressListControlColor')
+
+--
+--- Gets the color for the first control in AddressList
+--- @return string
+----------
+function FormManager:GetAddressListControlColor()
+    local colorInfo = FormManager:GetFullColorInfo(AddressList.Control[0].Color)
+    self.logger:Fatal("AddressList Control[0] Color:",{ ColorInfo = colorInfo})
+    return color
+end
+registerLuaFunctionHighlight('GetAddressListControlColor')
+
+--
+--- Converts a color integer to hex format
+--- @param color number
+--- @return string
+----------
+function FormManager:ConvertToHex(color)
+    return string.format("#%06X", color)
+end
+
+--
+--- Converts a color integer to RGB format
+--- @param color number
+--- @return number, number, number
+----------
+function FormManager:ConvertToRGB(color)
+    local r = (color >> 16) & 0xFF
+    local g = (color >> 8) & 0xFF
+    local b = color & 0xFF
+    return r, g, b
+end
+
+--
+--- Converts a BGR color integer to RGB
+--- @param color number
+--- @return number
+----------
+function FormManager:ConvertBGRtoRGB(color)
+    local b = (color >> 16) & 0xFF
+    local g = (color >> 8) & 0xFF
+    local r = color & 0xFF
+    return (r << 16) | (g << 8) | b
+end
+
+function FormManager:ConvertRGBtoBGR(color)
+    local r = (color >> 16) & 0xFF
+    local g = (color >> 8) & 0xFF
+    local b = color & 0xFF
+    return (b << 16) | (g << 8) | r
+end
+
+--
+--- Converts RGB to CMYK
+--- @param r number
+--- @param g number
+--- @param b number
+--- @return number, number, number, number
+----------
+function FormManager:ConvertRGBtoCMYK(r, g, b)
+    if r == 0 and g == 0 and b == 0 then
+        return 0, 0, 0, 100
+    end
+
+    local c = 1 - (r / 255)
+    local m = 1 - (g / 255)
+    local y = 1 - (b / 255)
+    local k = math.min(c, m, y)
+
+    c = (c - k) / (1 - k)
+    m = (m - k) / (1 - k)
+    y = (y - k) / (1 - k)
+
+    return c * 100, m * 100, y * 100, k * 100
+end
+
+--
+--- Converts RGB to HSL
+--- @param r number
+--- @param g number
+--- @param b number
+--- @return number, number, number
+----------
+function FormManager:ConvertRGBtoHSL(r, g, b)
+    r, g, b = r / 255, g / 255, b / 255
+    local max, min = math.max(r, g, b), math.min(r, g, b)
+    local h, s, l = 0, 0, (max + min) / 2
+
+    if max ~= min then
+        local d = max - min
+        s = l > 0.5 and d / (2 - max - min) or d / (max + min)
+        if max == r then h = (g - b) / d + (g < b and 6 or 0)
+        elseif max == g then h = (b - r) / d + 2
+        elseif max == b then h = (r - g) / d + 4
+        end
+        h = h / 6
+    end
+
+    return h * 360, s * 100, l * 100
+end
+
+--
+--- Converts RGB to HSV
+--- @param r number
+--- @param g number
+--- @param b number
+--- @return number, number, number
+----------
+function FormManager:ConvertRGBtoHSV(r, g, b)
+    r, g, b = r / 255, g / 255, b / 255
+    local max, min = math.max(r, g, b), math.min(r, g, b)
+    local h, s, v = 0, 0, max
+
+    local d = max - min
+    s = max == 0 and 0 or d / max
+
+    if max ~= min then
+        if max == r then h = (g - b) / d + (g < b and 6 or 0)
+        elseif max == g then h = (b - r) / d + 2
+        elseif max == b then h = (r - g) / d + 4
+        end
+        h = h / 6
+    end
+
+    return h * 360, s * 100, v * 100
+end
+
+--
+--- Gets all color representations from an integer color
+--- @param color number
+--- @return table
+----------
+function FormManager:GetFullColorInfo(color)
+    local rgbColor = self:ConvertBGRtoRGB(color) -- Convert from BGR to RGB beforehand
+    local hexColor = self:ConvertToHex(rgbColor)
+    local r, g, b = self:ConvertToRGB(rgbColor)
+    local c, m, y, k = self:ConvertRGBtoCMYK(r, g, b)
+    local hHSL, sHSL, lHSL = self:ConvertRGBtoHSL(r, g, b)
+    local hHSV, sHSV, vHSV = self:ConvertRGBtoHSV(r, g, b)
+    return {
+        hex = hexColor,
+        rgb = { r, g, b },
+        cmyk = { c, m, y, k },
+        hsl = { hHSL, sHSL, lHSL },
+        hsv = { hHSV, sHSV, vHSV }
+    }
+end
+
+--
 --- Deletes all subrecords (child memory records) of the given parent record.
 --- Iterates through the subrecords and removes them one by one.
 --- @param record userdata - The parent memory record whose subrecords will be deleted.
@@ -779,6 +1097,18 @@ function FormManager:deactivate_subrecords(record)
         record.Child[i].Active = false
     end
 end
+
+--
+--
+---
+----
+------------
+-- New Module Section: Memory Record Factory
+------------
+----
+---
+--
+--
 
 --
 --- Memory Record Factory
