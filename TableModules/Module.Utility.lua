@@ -24,8 +24,8 @@ local DESCRIPTION = "Cheat Table Interface (Utility)"
     Notes:
     - Features:
         - Memory Management:
-            Read and write values of different data types (Byte, Integer, Float, Double).
-            Safely modify memory values with error handling.
+            * Read and write values of different data types (Byte, Integer, Float, Double).
+            * Safely modify memory values with error handling.
         - Script Execution:
             * Enable or disable scripts asynchronously.
             * Support for automatic script deactivation.
