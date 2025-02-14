@@ -1,7 +1,28 @@
 local NAME = "CTI.Teleporter"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Cheat Table Interface (Teleporter)"
+
+--[[
+    Script Name: Module.Teleporter.lua
+    Description: The Teleporter class is used to manage teleportation functions
+                 in a game. It can interact with game memory to read and write
+                 position data, and it can perform teleportations to specific
+                 coordinates, saved positions, backup positions, or waypoints.
+                 The class also supports smooth teleportation for more gradual
+                 transitions.
+    
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    1.0.1   | ----------   | Leunsel,LeFiXER | Diff. Json Module
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - ...
+--]]
 
 --
 --- Several configuration properties that can be customized.
@@ -53,6 +74,7 @@ Teleporter.MaxDuration = 200
 ----------
 if not json then
     CETrequire("json")
+    json = JSON:new()
 end
 
 if not Logger then
@@ -417,7 +439,7 @@ function Teleporter:WriteSavesToFile(fileName)
         self.logger:Warn("No Saves Found", { Saves = self.Saves })
         return
     end
-    local jsonString = json.encode(self.Saves)
+    local jsonString = json:encode(self.Saves)
     if not jsonString then
         self.logger:Error("Failed to serialize saves to JSON", { Error = "Serialization error" })
         return
@@ -453,7 +475,7 @@ function Teleporter:ReadSavesFromFile(fileName)
     local stream = tableFile.getData()
     local bytes = stream.read(stream.Size)
     local jsonString = string.char(table.unpack(bytes))
-    local saves = json.decode(jsonString)
+    local saves = json:decode(jsonString)
     if not saves or type(saves) ~= "table" then
         self.logger:Error("Failed to deserialize saves from JSON", { Error = jsonString })
         return
