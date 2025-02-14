@@ -4,22 +4,55 @@ local VERSION = '1.0.1'
 local DESCRIPTION = 'Cheat Table Interface (Auto Assembler)'
 
 --[[
-    Base Idea:
-    - TheyCallMeTim13
+    Script Name: Module.AutoAssembler.lua
+    Description: The Auto Assembler Module is a Lua-based script designed for
+                 Cheat Engine to handle and execute auto-assembly scripts
+                 efficiently. This module includes advanced error handling,
+                 logging, file management, and process validation to enhance
+                 script execution reliability. It provides an interface for
+                 executing Cheat Engine assembly scripts dynamically while
+                 ensuring robust script management.
+    
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    1.0.1   | 14.02.2025   | Leunsel         | Added Version History
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - Base Idea:
+        - TheyCallMeTim13
 
-    Lua:AutoAssemble
-        + https://wiki.cheatengine.org/index.php?title=Lua:autoAssemble
-        Parameter 	            Type 	    Description
-        AutoAssemblerScript 	string 	    The script to run with Cheat Engine's auto assembler
-        TargetSelf 	            boolean 	If set it will assemble into Cheat Engine itself
-        DisableInfo 	        boolean 	If provided the [Disable] section will be handled
+    - Sources:
+        Lua:AutoAssemble
+            + https://wiki.cheatengine.org/index.php?title=Lua:autoAssemble
+            Parameter 	            Type 	    Description
+            AutoAssemblerScript 	string 	    The script to run with Cheat Engine's auto assembler
+            TargetSelf 	            boolean 	If set it will assemble into Cheat Engine itself
+            DisableInfo 	        boolean 	If provided the [Disable] section will be handled
 
-    Lua:AutoAssembleCheck
-        + https://wiki.cheatengine.org/index.php?title=Lua:autoAssembleCheck
-        Parameter 	            Type 	    Description
-        AutoAssemblerScript 	string 	    The script to run with Cheat Engine's auto assembler.
-        Enable 	                boolean 	If true the [Enable] section will be checked, else the [Disable] section is checked.
-        TargetSelf 	            boolean 	If set it will check as if assembling into Cheat Engine itself.
+        Lua:AutoAssembleCheck
+            + https://wiki.cheatengine.org/index.php?title=Lua:autoAssembleCheck
+            Parameter 	            Type 	    Description
+            AutoAssemblerScript 	string 	    The script to run with Cheat Engine's auto assembler.
+            Enable 	                boolean 	If true the [Enable] section will be checked, else the
+                                                [Disable] section is checked.
+            TargetSelf 	            boolean 	If set it will check as if assembling into Cheat Engine
+                                                itself.
+
+    - Features:
+        - Execute Auto Assembly Scripts:
+            * Run assembly scripts dynamically within Cheat Engine.
+        - Error Handling:
+            * Captures and logs errors encountered during execution.
+        - Logging System:
+            * Stores logs for debugging and analysis on different levels.
+        - Process Validation:
+            * Ensures that scripts run only when the intended process is active.
+        - File Management:
+            * Saves and loads scripts from external files.
 ]]
 
 --
