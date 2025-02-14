@@ -1,102 +1,85 @@
 {
-   "$schema":"vscode://schemas/color-theme",
-   "name":"CustomTheme",
-   "colors":{
-      "editor.background":"#1C0B0B",
-      "editor.foreground":"#F2DCDC",
-      "editor.selectionHighlightBackground":"#7F1D1D",
-      "editor.inactiveSelectionBackground":"#3B1818",
-      "activityBarBadge.background":"#A93226"
-   },
-   "tokenColors":[
-      {
-         "name":"Comment",
-         "scope":"comment",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#8B4D4D"
-         }
+    "colors": {
+        "editor.background": "#1C0B0B",
+        "editor.foreground": "#F2DCDC"
+    },
+  "tokenColors": [
+    {
+      "scope": "comment",
+      "settings": {
+        "foreground": "#8B4D4D"
       },
-      {
-         "name":"String",
-         "scope":"string",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#D96B6B"
-         }
+      "description": "Defines the color for comments in the code."
+    },
+    {
+      "scope": "string",
+      "settings": {
+        "foreground": "#D96B6B"
       },
-      {
-         "name":"Keyword",
-         "scope":"keyword",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#E63946"
-         }
+      "description": "Address Records (string-type)"
+    },
+    {
+      "scope": "keyword",
+      "settings": {
+        "foreground": "#E63946"
       },
-      {
-         "name":"Variable",
-         "scope":"variable",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#F4A261"
-         }
+      "description": "Address List; Main Form (lblSigned and SLOGAN_STR); Address Records"
+    },
+    {
+      "scope": "variable",
+      "settings": {
+        "foreground": "#F4A261"
       },
-      {
-         "name":"VariableParameter",
-         "scope":"variable.parameter",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#E76F51"
-         }
+      "description": "Address Records (user-defined values with 0 offsets and non-hex address strings)"
+    },
+    {
+      "scope": "variable.parameter",
+      "settings": {
+        "foreground": "#E76F51"
       },
-      {
-         "name":"KeywordControl",
-         "scope":"keyword.control",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#C0392B"
-         }
+      "description": "Address Records (color for user-defined values with 0 offsets and non-hex address strings, falling back to variable color)"
+    },
+    {
+      "scope": "keyword.control",
+      "settings": {
+        "foreground": "#C0392B"
       },
-      {
-         "name":"KeywordOperator",
-         "scope":"keyword.operator",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#E74C3C"
-         }
+      "description": "Address Records (hex values)"
+    },
+    {
+      "scope": "constant.numeric",
+      "settings": {
+        "foreground": "#D8345F"
       },
-      {
-         "name":"EntityNameFunction",
-         "scope":"entity.name.function",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#E74C3C"
-         }
+      "description": "Address Records (float-type)"
+    },
+    {
+      "scope": "entity.name.function",
+      "settings": {
+        "foreground": "#E74C3C"
       },
-      {
-         "name":"EntityNameClass",
-         "scope":"entity.name.class",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#D1453B"
-         }
+      "description": "Address Records (AutoAssembler type)"
+    },
+    {
+      "scope": "entity.name.class",
+      "settings": {
+        "foreground": "#D1453B"
       },
-      {
-         "name":"SupportClass",
-         "scope":"support.class",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#D32F2F"
-         }
+      "description": "Address Records (integer-type records)"
+    },
+    {
+      "scope": "support.class",
+      "settings": {
+        "foreground": "#D32F2F"
       },
-      {
-         "name":"ConstantNumeric",
-         "scope":"constant.numeric",
-         "settings":{
-            "fontStyle":"",
-            "foreground":"#D8345F"
-         }
-      }
-   ],
-   "semanticHighlighting":true
+      "description": "Address Records (hex values)"
+    },
+    {
+      "scope": "constant.other.color",
+      "settings": {
+        "foreground": "#D8345F"
+      },
+      "description": "Address Records (color for float-type records, falling back to constant.numeric color)"
+    }
+  ]
 }
