@@ -3,6 +3,26 @@ local AUTHOR = {"Leunsel", "LeFiXER"}
 local VERSION = "1.0.0"
 local DESCRIPTION = "Cheat Table Interface (Table File Explorer)"
 
+
+--[[
+    Script Name: Module.State.lua
+    Description: This module provides a simple interface for saving and loading
+                 state information for memory records in Cheat Engine.
+                 - It uses the JSON module to serialize and deserialize the state
+                   data.
+    
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - ...
+--]]
+
+
 --
 --- Form Caption Placeholder
 ----------
