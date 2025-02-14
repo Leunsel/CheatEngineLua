@@ -1,7 +1,42 @@
 local NAME = 'CTI.FormManager'
 local AUTHOR = {'Leunsel', 'LeFiXER', 'TheyCallMeTim13'}
-local VERSION = '1.0.1'
+local VERSION = '1.0.2'
 local DESCRIPTION = 'Cheat Table Interface (Helper)'
+
+--[[
+    Script Name: Module.Helper.lua
+    Description: The Helper Module provides utility functions for Cheat Engine
+                 tables, focusing on retrieving game process details, managing
+                 memory modules, and printing relevant information. It serves
+                 as a foundation for cheat table development, offering
+                 streamlined access to process metadata, module details, and
+                 address list features.
+    
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    1.0.1   | ----------   | Leunsel         | ----------
+    1.0.2   | 14.02.2025   | Leunsel,LeFiXER | Added Version History
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - Features:
+        - Process Information:
+            * Retrieve the current process name (trimmed or full).
+        - Module Management:
+            * Fetch the main module details (name, address, path, version).
+            * Determine if the module is 64-bit or 32-bit.
+        - File Version Handling:
+            * Retrieve file versions as structured data or formatted strings.
+        - Registry Architecture Detection:
+            * Identify whether the game is running in x64 or x32 mode.
+        - Address List and Script Management:
+            * Print available memory records and auto-assembler scripts.
+        - Module Enumeration:
+            * Display detailed information about all loaded modules.
+--]]
 
 --
 --- Would contain several configuration properties that can be customized.
