@@ -1,7 +1,36 @@
 local NAME = "CTI.Logger"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Cheat Table Interface (Logger)"
+
+--[[
+    Script Name: Module.Logger.lua
+    Description: The Logger module is a flexible and extensible logging system
+                 designed for use in Cheat Engine's Lua scripting environment.
+                 It provides structured logging with multiple log levels, custom
+                 formatters, file handling with automatic log rotation, and
+                 optional JSON output for structured data logging. This module
+                 enables developers to efficiently log debug information,
+                 warnings, and errors while working with Cheat Engine Lua
+                 scripts, improving debugging and issue tracking.
+    
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    1.0.1   | 14.02.2025   | Leunsel,LeFiXER | Fixed instances. Added diff. Json Module
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - Features
+        - Supports multiple log levels: DEBUG, INFO, WARN, ERROR, and FATAL.
+        - Customizable log formatters for various data types (string, number, table, etc.).
+        - JSON logging mode for structured logging.
+        - File-based logging with automatic log rotation. (Not Part Yet... But Planned...)
+        - Custom handlers for logging to different outputs.
+        - Singleton instance to ensure consistency throughout usage.
+--]]
 
 --
 --- Would contain several configuration properties that can be customized.
@@ -21,6 +50,7 @@ Logger.__index = Logger
 ----------
 if not json then
     CETrequire("json")
+    json = JSON:new()
 end
 
 --
@@ -38,8 +68,9 @@ Logger.Formatter.__index = Logger.Formatter
 --- Constructor for the Formatter class. Initializes default formatters and settings.
 --- @return A new instance of Logger.Formatter.
 ----------
-function Logger.Formatter:new()
+function Logger.Formatter:new(loggerInstance)
     local instance = setmetatable({}, self)
+    instance.logger = loggerInstance
     instance.formatters = {}
     instance.timestampEnabled = true
     instance.defaultPattern = "[%s] %s"
@@ -187,9 +218,16 @@ end
 ----------
 function Logger.Formatter:formatMessage(level, message, data)
     local timestamp = self.timestampEnabled and os.date("%Y-%m-%d %H:%M:%S") or ""
-    local formattedData = data and self:format(data) or nil
-    local dataPart = formattedData and string.format(" - Data: %s", formattedData) or ""
-    return string.format("%s [%s] %s%s", timestamp, level, message, dataPart)
+    -- Check if Logger Mode "useJson" is true...
+    if self.logger and self.logger:GetJsonMode() then
+        -- If using JSON mode, don't include the data part
+        return string.format("%s [%s] %s", timestamp, level, message)
+    else
+        -- Format the data part if not using JSON mode
+        local formattedData = data and self:format(data) or nil
+        local dataPart = formattedData and string.format(" - Data: %s", formattedData) or ""
+        return string.format("%s [%s] %s%s", timestamp, level, message, dataPart)
+    end
 end
 
 --
@@ -271,7 +309,7 @@ function Logger.Handler:getLevelIndex(level)
     return 0
 end
 
-local instance = nil
+local instance
 
 ---
 --- Creates or retrieves a singleton instance of the Logger.
@@ -281,7 +319,7 @@ local instance = nil
 function Logger:new()
     if not instance then
         instance = setmetatable({}, self)
-        instance.formatter = Logger.Formatter:new()
+        instance.formatter = Logger.Formatter:new(instance)
         instance.handler = Logger.Handler:new(instance.formatter)
         instance.minLevel = "ERROR"
         instance.useJson = false
@@ -439,14 +477,14 @@ function Logger:logJson(level, message, data)
     local logEntry = {
         level = level,
         message = message,
-        -- data = data or {}
+        data = data or {}
     }
     if type(logEntry.data) == "table" then
-        if not pcall(function() json.encode(logEntry.data) end) then
+        if not pcall(function() json:encode_pretty(logEntry.data) end) then
             logEntry.data = tostring(logEntry.data)
         end
     end
-    local jsonData = json.encode(logEntry)
+    local jsonData = json:encode_pretty(logEntry)
     self.handler:handle(level, jsonData, logEntry)
 end
 
@@ -459,5 +497,9 @@ function Logger:SetJsonMode(enabled)
     self.useJson = enabled
 end
 registerLuaFunctionHighlight('SetJsonMode')
+
+function Logger:GetJsonMode()
+    return self.useJson
+end
 
 return Logger
