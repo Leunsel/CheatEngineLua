@@ -5,11 +5,8 @@ local DESCRIPTION = "Cheat Table Interface (Table File Explorer)"
 
 
 --[[
-    Script Name: Module.State.lua
-    Description: This module provides a simple interface for saving and loading
-                 state information for memory records in Cheat Engine.
-                 - It uses the JSON module to serialize and deserialize the state
-                   data.
+    Script Name: Module.TableFileExplorer.lua
+    Description: ...
     
     Version History:
     -----------------------------------------------------------------------------
