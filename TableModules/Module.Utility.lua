@@ -1,7 +1,44 @@
 local NAME = "CTI.Utility"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Cheat Table Interface (Utility)"
+
+--[[
+    Script Name: Module.Utility.lua
+    Description: The Utility Module is a core component of the Cheat Table
+                 Interface (CTI) framework, designed to enhance Cheat Engine
+                 scripts with robust utility functions. It provides essential
+                 features such as memory manipulation, automated script execution,
+                 message dialogs, and various helper functions for a streamlined
+                 cheat development process.
+    
+    Version History:
+    -----------------------------------------------------------------------------
+    Version | Date         | Author          | Changes
+    -----------------------------------------------------------------------------
+    1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
+    1.0.1   | ----------   | Leunsel         | -
+    1.0.2   | 14.02.2025   | Leunsel,LeFiXER | Added Version History
+    -----------------------------------------------------------------------------
+    
+    Notes:
+    - Features:
+        - Memory Management:
+            Read and write values of different data types (Byte, Integer, Float, Double).
+            Safely modify memory values with error handling.
+        - Script Execution:
+            * Enable or disable scripts asynchronously.
+            * Support for automatic script deactivation.
+        - File Integrity Verification:
+            * Validate game executables using MD5 hash comparison.
+        - Pointer Resolution:
+            * Resolve complex multi-level pointer paths.
+        - User Interface Functions:
+            * Display informational, warning, error, and confirmation dialogs.
+            * Open external links with confirmation prompts.
+        - Custom Data Type Registration:
+            * Register new memory value types, such as Military Hours for Dying Light.
+--]]
 
 --
 --- This checks if the required modules (Helper, Logger, FormManager) are already loaded.
