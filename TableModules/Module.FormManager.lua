@@ -46,332 +46,15 @@ if not Logger then
     CETrequire("Module.Logger")
 end
 
-FormManager.SloganObj = nil
-FormManager.SignatureObj = nil
-
 function FormManager:new(properties)
     if FormManager.instance then
         return FormManager.instance
     end
     local obj = setmetatable({}, self)
-    for key, value in pairs(properties) do
-        if self[key] ~= nil then
-            obj[key] = value
-        end
-    end
     obj.logger = Logger:new()
-    -- obj.logger:setMinLevel("ERROR")
     FormManager.instance = obj
     return obj
 end
-
---
---- Runs a given function in the main thread. If already in the main thread, it executes the function immediately.
---- @param func function - The function to be executed in the main thread.
---- @return None.
-----------
-function FormManager:RunInMainThread(func)
-    if not inMainThread() then
-        synchronize(func)
-        return
-    end
-    func()
-end
-
---
---- Sets the logger instance for logging within the FormManager.
---- @param logger table - The logger instance to be used.
---- @return None.
-----------
-function FormManager:GetLoggerInstance(logger)
-    self.logger = logger
-end
-
---
---- Creates or updates a label with the specified properties.
---- If a label already exists, it updates its properties; otherwise, it creates a new label.
---- @param parent Object - The parent control that will contain the label.
---- @param label Object|nil - The existing label to update, or nil to create a new label.
---- @param defaultProperties table - A table containing the default properties to apply to the label.
----   @field Name string - The name of the label (optional).
----   @field Caption string - The text to display on the label (optional).
----   @field Alignment string - The alignment of the labels text (optional).
----   @field FontName string - The font name to use for the labels text (optional).
----   @field FontSize number - The font size to use for the labels text (optional).
----   @field FontStyle string - The font style to use for the labels text (optional).
----   @field FontColor number - The font color to use for the labels text (optional).
----   @field Visible boolean - Whether the label is visible or not (optional).
----   @field BorderSpacingBottom number - The bottom border spacing for the label (optional).
---- @return Object - The created or updated label.
-----------
-function FormManager:CreateOrUpdateLabel(parent, label, defaultProperties)
-    if not label then
-        label = createLabel(parent)
-        label.Align = defaultProperties.Align or alTop
-        label.AutoSize = true
-    end
-    label.Name = defaultProperties.Name or label.Name
-    label.Caption = defaultProperties.Caption or label.Caption
-    label.Alignment = defaultProperties.Alignment or label.Alignment
-    label.Font.Name = defaultProperties.FontName or label.Font.Name
-    label.Font.Color = defaultProperties.FontColor or label.Font.Color
-    label.Font.Size = defaultProperties.FontSize or label.Font.Size
-    label.Font.Style = defaultProperties.FontStyle or label.Font.Style
-    label.Visible = (defaultProperties.Visible ~= nil) and defaultProperties.Visible or label.Visible
-    label.BorderSpacing.Bottom = defaultProperties.BorderSpacingBottom or label.BorderSpacing.Bottom
-    return label
-end
-
---
---- Creates or updates a slogan string label with the given text.
---- @param str string - The text to display in the slogan label.
---- @return None.
-----------
-function FormManager:CreateSloganStr(str)
-    self:RunInMainThread(function()
-        local mainForm = getMainForm()
-        local defaultProperties = {
-            Name = "SLOGAN_STR",
-            Caption =  str or self.Slogan or "",
-            Alignment = "taCenter",
-            FontName = "Consolas",
-            FontSize = 20,
-            FontStyle = "fsBold",
-            Visible = true
-        }
-        self.SloganObj = mainForm:findComponentByName("SLOGAN_STR")
-        if not self.SloganObj then
-            self.SloganObj = self:CreateOrUpdateLabel(mainForm, nil, defaultProperties)
-        else
-            self:CreateOrUpdateLabel(mainForm, self.SloganObj, defaultProperties)
-        end
-        self.SloganObj = self.SloganObj
-    end)
-end
-
---
---- Starts scrolling a given text in the slogan label at a specified interval.
---- @param text string - The text to scroll.
---- @param interval number - The time interval (in ms) between scroll updates.
---- @param maxTicks number - Maximum number of scroll iterations (0 for unlimited scrolling).
---- @return None.
-----------
-function FormManager:ScrollText(text, interval, maxTicks)
-    local function ScrollTextInner(text)
-        return text:sub(2) .. text:sub(1, 1)
-    end
-    self.scrollingText = " " .. text
-    self.scrollInterval = 500  -- Default interval is 500 ms
-    self.scrollMaxTicks = maxTicks or 0  -- Default is unlimited scrolling
-    local function ScrollTextTimer_tick(timer)
-        if self.scrollMaxTicks ~= 0 then
-            self.scrollMaxTicks = self.scrollMaxTicks - 1
-            if self.scrollMaxTicks <= 0 then
-                timer.destroy()
-                return
-            end
-        end
-
-        self.scrollingText = ScrollTextInner(self.scrollingText)
-        self:CreateSloganStr(self.scrollingText)
-    end
-    if self.ScrollTextTimer then
-        self.ScrollTextTimer.destroy()
-    end
-    self.ScrollTextTimer = createTimer(MainForm)
-    self.ScrollTextTimer.Interval = self.scrollInterval
-    self.ScrollTextTimer.OnTimer = ScrollTextTimer_tick
-end
-registerLuaFunctionHighlight('ScrollText')
-
---
---- Destroys a given label if it exists.
---- @param label object - The label object to be destroyed.
---- @return None.
-----------
-function FormManager:DestroyLabel(label)
-    if label then
-        label:destroy()
-    end
-end
-registerLuaFunctionHighlight('DestroyLabel')
-
---
---- Destroys the slogan string object and sets it to nil.
---- @return None.
-----------
-function FormManager:DestroySloganStr()
-    self:RunInMainThread(function()
-        if self.SloganObj then
-            self:DestroyLabel(self.SloganObj)
-            self.SloganObj = nil
-        end
-    end)
-end
-registerLuaFunctionHighlight('DestroySloganStr')
-
---
---- Creates or updates the signature string label with the given text.
---- @param str string - The text to display in the signature string label.
---- @return None.
-----------
-function FormManager:CreateSignatureStr(str)
-    self:RunInMainThread(function()
-        local mainForm = getMainForm()
-        local lblSigned = mainForm.lblSigned
-        if lblSigned then
-            lblSigned.Caption = str or self.Signature or ""
-            lblSigned.Visible = true
-            lblSigned.BorderSpacing.Bottom = 5
-            lblSigned.AutoSize = true
-            lblSigned.Font.Name = "Consolas"
-            lblSigned.Font.Size = 11
-            lblSigned.Font.Style = "fsBold"
-        end
-        self.SignatureObj = lblSigned
-    end)
-end
-registerLuaFunctionHighlight('CreateSignatureStr')
-
---
---- Hides the signature string label if it exists.
---- @return None.
-----------
-function FormManager:HideSignatureStr()
-    self:RunInMainThread(function()
-        if self.SignatureObj then
-            self.SignatureObj.Visible = false
-        end
-    end)
-end
-registerLuaFunctionHighlight('HideSignatureStr')
-
---
---- Toggles the visibility of a specified control in the main form.
---- @param controlName string - The name of the control to toggle visibility for.
---- @return None.
-----------
-function FormManager:ToggleControlVisibility(controlName)
-    self:RunInMainThread(function()
-        local mainForm = getMainForm()
-        if mainForm and mainForm[controlName] then
-            mainForm[controlName].Visible = not mainForm[controlName].Visible
-        end
-    end)
-end
-registerLuaFunctionHighlight('ToggleControlVisibility')
-
---
---- Sets the visibility of a specified control in the main form.
---- @param controlName string - The name of the control to modify visibility.
---- @param isVisible boolean - True to make the control visible, false to hide it.
---- @return None.
-----------
-function FormManager:SetControlVisibility(controlName, isVisible)
-    self:RunInMainThread(function()
-        local mainForm = getMainForm()
-        if mainForm and mainForm[controlName] then
-            mainForm[controlName].Visible = isVisible
-        end
-    end)
-end
-registerLuaFunctionHighlight('SetControlVisibility')
-
---
---- Toggles the visibility of specified header sections in the address list.
---- @param sections table - An array of section indices to toggle visibility for.
---- @return None.
-----------
-function FormManager:ToggleHeaderSections(sections)
-    self:RunInMainThread(function()
-        local header = getAddressList().Header
-        for _, sectionIndex in ipairs(sections) do
-            local section = header.Sections[sectionIndex]
-            if section then
-                section.Visible = not section.Visible
-            end
-        end
-    end)
-end
-registerLuaFunctionHighlight('ToggleHeaderSections')
-
---
---- Disables drag-and-drop functionality for the address list tree view.
---- @return None.
-----------
-function FormManager:DisableDragDrop()
-    self:RunInMainThread(function()
-        local addressListTreeview = component_getComponent(AddressList, 0) -- Disable drag and drop events
-        setMethodProperty(addressListTreeview, "OnDragOver", nil)
-        setMethodProperty(addressListTreeview, "OnDragDrop", nil)
-        setMethodProperty(addressListTreeview, "OnEndDrag", nil)
-    end)
-end
-registerLuaFunctionHighlight('DisableDragDrop')
-
---
---- Disables sorting functionality for the address list header.
---- @return None.
-----------
-function FormManager:DisableHeaderSorting()
-    self:RunInMainThread(function()
-        local addressListHeader = component_getComponent(AddressList, 1)
-        setMethodProperty(addressListHeader, "OnSectionClick", nil)
-    end)
-end
-registerLuaFunctionHighlight('DisableHeaderSorting')
-
---
---- Enables compact mode by hiding specific controls in the form.
---- @return None.
-----------
-function FormManager:EnableCompactMode()
-    self:SetControlVisibility("Panel5", false)
-    self:SetControlVisibility("Splitter1", false)
-end
-registerLuaFunctionHighlight('EnableCompactMode')
-
---
---- Hides signature-related controls in the form.
---- @return None.
-----------
-function FormManager:HideSignatureControls()
-    self:SetControlVisibility("CommentButton", false)
-    self:SetControlVisibility("advancedbutton", false)
-end
-registerLuaFunctionHighlight('HideSignatureControls')
-
---
---- Toggles compact mode by toggling the visibility of specific controls.
---- @return None.
-----------
-function FormManager:ToggleCompactMode()
-    self:RunInMainThread(function()
-        self:ToggleControlVisibility("Panel5")
-        self:ToggleControlVisibility("Splitter1")
-    end)
-end
-registerLuaFunctionHighlight('ToggleCompactMode')
-
---
---- Toggles the visibility of signature-related controls.
---- @return None.
-----------
-function FormManager:ToggleSignatureControls()
-    self:ToggleControlVisibility("CommentButton")
-    self:ToggleControlVisibility("advancedbutton")
-end
-registerLuaFunctionHighlight('ToggleSignatureControls')
-
---
---- Manages the header sections by toggling visibility for predefined indices.
---- @return None.
-----------
-function FormManager:ManageHeaderSections()
-    local sectionsToToggle = {0, 2, 3}
-    self:toggleHeaderSections(sectionsToToggle)
-end
-registerLuaFunctionHighlight('ManageHeaderSections')
 
 --
 --- Updates the theme selector in the address list by removing any existing theme-related entries 
@@ -499,7 +182,6 @@ function FormManager:LoadThemes()
     if not json then
         CETrequire("json")
         json = JSON:new()
-        self.logger:Info("JSON library loaded successfully.")
     end
     -- Load all JSON themes from the table menu
     local jsonThemes = self:GetJsonThemesFromTableMenu()
@@ -557,12 +239,27 @@ function FormManager:LoadTheme(themeFile)
     local rawData = json:decode(self:ReadTableFile(themeFile))
     local tokens = self:GetThemeTokens()
     self.themes[themeName] = {}
+    local missingTokens, invalidTokens = {}, {}
     for _, token in ipairs(tokens) do
         local color = self:TokenColor(rawData, token)
         if not color then
-            self.logger:Warn("Warning: '" .. token .. "' token not found within '" .. themeName .. "' theme!")
+            table.insert(missingTokens, token)
+        elseif type(color) ~= "number" then
+            table.insert(invalidTokens, { token = token, value = tostring(color) })
         end
         self.themes[themeName][token] = color
+    end
+    -- Log missing tokens
+    if #missingTokens > 0 then
+        self.logger:Warn(string.format("Theme '%s' is missing %d tokens: %s", 
+            themeName, #missingTokens, table.concat(missingTokens, ", ")))
+    end
+    -- Log invalid tokens
+    if #invalidTokens > 0 then
+        for _, entry in ipairs(invalidTokens) do
+            self.logger:Warn(string.format("Invalid token in theme '%s': '%s' -> '%s' (Expected number)", 
+                themeName, entry.token, entry.value))
+        end
     end
     self.logger:Info("Successfully loaded theme: " .. themeName)
 end
@@ -620,9 +317,9 @@ end
 ----------
 function FormManager:LogThemes()
     for themeName, themeData in pairs(self.themes) do
-        self.logger:Info("Theme: " .. themeName)
+        self.logger:Fatal("Theme: " .. themeName)
         for token, color in pairs(themeData) do
-            self.logger:Debug("  " .. token .. ": " .. tostring(color))
+            self.logger:Error("\t" .. token .. ": " .. self:ConvertToHex(self:ConvertBGRtoRGB(color)))
         end
     end
 end
@@ -696,6 +393,7 @@ function FormManager:ApplyThemeToAddressList(theme)
     addressList.CheckboxSelectedColor = theme["keyword"] or addressList.CheckboxSelectedColor
     addressList.CheckboxActiveSelectedColor = theme["editor.foreground"] or addressList.CheckboxActiveSelectedColor
     addressList.List.BackgroundColor = theme["editor.background"] or addressList.Control[0].BackgroundColor
+    addressList.Header.Font.Color = theme["keyword"] or AddressList.Header.Font.Color
     self.logger:Info("Updated Address List checkbox and list colors.")
 end
 
@@ -707,7 +405,9 @@ function FormManager:ApplyThemeToMainForm(theme)
     local mainForm = getMainForm()
     mainForm.Foundlist3.Color = theme["editor.background"] or mainForm.Foundlist3.Color
     mainForm.Color = theme["editor.background"] or mainForm.Color
+    mainForm.Panel4.BevelColor = theme["keyword"] or mainForm.Panel4.BevelColor
     mainForm.lblSigned.Font.Color = theme["keyword"] or mainForm.lblSigned.Font.Color
+    mainForm.Splitter1.Color = theme["keyword"] or mainForm.Splitter1.Color
     local sloganStr = MainForm.findComponentByName("SLOGAN_STR")
     if sloganStr then
         sloganStr.Font.Color = theme["keyword"] or sloganStr.Font.Color
@@ -725,11 +425,21 @@ function FormManager:ApplyThemeToAddressRecords(theme)
     local stringTypes = { [vtString] = true, [vtUnicodeString] = true }
     local integerTypes = { [vtByte] = true, [vtWord] = true, [vtDword] = true, [vtQword] = true }
     local floatTypes = { [vtSingle] = true, [vtDouble] = true }
+    local updatedCount, skippedCount = 0, 0
     for i = 0, addressList.Count - 1 do
         local record = addressList[i]
-        record.Color = self:GetRecordColor(record, theme, stringTypes, integerTypes, floatTypes)
+        local newColor = self:GetRecordColor(record, theme, stringTypes, integerTypes, floatTypes)
+        -- Ensure correct BGR handling when comparing colors
+        if record.Color ~= newColor then
+            self.logger:Info(string.format("Updating color for '%s': Old (#%06X) -> New (#%06X)", record.Description, record.Color, newColor))
+            record.Color = newColor
+            updatedCount = updatedCount + 1
+        else
+            self.logger:Debug(string.format("Skipping '%s': Color already set to #%06X", record.Description, record.Color))
+            skippedCount = skippedCount + 1
+        end
     end
-    self.logger:Info("Updated colors for all Address Records.")
+    self.logger:Info(string.format("Color update complete: %d updated, %d skipped.", updatedCount, skippedCount))
 end
 
 --
@@ -742,34 +452,33 @@ end
 --- @return string - The color to apply.
 ----------
 function FormManager:GetRecordColor(record, theme, stringTypes, integerTypes, floatTypes)
+    local token, color, reason
     if record.Type == vtAutoAssembler then
-        self.logger:Debug("Applied 'entity.name.function' color to AutoAssembler type.")
-        return theme["entity.name.function"] or record.Color
+        token, color, reason = "entity.name.function", theme["entity.name.function"], "AutoAssembler Type"
     elseif record.IsAddressGroupHeader then
-        self.logger:Debug("Applied 'keyword' color to Address Group Header.")
-        return theme["keyword"] or record.Color
+        token, color, reason = "keyword", theme["keyword"], "Address Group Header"
     elseif record.IsGroupHeader then
-        self.logger:Debug("Applied 'comment' color to Group Header.")
-        return theme["comment"] or record.Color
+        token, color, reason = "comment", theme["comment"], "Group Header"
     elseif record.OffsetCount == 0 and not tonumber(record.AddressString, 16) then
-        self.logger:Debug("Applied 'variable' color to user-defined values.")
-        return theme["variable.parameter"] or theme["variable"] or record.Color
+        token, color, reason = "variable.parameter", theme["variable.parameter"] or theme["variable"], "User-defined values"
     elseif record.ShowAsHex then
-        self.logger:Debug("Applied 'support.class' color to Hex values.")
-        return theme["support.class"] or theme["keyword.control"] or record.Color
+        token, color, reason = "support.class", theme["support.class"] or theme["keyword.control"], "Hex Values"
     elseif stringTypes[record.Type] then
-        self.logger:Debug("Applied 'string' color to String type.")
-        return theme["string"] or record.Color
+        token, color, reason = "string", theme["string"], "String Type"
     elseif integerTypes[record.Type] then
-        self.logger:Debug("Applied 'entity.name.class' color to Integer type.")
-        return theme["entity.name.class"] or record.Color
+        token, color, reason = "entity.name.class", theme["entity.name.class"], "Integer Type"
     elseif floatTypes[record.Type] then
-        self.logger:Debug("Applied 'constant.other.color' color to Float type.")
-        return theme["constant.other.color"] or theme["constant.numeric"] or record.Color
+        token, color, reason = "constant.other.color", theme["constant.other.color"] or theme["constant.numeric"], "Float Type"
     else
-        self.logger:Debug("Applied default 'editor.foreground' color.")
-        return theme["editor.foreground"] or record.Color
+        token, color, reason = "editor.foreground", theme["editor.foreground"], "Default editor foreground"
     end
+    local appliedColor = color or record.Color
+    local recordName = record.Description or "<Unnamed Record>"
+    self.logger:Debug(string.format(
+        "Determined Theme Color For Record: '%s' Reason: %s | Color: 0x%06X",
+        recordName, reason, appliedColor
+    ))
+    return appliedColor
 end
 
 --
