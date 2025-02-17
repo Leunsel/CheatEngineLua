@@ -24,8 +24,8 @@ local DESCRIPTION = "Cheat Table Interface (Utility)"
     Notes:
     - Features:
         - Memory Management:
-            * Read and write values of different data types (Byte, Integer, Float, Double).
-            * Safely modify memory values with error handling.
+            Read and write values of different data types (Byte, Integer, Float, Double).
+            Safely modify memory values with error handling.
         - Script Execution:
             * Enable or disable scripts asynchronously.
             * Support for automatic script deactivation.
@@ -52,10 +52,6 @@ if not Logger then
     CETrequire('Module.Logger')
 end
 
-if not FormManager then
-    CETrequire('Module.FormManager')
-end
-
 --
 --- Several configuration properties that can be customized.
 --- Set within the Table Lua Script and passed to the constructor of the class.
@@ -75,7 +71,9 @@ Utility = {
     AutoDisableTimerInterval = 100,   --- Interval in milliseconds for auto-disable timers
     AutoAttachTimerInterval = 100,    --- Interval in milliseconds for auto-attach timers
     AutoAttachTimerTicks = 0,         --- Number of ticks for the auto-attach timer
-    AutoAttachTimerTickMax = 5000     --- Max number of ticks before stopping the auto-attach timer
+    AutoAttachTimerTickMax = 5000,     --- Max number of ticks before stopping the auto-attach timer
+    SloganObj = nil,
+    SignatureObj = nil
 }
 
 --
@@ -95,7 +93,6 @@ function Utility:new(properties)
             obj[key] = value
         end
     end
-    obj.formManager = FormManager:new(properties)
     obj.logger = Logger:new()
     return obj
 end
@@ -607,6 +604,357 @@ end
 registerLuaFunctionHighlight('AutoAttach')
 
 --
+--- Removes all table files currently listed in the menu.
+--- This function finds all loaded table files in the "miTable" menu and deletes them one by one.
+--- @return None.
+----------
+function Utility:RemoveAllTableFiles()
+    local miTable = MainForm.findComponentByName("miTable")
+    if not miTable then
+        self.logger:Error("Menu item 'miTable' not found.")
+        return
+    end
+    self.logger:Info("Opening the 'miTable' menu...")
+    miTable.doClick()  -- Ensure the table menu is opened
+    self.logger:Info("'miTable' menu opened successfully.")
+    -- Check if there are any items in the menu
+    if miTable.Count == 0 then
+        self.logger:Info("No table files found in the menu.")
+        return
+    end
+    -- Loop through all items in the menu, starting from the last
+    for i = miTable.Count, 1, -1 do
+        local tableFileName = miTable.Item[i - 1].Caption
+        self.logger:Info(string.format("Attempting to remove table file: '%s'...", tableFileName))
+        local tableFile = findTableFile(tableFileName)
+        if tableFile then
+            -- Table file found, proceeding with deletion
+            self.logger:Info(string.format("Found table file: '%s'. Deleting...", tableFileName))
+            tableFile.delete()
+            self.logger:Info(string.format("Table file '%s' deleted successfully.", tableFileName))
+        else
+            -- Table file not found
+            self.logger:Warning(string.format("Table file '%s' not found for deletion.", tableFileName))
+        end
+    end
+    self.logger:Info("All table files processed.")
+end
+registerLuaFunctionHighlight('RemoveAllTableFiles')
+
+--
+--- Runs a given function in the main thread. If already in the main thread, it executes the function immediately.
+--- @param func function - The function to be executed in the main thread.
+--- @return None.
+----------
+function Utility:RunInMainThread(func)
+    if not inMainThread() then
+        synchronize(func)
+        return
+    end
+    func()
+end
+
+--
+--- Creates or updates a label with the specified properties.
+--- If a label already exists, it updates its properties; otherwise, it creates a new label.
+--- @param parent Object - The parent control that will contain the label.
+--- @param label Object|nil - The existing label to update, or nil to create a new label.
+--- @param defaultProperties table - A table containing the default properties to apply to the label.
+---   @field Name string - The name of the label (optional).
+---   @field Caption string - The text to display on the label (optional).
+---   @field Alignment string - The alignment of the labels text (optional).
+---   @field FontName string - The font name to use for the labels text (optional).
+---   @field FontSize number - The font size to use for the labels text (optional).
+---   @field FontStyle string - The font style to use for the labels text (optional).
+---   @field FontColor number - The font color to use for the labels text (optional).
+---   @field Visible boolean - Whether the label is visible or not (optional).
+---   @field BorderSpacingBottom number - The bottom border spacing for the label (optional).
+--- @return Object - The created or updated label.
+----------
+function Utility:CreateOrUpdateLabel(parent, label, defaultProperties)
+    if not label then
+        label = createLabel(parent)
+        label.Align = defaultProperties.Align or alTop
+        label.AutoSize = true
+    end
+    label.Name = defaultProperties.Name or label.Name
+    label.Caption = defaultProperties.Caption or label.Caption
+    label.Alignment = defaultProperties.Alignment or label.Alignment
+    label.Font.Name = defaultProperties.FontName or label.Font.Name
+    label.Font.Color = defaultProperties.FontColor or label.Font.Color
+    label.Font.Size = defaultProperties.FontSize or label.Font.Size
+    label.Font.Style = defaultProperties.FontStyle or label.Font.Style
+    label.Visible = (defaultProperties.Visible ~= nil) and defaultProperties.Visible or label.Visible
+    label.BorderSpacing.Bottom = defaultProperties.BorderSpacingBottom or label.BorderSpacing.Bottom
+    return label
+end
+
+--
+--- Creates or updates a slogan string label with the given text.
+--- @param str string - The text to display in the slogan label.
+--- @return None.
+----------
+function Utility:CreateSloganStr(str)
+    self:RunInMainThread(function()
+        local mainForm = getMainForm()
+        local defaultProperties = {
+            Name = "SLOGAN_STR",
+            Caption =  str or self.Slogan or "",
+            Alignment = "taCenter",
+            FontName = "Consolas",
+            FontSize = 20,
+            FontStyle = "fsBold",
+            Visible = true
+        }
+        self.SloganObj = mainForm:findComponentByName("SLOGAN_STR")
+        if not self.SloganObj then
+            self.SloganObj = self:CreateOrUpdateLabel(mainForm, nil, defaultProperties)
+        else
+            self:CreateOrUpdateLabel(mainForm, self.SloganObj, defaultProperties)
+        end
+        self.SloganObj = self.SloganObj
+    end)
+end
+
+--
+--- Starts scrolling a given text in the slogan label at a specified interval.
+--- @param text string - The text to scroll.
+--- @param interval number - The time interval (in ms) between scroll updates.
+--- @param maxTicks number - Maximum number of scroll iterations (0 for unlimited scrolling).
+--- @return None.
+----------
+function Utility:ScrollText(text, interval, maxTicks)
+    local function ScrollTextInner(text)
+        return text:sub(2) .. text:sub(1, 1)
+    end
+    self.scrollingText = " " .. text
+    self.scrollInterval = 500  -- Default interval is 500 ms
+    self.scrollMaxTicks = maxTicks or 0  -- Default is unlimited scrolling
+    local function ScrollTextTimer_tick(timer)
+        if self.scrollMaxTicks ~= 0 then
+            self.scrollMaxTicks = self.scrollMaxTicks - 1
+            if self.scrollMaxTicks <= 0 then
+                timer.destroy()
+                return
+            end
+        end
+
+        self.scrollingText = ScrollTextInner(self.scrollingText)
+        self:CreateSloganStr(self.scrollingText)
+    end
+    if self.ScrollTextTimer then
+        self.ScrollTextTimer.destroy()
+    end
+    self.ScrollTextTimer = createTimer(MainForm)
+    self.ScrollTextTimer.Interval = self.scrollInterval
+    self.ScrollTextTimer.OnTimer = ScrollTextTimer_tick
+end
+registerLuaFunctionHighlight('ScrollText')
+
+--
+--- Destroys a given label if it exists.
+--- @param label object - The label object to be destroyed.
+--- @return None.
+----------
+function Utility:DestroyLabel(label)
+    if label then
+        label:destroy()
+    end
+end
+registerLuaFunctionHighlight('DestroyLabel')
+
+--
+--- Destroys the slogan string object and sets it to nil.
+--- @return None.
+----------
+function Utility:DestroySloganStr()
+    self:RunInMainThread(function()
+        if self.SloganObj then
+            self:DestroyLabel(self.SloganObj)
+            self.SloganObj = nil
+        end
+    end)
+end
+registerLuaFunctionHighlight('DestroySloganStr')
+
+--
+--- Creates or updates the signature string label with the given text.
+--- @param str string - The text to display in the signature string label.
+--- @return None.
+----------
+function Utility:CreateSignatureStr(str)
+    self:RunInMainThread(function()
+        local mainForm = getMainForm()
+        local lblSigned = mainForm.lblSigned
+        if lblSigned then
+            lblSigned.Caption = str or self.Signature or ""
+            lblSigned.Visible = true
+            lblSigned.BorderSpacing.Bottom = 5
+            lblSigned.AutoSize = true
+            lblSigned.Font.Name = "Consolas"
+            lblSigned.Font.Size = 11
+            lblSigned.Font.Style = "fsBold"
+        end
+        self.SignatureObj = lblSigned
+    end)
+end
+registerLuaFunctionHighlight('CreateSignatureStr')
+
+--
+--- Hides the signature string label if it exists.
+--- @return None.
+----------
+function Utility:HideSignatureStr()
+    self:RunInMainThread(function()
+        if self.SignatureObj then
+            self.SignatureObj.Visible = false
+        end
+    end)
+end
+registerLuaFunctionHighlight('HideSignatureStr')
+
+--
+--- Toggles the visibility of a specified control in the main form.
+--- @param controlName string - The name of the control to toggle visibility for.
+--- @return None.
+----------
+function Utility:ToggleControlVisibility(controlName)
+    self:RunInMainThread(function()
+        local mainForm = getMainForm()
+        if mainForm and mainForm[controlName] then
+            mainForm[controlName].Visible = not mainForm[controlName].Visible
+        end
+    end)
+end
+registerLuaFunctionHighlight('ToggleControlVisibility')
+
+--
+--- Sets the visibility of a specified control in the main form.
+--- @param controlName string - The name of the control to modify visibility.
+--- @param isVisible boolean - True to make the control visible, false to hide it.
+--- @return None.
+----------
+function Utility:SetControlVisibility(controlName, isVisible)
+    self:RunInMainThread(function()
+        local mainForm = getMainForm()
+        if mainForm and mainForm[controlName] then
+            mainForm[controlName].Visible = isVisible
+        end
+    end)
+end
+registerLuaFunctionHighlight('SetControlVisibility')
+
+---
+--- Sets the BevelOuter property of AddressList and MainForm.Panel4 to None.
+--- @return None.
+----------
+function Utility:HideAddresslistBevel()
+    self:RunInMainThread(function()
+        local mainForm = getMainForm()
+        if mainForm then
+            AddressList.BevelOuter = "bvNone" -- AddressList
+        end
+    end)
+end
+registerLuaFunctionHighlight('HideAddresslistBevel')
+
+--
+--- Toggles the visibility of specified header sections in the address list.
+--- @param sections table - An array of section indices to toggle visibility for.
+--- @return None.
+----------
+function Utility:ToggleHeaderSections(sections)
+    self:RunInMainThread(function()
+        local header = getAddressList().Header
+        for _, sectionIndex in ipairs(sections) do
+            local section = header.Sections[sectionIndex]
+            if section then
+                section.Visible = not section.Visible
+            end
+        end
+    end)
+end
+registerLuaFunctionHighlight('ToggleHeaderSections')
+
+--
+--- Disables drag-and-drop functionality for the address list tree view.
+--- @return None.
+----------
+function Utility:DisableDragDrop()
+    self:RunInMainThread(function()
+        local addressListTreeview = component_getComponent(AddressList, 0) -- Disable drag and drop events
+        setMethodProperty(addressListTreeview, "OnDragOver", nil)
+        setMethodProperty(addressListTreeview, "OnDragDrop", nil)
+        setMethodProperty(addressListTreeview, "OnEndDrag", nil)
+    end)
+end
+registerLuaFunctionHighlight('DisableDragDrop')
+
+--
+--- Disables sorting functionality for the address list header.
+--- @return None.
+----------
+function Utility:DisableHeaderSorting()
+    self:RunInMainThread(function()
+        local addressListHeader = component_getComponent(AddressList, 1)
+        setMethodProperty(addressListHeader, "OnSectionClick", nil)
+    end)
+end
+registerLuaFunctionHighlight('DisableHeaderSorting')
+
+--
+--- Enables compact mode by hiding specific controls in the form.
+--- @return None.
+----------
+function Utility:EnableCompactMode()
+    self:SetControlVisibility("Panel5", false)
+    self:SetControlVisibility("Splitter1", false)
+end
+registerLuaFunctionHighlight('EnableCompactMode')
+
+--
+--- Hides signature-related controls in the form.
+--- @return None.
+----------
+function Utility:HideSignatureControls()
+    self:SetControlVisibility("CommentButton", false)
+    self:SetControlVisibility("advancedbutton", false)
+end
+registerLuaFunctionHighlight('HideSignatureControls')
+
+--
+--- Toggles compact mode by toggling the visibility of specific controls.
+--- @return None.
+----------
+function Utility:ToggleCompactMode()
+    self:RunInMainThread(function()
+        self:ToggleControlVisibility("Panel5")
+        self:ToggleControlVisibility("Splitter1")
+    end)
+end
+registerLuaFunctionHighlight('ToggleCompactMode')
+
+--
+--- Toggles the visibility of signature-related controls.
+--- @return None.
+----------
+function Utility:ToggleSignatureControls()
+    self:ToggleControlVisibility("CommentButton")
+    self:ToggleControlVisibility("advancedbutton")
+end
+registerLuaFunctionHighlight('ToggleSignatureControls')
+
+--
+--- Manages the header sections by toggling visibility for predefined indices.
+--- @return None.
+----------
+function Utility:ManageHeaderSections()
+    local sectionsToToggle = {0, 2, 3}
+    self:toggleHeaderSections(sectionsToToggle)
+end
+registerLuaFunctionHighlight('ManageHeaderSections')
+
+--
 --- Updates the main form's window title to reflect the current table, game, and Cheat Engine version.
 --- @return None.
 ----------
@@ -642,17 +990,13 @@ registerLuaFunctionHighlight('SetTitle')
 --- @return None.
 ----------
 function Utility:SetupTable()
-    if not formManager then
-        formManager = FormManager:new({ Signature = self.Signature, Slogan = self.Slogan })
-    end
     getMainForm().Show()
-    formManager:DisableHeaderSorting()
-    formManager:HideSignatureControls()
-    formManager:EnableCompactMode()
-    formManager:CreateSloganStr(self.Slogan)
-    formManager:CreateSignatureStr(self.Signature)
-    formManager:LoadThemes()
-    formManager:ApplyTheme(self.DefaultTheme)
+    self:DisableHeaderSorting()
+    self:HideSignatureControls()
+    self:EnableCompactMode()
+    self:CreateSloganStr(self.Slogan)
+    self:CreateSignatureStr(self.Signature)
+    self:HideAddresslistBevel()
     self:SetTitle()
 end
 registerLuaFunctionHighlight('SetupTable')
