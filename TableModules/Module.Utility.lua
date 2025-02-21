@@ -1127,7 +1127,7 @@ registerLuaFunctionHighlight('ManageHeaderSections')
 ---  - ceRegistrySizeStr (string): CE architecture (x64 or x32).
 ---  - ceVersion (string): Cheat Engine version.
 ----------
-local function Utility:GetTitleComponents()
+function Utility:GetTitleComponents()
     return {
         tableTitle = self.TableTitle or "TableTitle",
         tableVersion = self.TableVersion or "TableVersion",
@@ -1150,7 +1150,7 @@ registerLuaFunctionHighlight('GetTitleComponents')
 ---  - ceVersion (string)
 --- @return string The formatted title string.
 ----------
-local function Utility:FormatTitle(components)
+function Utility:FormatTitle(components)
     return string.format(
         "%s %s V:%s — CET V:%s — CE %s V:%s",
         components.tableTitle,
