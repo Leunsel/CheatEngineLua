@@ -1,6 +1,6 @@
 local NAME = "CTI.Utility"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Cheat Table Interface (Utility)"
 
 --[[
@@ -19,6 +19,7 @@ local DESCRIPTION = "Cheat Table Interface (Utility)"
     1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
     1.0.1   | ----------   | Leunsel         | -
     1.0.2   | 14.02.2025   | Leunsel,LeFiXER | Added Version History
+    1.0.3   | 21.02.2025   | Leunsel         | Added Slogan Animations + Refactored
     -----------------------------------------------------------------------------
     
     Notes:
@@ -27,7 +28,6 @@ local DESCRIPTION = "Cheat Table Interface (Utility)"
             Read and write values of different data types (Byte, Integer, Float, Double).
             Safely modify memory values with error handling.
         - Script Execution:
-            * Enable or disable scripts asynchronously.
             * Support for automatic script deactivation.
         - File Integrity Verification:
             * Validate game executables using MD5 hash comparison.
@@ -57,6 +57,7 @@ end
 --- Set within the Table Lua Script and passed to the constructor of the class.
 ----------
 Utility = {
+    -- Passed by Author
     Author = "",                      --- Author of the table
     ProcessName = "",                 --- Name of the process to attach to
     GameVersion = "",                 --- Version of the game being targeted
@@ -68,6 +69,7 @@ Utility = {
     Slogan = "",                      --- Slogan for the table (displayed on the UI)
     DefaultTheme = "",                --- Default theme for the table interface
     IsRelease = false,                --- Whether the table is in release mode
+    -- Fixed Variables
     AutoDisableTimerInterval = 100,   --- Interval in milliseconds for auto-disable timers
     AutoAttachTimerInterval = 100,    --- Interval in milliseconds for auto-attach timers
     AutoAttachTimerTicks = 0,         --- Number of ticks for the auto-attach timer
@@ -660,15 +662,15 @@ end
 --- @param parent Object - The parent control that will contain the label.
 --- @param label Object|nil - The existing label to update, or nil to create a new label.
 --- @param defaultProperties table - A table containing the default properties to apply to the label.
----   @field Name string - The name of the label (optional).
----   @field Caption string - The text to display on the label (optional).
----   @field Alignment string - The alignment of the labels text (optional).
----   @field FontName string - The font name to use for the labels text (optional).
----   @field FontSize number - The font size to use for the labels text (optional).
----   @field FontStyle string - The font style to use for the labels text (optional).
----   @field FontColor number - The font color to use for the labels text (optional).
----   @field Visible boolean - Whether the label is visible or not (optional).
----   @field BorderSpacingBottom number - The bottom border spacing for the label (optional).
+---  - Name string - The name of the label (optional).
+---  - Caption string - The text to display on the label (optional).
+---  - Alignment string - The alignment of the labels text (optional).
+---  - FontName string - The font name to use for the labels text (optional).
+---  - FontSize number - The font size to use for the labels text (optional).
+---  - FontStyle string - The font style to use for the labels text (optional).
+---  - FontColor number - The font color to use for the labels text (optional).
+---  - Visible boolean - Whether the label is visible or not (optional).
+---  - BorderSpacingBottom number - The bottom border spacing for the label (optional).
 --- @return Object - The created or updated label.
 ----------
 function Utility:CreateOrUpdateLabel(parent, label, defaultProperties)
@@ -716,40 +718,201 @@ function Utility:CreateSloganStr(str)
     end)
 end
 
---
---- Starts scrolling a given text in the slogan label at a specified interval.
+-- 
+--- Starts the animation sequence for a given text, cycling through different animations like Typing, Reveal, and Scrolling.
+--- @param text string - The text to animate.
+--- @return None.
+----------
+function Utility:StartTextAnimation(text, config)
+    config = config or {}
+    local animations = config.animations or { "Typing", "Reveal", "Scrolling", "Glitch", "Matrix" }
+    local interval = config.interval or 100  
+    local minDuration = config.minDuration or 5000  
+    local pauseBetweenAnimations = config.pauseBetweenAnimations or 1000  
+    ---
+    local duration = math.max(#text * 100, minDuration)  
+    local index = 1
+    ---
+    local animationFunctions = {
+        Typing = function() self:TypingEffect(text, interval) end,
+        Reveal = function() self:RevealEffect(text, interval) end,
+        Scrolling = function() self:ScrollText(text, interval) end,
+        Glitch = function() self:GlitchText(text, interval) end,
+        Matrix = function() self:MatrixReveal(text, interval) end
+    }
+    ---
+    local function CycleAnimations(timer)
+        local selectedAnimation = animations[index]
+        if animationFunctions[selectedAnimation] then
+            animationFunctions[selectedAnimation]()
+        end
+        index = (index % #animations) + 1
+    end
+    ---
+    if self.MainAnimationTimer then
+        self.MainAnimationTimer.destroy()
+    end
+    ---
+    self.MainAnimationTimer = createTimer(MainForm)
+    self.MainAnimationTimer.Interval = duration + pauseBetweenAnimations
+    self.MainAnimationTimer.OnTimer = CycleAnimations
+    ---
+    CycleAnimations(self.MainAnimationTimer)
+end
+registerLuaFunctionHighlight('StartTextAnimation')
+
+function Utility:CreateTimer(interval, callback)
+    local timer = createTimer(MainForm)
+    timer.Interval = interval
+    timer.OnTimer = callback
+    return timer
+end
+registerLuaFunctionHighlight('CreateTimer')
+
+-- 
+--- Scrolls the given text in a looping fashion, where each character is shifted to the left.
 --- @param text string - The text to scroll.
---- @param interval number - The time interval (in ms) between scroll updates.
---- @param maxTicks number - Maximum number of scroll iterations (0 for unlimited scrolling).
+--- @param interval number - The interval (in milliseconds) between each scroll.
+--- @param maxTicks number - The maximum number of scroll steps to perform.
 --- @return None.
 ----------
 function Utility:ScrollText(text, interval, maxTicks)
     local function ScrollTextInner(text)
         return text:sub(2) .. text:sub(1, 1)
     end
-    self.scrollingText = " " .. text
-    self.scrollInterval = 500  -- Default interval is 500 ms
-    self.scrollMaxTicks = maxTicks or 0  -- Default is unlimited scrolling
+    self.scrollingText = text .. " "
+    self.scrollInterval = interval or 100  -- Default interval
+    self.scrollMaxTicks = maxTicks or #self.scrollingText
     local function ScrollTextTimer_tick(timer)
         if self.scrollMaxTicks ~= 0 then
             self.scrollMaxTicks = self.scrollMaxTicks - 1
             if self.scrollMaxTicks <= 0 then
                 timer.destroy()
+                self:CreateSloganStr(text)
                 return
             end
         end
-
         self.scrollingText = ScrollTextInner(self.scrollingText)
         self:CreateSloganStr(self.scrollingText)
     end
     if self.ScrollTextTimer then
         self.ScrollTextTimer.destroy()
     end
-    self.ScrollTextTimer = createTimer(MainForm)
-    self.ScrollTextTimer.Interval = self.scrollInterval
-    self.ScrollTextTimer.OnTimer = ScrollTextTimer_tick
+    self:CreateTimer(interval or 100, ScrollTextTimer_tick)
 end
 registerLuaFunctionHighlight('ScrollText')
+
+-- 
+--- Creates a typing effect where each character of the text is revealed one by one.
+--- @param text string - The text to be typed out.
+--- @param interval number - The interval (in milliseconds) between each character being typed.
+--- @return None.
+----------
+function Utility:TypingEffect(text, interval)
+    local index = 1
+    local function TypingTimer_tick(timer)
+        if index > #text then
+            timer.destroy()
+            return
+        end
+        self:CreateSloganStr(text:sub(1, index))
+        index = index + 1
+    end
+    self:CreateTimer(interval or 100, TypingTimer_tick)
+end
+registerLuaFunctionHighlight('TypingEffect')
+
+-- 
+--- Reveals the text one character at a time by replacing "#" (or any other symbol)
+--- with each character in the string.
+--- @param text string - The text to reveal.
+--- @param interval number - The interval (in milliseconds) between each character being revealed.
+--- @return None.
+----------q
+function Utility:RevealEffect(text, interval)
+    local placeholders = { "#", "@", "%", "&", "?", "*", "!" }  -- Add more symbols if needed
+    local revealStr = ""
+    for i = 1, #text do
+        revealStr = revealStr .. (text:sub(i, i) == " " and " " or placeholders[math.random(1, #placeholders)])
+    end
+    local index = 1
+    local function RevealTimer_tick(timer)
+        while index <= #text and text:sub(index, index) == " " do
+            index = index + 1
+        end
+        if index > #text then
+            timer.destroy()
+            return
+        end
+        revealStr = revealStr:sub(1, index - 1) .. text:sub(index, index) .. revealStr:sub(index + 1)
+        self:CreateSloganStr(revealStr)
+        index = index + 1
+    end
+    self:CreateTimer(interval or 100, RevealTimer_tick)
+end
+registerLuaFunctionHighlight('RevealEffect')
+
+-- 
+--- Creates a glitching text effect by randomly altering characters for a limited duration.
+--- @param text string - The text to glitch.
+--- @param interval number - The interval (in milliseconds) between each glitch update.
+--- @return None.
+----------
+function Utility:GlitchText(text, interval)
+    local duration = math.max(#text * 100, 5000)
+    local endTime = getTickCount() + duration
+    local function GlitchTimer_tick(timer)
+        if getTickCount() >= endTime then
+            timer.destroy()
+            self:CreateSloganStr(text)
+            return
+        end
+        local glitchedText = {}
+        for i = 1, #text do
+            glitchedText[i] = text:sub(i, i)
+        end
+        for i = 1, math.random(1, #text // 3) do
+            local pos
+            repeat
+                pos = math.random(1, #text)
+            until text:sub(pos, pos) ~= " "
+            
+            glitchedText[pos] = string.char(math.random(33, 126))
+        end
+        self:CreateSloganStr(table.concat(glitchedText))
+    end
+    self:CreateTimer(interval or 100, GlitchTimer_tick)
+end
+registerLuaFunctionHighlight('GlitchText')
+
+-- 
+--- Simulates a "Matrix-style" reveal by randomly revealing characters in the text.
+--- @param text string - The text to be revealed.
+--- @param interval number - The interval (in milliseconds) between each character reveal.
+--- @return None.
+----------
+function Utility:MatrixReveal(text, interval)
+    local revealStr = {}
+    for i = 1, #text do
+        revealStr[i] = text:sub(i, i) == " " and " " or "#"
+    end
+    local revealed = table.concat(revealStr)
+    local function MatrixTimer_tick(timer)
+        if revealed == text then
+            timer.destroy()
+            return
+        end
+        local pos
+        repeat
+            pos = math.random(1, #text)
+        until revealStr[pos] ~= text:sub(pos, pos) and text:sub(pos, pos) ~= " "
+        revealStr[pos] = text:sub(pos, pos)
+        revealed = table.concat(revealStr)
+        self:CreateSloganStr(revealed)
+    end
+    self:CreateTimer(interval or 100, MatrixTimer_tick)
+end
+registerLuaFunctionHighlight('MatrixReveal')
 
 --
 --- Destroys a given label if it exists.
@@ -955,8 +1118,55 @@ end
 registerLuaFunctionHighlight('ManageHeaderSections')
 
 --
---- Updates the main form's window title to reflect the current table, game, and Cheat Engine version.
---- @return None.
+--- Retrieves title components for formatting the main form title.
+--- @return table A table containing the title components:
+---  - tableTitle (string): The table name or default "TableTitle".
+---  - tableVersion (string): The table version or default "TableVersion".
+---  - gameVersion (string): The detected game version or "GameVersion".
+---  - registrySizeStr (string): Registry size string, if available.
+---  - ceRegistrySizeStr (string): CE architecture (x64 or x32).
+---  - ceVersion (string): Cheat Engine version.
+----------
+local function Utility:GetTitleComponents()
+    return {
+        tableTitle = self.TableTitle or "TableTitle",
+        tableVersion = self.TableVersion or "TableVersion",
+        gameVersion = self.GameVersion or Helper:getFileVersionStr(Helper:getGameModulePathToFile()) or "GameVersion",
+        registrySizeStr = Helper:getRegistrySizeStr() or "",
+        ceRegistrySizeStr = cheatEngineIs64Bit() and "(x64)" or "(x32)",
+        ceVersion = getCEVersion()
+    }
+end
+registerLuaFunctionHighlight('GetTitleComponents')
+
+--
+--- Formats a title string using provided components.
+--- @param components table A table containing the title elements:
+---  - tableTitle (string)
+---  - registrySizeStr (string)
+---  - gameVersion (string)
+---  - tableVersion (string)
+---  - ceRegistrySizeStr (string)
+---  - ceVersion (string)
+--- @return string The formatted title string.
+----------
+local function Utility:FormatTitle(components)
+    return string.format(
+        "%s %s V:%s — CET V:%s — CE %s V:%s",
+        components.tableTitle,
+        components.registrySizeStr,
+        components.gameVersion,
+        components.tableVersion,
+        components.ceRegistrySizeStr,
+        components.ceVersion
+    )
+end
+registerLuaFunctionHighlight('FormatTitle')
+
+--
+--- Sets the main form's title by generating and applying a formatted title string.
+--- Ensures thread safety by running in the main thread.
+--- @return None
 ----------
 function Utility:SetTitle()
     if not inMainThread() then
@@ -965,38 +1175,61 @@ function Utility:SetTitle()
         end)
         return
     end
-    local tableTitle = self.TableTitle or "TableTitle"
-    local tableVersion = self.TableVersion or "TableVersion"
-    local gameVersion = self.GameVersion or Helper:getFileVersionStr(Helper:getGameModulePathToFile()) or "GameVersion"
-    local registrySizeStr = Helper:getRegistrySizeStr() or ""
-    local ceRegistrySizeStr = (cheatEngineIs64Bit() and "(x64)") or "(x32)"
-    local titleStr = string.format(
-        "%s %s V:%s — CET V:%s — CE %s V:%s",
-        tableTitle,
-        registrySizeStr,
-        gameVersion,
-        tableVersion,
-        ceRegistrySizeStr,
-        getCEVersion()
-    )
+    local titleStr = self:FormatTitle(self:GetTitleComponents())
     getMainForm().Caption = titleStr
-    -- return titleStr
 end
 registerLuaFunctionHighlight('SetTitle')
 
 --
---- Initializes and configures the table by setting up form management, applying themes, 
---- and configuring UI components like the table signature and slogan.
---- @return None.
-----------
-function Utility:SetupTable()
+--- Configures and displays the main form.
+--- @return None
+---
+function Utility:SetupMainForm()
     getMainForm().Show()
+end
+
+--
+--- Applies UI configurations such as disabling sorting, hiding elements, 
+--- enabling compact mode, and setting up the signature and slogan.
+--- @return None
+----------
+function Utility:SetupUIComponents()
     self:DisableHeaderSorting()
     self:HideSignatureControls()
     self:EnableCompactMode()
-    self:CreateSloganStr(self.Slogan)
-    self:CreateSignatureStr(self.Signature)
+    self:CreateSlogan()
+    self:CreateSignature()
     self:HideAddresslistBevel()
+end
+
+--
+--- Creates and sets up the slogan text if available.
+--- @return None
+----------
+function Utility:CreateSlogan()
+    if self.Slogan then
+        self:CreateSloganStr(self.Slogan)
+    end
+end
+
+--
+--- Creates and sets up the signature text if available.
+--- @return None
+----------
+function Utility:CreateSignature()
+    if self.Signature then
+        self:CreateSignatureStr(self.Signature)
+    end
+end
+
+--
+--- Initializes and configures the table by setting up the UI and form properties.
+--- Calls multiple helper functions to manage different components.
+--- @return None
+----------
+function Utility:SetupTable()
+    self:SetupMainForm()
+    self:SetupUIComponents()
     self:SetTitle()
 end
 registerLuaFunctionHighlight('SetupTable')
