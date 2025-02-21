@@ -1,85 +1,85 @@
 {
   "colors": {
-    "editor.background": "#120600",
-    "editor.foreground": "#FF8000"
+    "editor.background": "#000A12",
+    "editor.foreground": "#00FFFF"
   },
   "tokenColors": [
     {
       "scope": "comment",
       "settings": {
-        "foreground": "#CC6600"
+        "foreground": "#0088CC"
       },
-      "description": "Dark orange for hacker-style comments."
+      "description": "Cool blue for hacker-style comments."
     },
     {
       "scope": "string",
       "settings": {
-        "foreground": "#FF9933"
+        "foreground": "#00FF99"
       },
-      "description": "Bright neon orange strings."
+      "description": "Bright neon green strings."
     },
     {
       "scope": "keyword",
       "settings": {
-        "foreground": "#FFAA44"
+        "foreground": "#00CCFF"
       },
-      "description": "Electric orange keywords for hacker aesthetics."
+      "description": "Electric cyan keywords for hacker aesthetics."
     },
     {
       "scope": "variable",
       "settings": {
-        "foreground": "#FFBB66"
+        "foreground": "#66FFFF"
       },
-      "description": "Soft orange variables."
+      "description": "Soft cyan variables."
     },
     {
       "scope": "variable.parameter",
       "settings": {
-        "foreground": "#FF8822"
+        "foreground": "#00BFFF"
       },
-      "description": "Bright neon parameters."
+      "description": "Bright blue parameters."
     },
     {
       "scope": "keyword.control",
       "settings": {
-        "foreground": "#DD5500"
+        "foreground": "#0099FF"
       },
-      "description": "Deep orange control keywords."
+      "description": "Deep electric blue control keywords."
     },
     {
       "scope": "constant.numeric",
       "settings": {
-        "foreground": "#FFAA00"
+        "foreground": "#33CCFF"
       },
-      "description": "Bright yellow-orange numeric constants."
+      "description": "Bright blue numeric constants."
     },
     {
       "scope": "entity.name.function",
       "settings": {
-        "foreground": "#FF7722"
+        "foreground": "#00E5FF"
       },
-      "description": "Neon orange function names."
+      "description": "Neon cyan function names."
     },
     {
       "scope": "entity.name.class",
       "settings": {
-        "foreground": "#CC4400"
+        "foreground": "#00CCCC"
       },
-      "description": "Deep orange for class names."
+      "description": "Aqua for class names."
     },
     {
       "scope": "support.class",
       "settings": {
-        "foreground": "#AA3300"
+        "foreground": "#0088AA"
       },
-      "description": "Dark orange support classes."
+      "description": "Deep blue support classes."
     },
     {
       "scope": "constant.other.color",
       "settings": {
-        "foreground": "#FF6600"
+        "foreground": "#00FFFF"
       },
-      "description": "Bright orange for other constant colors."
+      "description": "Bright cyan for other constant colors."
     }
   ]
 }
