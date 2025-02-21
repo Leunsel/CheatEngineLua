@@ -30,7 +30,7 @@ Each module requires specific dependencies to function correctly. Below is a lis
 | **Module.AutoAssembler.lua** | `Module.Logger.lua`           |
 | **Module.FormManager.lua**   | `Module.Logger.lua`           |
 | **Module.Teleporter.lua**    | `json.lua`, `Module.Logger.lua` |
-| **Module.Utility.lua**       | `json.lua`, `Module.Logger.lua`, `Module.FormManager.lua` |
+| **Module.Utility.lua**       | `json.lua`, `Module.Logger.lua` |
 | **Module.TableFileExplorer.lua**       | `Module.Logger.lua`, `Module.Utility.lua` |
 
 
