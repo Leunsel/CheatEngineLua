@@ -1,85 +1,85 @@
 {
-    "colors": {
-        "editor.background": "#15131c",
-        "editor.foreground": "#E6E1FF"
-    },
+  "colors": {
+    "editor.background": "#120012",
+    "editor.foreground": "#FF00FF"
+  },
   "tokenColors": [
     {
       "scope": "comment",
       "settings": {
-        "foreground": "#9A7FAE"
+        "foreground": "#CC22CC"
       },
-      "description": "Defines the color for comments in the code."
+      "description": "Dark purple for hacker-style comments."
     },
     {
       "scope": "string",
       "settings": {
-        "foreground": "#D4BFFF"
+        "foreground": "#FF33FF"
       },
-      "description": "Address Records (string-type)"
+      "description": "Bright neon purple strings."
     },
     {
       "scope": "keyword",
       "settings": {
-        "foreground": "#B794F4"
+        "foreground": "#FF44FF"
       },
-      "description": "Address List; Main Form (lblSigned and SLOGAN_STR); Address Records"
+      "description": "Electric purple keywords for hacker aesthetics."
     },
     {
       "scope": "variable",
       "settings": {
-        "foreground": "#E1D9FF"
+        "foreground": "#FF66FF"
       },
-      "description": "Address Records (user-defined values with 0 offsets and non-hex address strings)"
+      "description": "Soft purple variables."
     },
     {
       "scope": "variable.parameter",
       "settings": {
-        "foreground": "#CBA6F7"
+        "foreground": "#FF22FF"
       },
-      "description": "Address Records (color for user-defined values with 0 offsets and non-hex address strings, falling back to variable color)"
+      "description": "Bright neon parameters."
     },
     {
       "scope": "keyword.control",
       "settings": {
-        "foreground": "#A084CA"
+        "foreground": "#DD00DD"
       },
-      "description": "Address Records (hex values)"
+      "description": "Deep purple control keywords."
     },
     {
       "scope": "constant.numeric",
       "settings": {
-        "foreground": "#8E72BF"
+        "foreground": "#FF55FF"
       },
-      "description": "Address Records (float-type)"
+      "description": "Bright pink-purple numeric constants."
     },
     {
       "scope": "entity.name.function",
       "settings": {
-        "foreground": "#D8B6FF"
+        "foreground": "#FF22FF"
       },
-      "description": "Address Records (AutoAssembler type)"
+      "description": "Neon purple function names."
     },
     {
       "scope": "entity.name.class",
       "settings": {
-        "foreground": "#A684D6"
+        "foreground": "#CC11CC"
       },
-      "description": "Address Records (integer-type records)"
+      "description": "Deep purple for class names."
     },
     {
       "scope": "support.class",
       "settings": {
-        "foreground": "#C0A4E8"
+        "foreground": "#AA00AA"
       },
-      "description": "Address Records (hex values)"
+      "description": "Dark purple support classes."
     },
     {
       "scope": "constant.other.color",
       "settings": {
-        "foreground": "#8E72BF"
+        "foreground": "#FF00FF"
       },
-      "description": "Address Records (color for float-type records, falling back to constant.numeric color)"
+      "description": "Bright purple for other constant colors."
     }
   ]
 }
