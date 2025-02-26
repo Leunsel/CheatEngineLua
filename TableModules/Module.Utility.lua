@@ -20,6 +20,7 @@ local DESCRIPTION = "Cheat Table Interface (Utility)"
     1.0.1   | ----------   | Leunsel         | -
     1.0.2   | 14.02.2025   | Leunsel,LeFiXER | Added Version History
     1.0.3   | 21.02.2025   | Leunsel         | Added Slogan Animations + Refactored
+    1.0.4   | 26.02.2025   | Leunsel         | Updated "AutoAttach"
     -----------------------------------------------------------------------------
     
     Notes:
@@ -96,6 +97,7 @@ function Utility:new(properties)
         end
     end
     obj.logger = Logger:new()
+    obj.helper = Helper:new()
     return obj
 end
 
@@ -217,12 +219,26 @@ registerLuaFunctionHighlight('ShowConfirmation')
 --- Verifies the integrity of a file by comparing its MD5 hash to the provided hash.
 --- If the hashes do not match, a warning is displayed to alert the user.
 --- @param hash string - The expected MD5 hash of the file.
---- @return None.
+--- @return true | false - true is a match, false is a mismatch or error.
 ----------
 function Utility:VerifyFileHash()
-    local fileHash = md5file(helper:getGameModulePathToFile())
+    self.logger:Debug("Starting file hash verification...")
+    local filePath = helper:getGameModulePathToFile()
+    self.logger:Debug("Retrieving file hash for: " .. tostring(filePath))
+    if filePath == nil then
+        self.logger:Warn("File Path is nil. Hash Verification stopped!")
+        return false
+    end
+    local fileHash = md5file(filePath)
+    self.logger:Debug("Calculated file hash: " .. tostring(fileHash))
+    self.logger:Debug("Expected file hash: " .. tostring(self.MD5Hash))
     if self.MD5Hash ~= fileHash then
+        self.logger:Warn("File hash mismatch detected!")
         self:ShowWarning("File Hash Mismatch!\n\nExpected: " .. self.MD5Hash .. "\nReceived: " .. fileHash .. "\n\nThe Cheat Table might not be compatible with the current game version. Use at your own risk.")
+        return false
+    else
+        self.logger:Debug("File hash matched. The table 'should' work as expected.")
+        return true
     end
 end
 registerLuaFunctionHighlight('VerifyFileHash')
@@ -548,10 +564,12 @@ registerLuaFunctionHighlight('StartupMessage')
 ----------
 function Utility:AttachToProcess(processName)
     processName = processName or self.ProcessName
+    self.logger:Debug("Attempting to attach to process: " .. tostring(processName))
     local processID = getProcessIDFromProcessName(processName)
     if processID ~= nil then
-        openProcess(processID)
+        self:HandleProcessMismatch(processName, processID)
     else
+        self.logger:Error("Process '" .. processName .. "' could not be found. Make sure the game has been opened!")
         -- messageDialog("Process not found: " .. processName, mtError, mbOK)
     end
 end
@@ -565,7 +583,7 @@ registerLuaFunctionHighlight('AttachToProcess')
 function Utility:CloseProcess()
     local processID = getOpenedProcessID()
     if processID == 0 then
-        messageDialog("No process is currently attached.", mtError, mbOK)
+        self:ShowError("No process is currently attached.")
         return
     end
     local processName = process
@@ -586,24 +604,113 @@ registerLuaFunctionHighlight('CloseProcess')
 ----------
 function Utility:AutoAttach(processName)
     processName = processName or self.ProcessName
+    self.logger:Debug("Starting AutoAttach for process: " .. tostring(processName))
     local function autoAttachTimer_tick(timer)
-        if self.AutoAttachTimerTickMax > 0 and self.AutoAttachTimerTicks >= self.AutoAttachTimerTickMax then
-            timer.destroy()
-        end
+        if self:ShouldStopAutoAttach(timer) then return end
         local processID = getProcessIDFromProcessName(processName)
-        if processID ~= nil then
-            timer.destroy()
-            openProcess(processID)
-            self:VerifyFileHash()
-            self:SetupTable()
+        if processID then
+            self:TryAttachToProcess(timer, processName, processID)
         end
         self.AutoAttachTimerTicks = self.AutoAttachTimerTicks + 1
     end
-    local autoAttachTimer = createTimer(MainForm)
-    autoAttachTimer.Interval = self.AutoAttachTimerInterval
-    autoAttachTimer.OnTimer = autoAttachTimer_tick
+    self:StartAutoAttachTimer(autoAttachTimer_tick)
 end
 registerLuaFunctionHighlight('AutoAttach')
+
+--
+--- Determines if the auto-attach timer should stop based on tick limits.
+--- Stops the timer and logs an error if the process isn't found in time.
+--- @param timer: The timer instance controlling auto-attach.
+--- @return Boolean. True if the timer should stop, otherwise false.
+----------
+function Utility:ShouldStopAutoAttach(timer)
+    if self.AutoAttachTimerTickMax > 0 and self.AutoAttachTimerTicks >= self.AutoAttachTimerTickMax then
+        timer.destroy()
+        self.logger:Error("Auto-Attach couldn't find the process in time. You may attach manually from now!")
+        return true
+    end
+    return false
+end
+
+--
+--- Attempts to attach to the specified process and performs post-attachment tasks.
+--- If already attached, it skips reattaching. Otherwise, it opens the process.
+--- @param timer: The timer instance that triggered the function.
+--- @param processName: The name of the process to attach to.
+--- @param processID: The process ID to attach to.
+--- @return None.
+----------
+function Utility:TryAttachToProcess(timer, processName, processID)
+    self.logger:Debug("Found " .. processName .. " with PID " .. processID .. ". Attempting to attach...")
+    timer.destroy() -- Stop the timer since we found the process
+    local currentProcessID = getOpenedProcessID()
+    if currentProcessID == processID then
+        self.logger:Debug("Process is already attached (PID: " .. currentProcessID .. "). Skipping reattachment.")
+    else
+        self.logger:Debug("Previously attached PID: " .. tostring(currentProcessID))
+        self.logger:Debug("Attempting to open process with ID: " .. processID)
+        self:RunInMainThread(function() 
+            openProcess(processID) 
+            self.logger:Debug("Called openProcess with process ID: " .. processID)
+        end)
+    end
+    -- Always execute the post-attachment tasks regardless of reattachment
+    self:HandleProcessMismatch(processName, processID)
+    self:PerformPostAttachTasks()
+    self.logger:Debug("Auto Attach Complete. Process: '" .. processName .. "' | PID: " .. tostring(processID) .. " | Status: " .. (processID and "Success" or "Failed"))
+end
+
+--
+--- Handles potential mismatches between the expected process and the attached process.
+--- Reattaches if necessary to ensure the correct process is open.
+--- @param processName: The expected process name.
+--- @param processID: The expected process ID.
+--- @return None.
+----------
+function Utility:HandleProcessMismatch(processName, processID)
+    local attachedProcess = process
+    if attachedProcess ~= processName then
+        self.logger:Warn("Process mismatch detected! Expected: " .. processName .. ", Found: " .. attachedProcess)
+        if getOpenedProcessID() ~= processID then
+            self:RunInMainThread(function() 
+                openProcess(processName) 
+                self.logger:Debug("Reattempting openProcess with process name: " .. processName)
+            end)
+        else
+            self.logger:Debug("Process ID matches but name mismatch. No reattachment needed.")
+        end
+    end
+    self.logger:Debug("Successfully attached to " .. processName .. " with PID " .. getOpenedProcessID())
+end
+
+--
+--- Executes necessary setup tasks after attaching to the process.
+--- Includes table setup and file hash verification.
+--- @return None.
+----------
+function Utility:PerformPostAttachTasks()
+    self:SetupTable()
+    self.logger:Debug("Called TableSetup().")
+    local hashVerified = self:VerifyFileHash()
+    if hashVerified then
+        self.logger:Debug("File hash verified successfully.")
+    else
+        -- Think about a Falback-Method...
+        self.logger:Warn("File hash verification failed! The Cheat Table might not work as expected.")
+    end
+end
+
+--
+--- Initializes and starts the auto-attach timer that periodically checks for the process.
+--- @param callback: The function to execute at each timer tick.
+--- @return None.
+----------
+function Utility:StartAutoAttachTimer(callback)
+    local autoAttachTimer = createTimer(MainForm)
+    autoAttachTimer.Interval = self.AutoAttachTimerInterval
+    autoAttachTimer.OnTimer = callback
+    self.logger:Debug("AutoAttach timer started with interval: " .. self.AutoAttachTimerInterval .. "ms")
+end
 
 --
 --- Removes all table files currently listed in the menu.
@@ -626,17 +733,23 @@ function Utility:RemoveAllTableFiles()
     end
     -- Loop through all items in the menu, starting from the last
     for i = miTable.Count, 1, -1 do
-        local tableFileName = miTable.Item[i - 1].Caption
-        self.logger:Info(string.format("Attempting to remove table file: '%s'...", tableFileName))
-        local tableFile = findTableFile(tableFileName)
-        if tableFile then
-            -- Table file found, proceeding with deletion
-            self.logger:Info(string.format("Found table file: '%s'. Deleting...", tableFileName))
-            tableFile.delete()
-            self.logger:Info(string.format("Table file '%s' deleted successfully.", tableFileName))
+        local item = miTable.Item[i - 1]
+        -- Check if the item should be skipped
+        if skipItems[item.Caption] then
+            self.logger:Info("Skipping '" .. item.Caption .. "' menu item.")
         else
-            -- Table file not found
-            self.logger:Warning(string.format("Table file '%s' not found for deletion.", tableFileName))
+            local tableFileName = item.Caption
+            self.logger:Info("Attempting to remove table file: '" .. tableFileName .. "'...")
+            local tableFile = findTableFile(tableFileName)
+            if tableFile then
+                -- Table file found, proceeding with deletion
+                self.logger:Info("Found table file: '" .. tableFileName .. "'. Deleting...")
+                tableFile.delete()
+                self.logger:Info("Table file '" .. tableFileName .. "' deleted successfully.")
+            else
+                -- Table file not found
+                self.logger:Warning("Table file '" .. tableFileName .. "' not found for deletion.")
+            end
         end
     end
     self.logger:Info("All table files processed.")
@@ -698,7 +811,6 @@ end
 ----------
 function Utility:CreateSloganStr(str)
     self:RunInMainThread(function()
-        local mainForm = getMainForm()
         local defaultProperties = {
             Name = "SLOGAN_STR",
             Caption =  str or self.Slogan or "",
@@ -708,11 +820,11 @@ function Utility:CreateSloganStr(str)
             FontStyle = "fsBold",
             Visible = true
         }
-        self.SloganObj = mainForm:findComponentByName("SLOGAN_STR")
+        self.SloganObj = MainForm:findComponentByName("SLOGAN_STR")
         if not self.SloganObj then
-            self.SloganObj = self:CreateOrUpdateLabel(mainForm, nil, defaultProperties)
+            self.SloganObj = self:CreateOrUpdateLabel(MainForm, nil, defaultProperties)
         else
-            self:CreateOrUpdateLabel(mainForm, self.SloganObj, defaultProperties)
+            self:CreateOrUpdateLabel(MainForm, self.SloganObj, defaultProperties)
         end
         self.SloganObj = self.SloganObj
     end)
@@ -947,8 +1059,7 @@ registerLuaFunctionHighlight('DestroySloganStr')
 ----------
 function Utility:CreateSignatureStr(str)
     self:RunInMainThread(function()
-        local mainForm = getMainForm()
-        local lblSigned = mainForm.lblSigned
+        local lblSigned = getMainForm().lblSigned
         if lblSigned then
             lblSigned.Caption = str or self.Signature or ""
             lblSigned.Visible = true
@@ -1207,9 +1318,7 @@ end
 --- @return None
 ----------
 function Utility:CreateSlogan()
-    if self.Slogan then
-        self:CreateSloganStr(self.Slogan)
-    end
+    self:CreateSloganStr(self.Slogan)
 end
 
 --
@@ -1217,9 +1326,7 @@ end
 --- @return None
 ----------
 function Utility:CreateSignature()
-    if self.Signature then
-        self:CreateSignatureStr(self.Signature)
-    end
+    self:CreateSignatureStr(self.Signature)
 end
 
 --
