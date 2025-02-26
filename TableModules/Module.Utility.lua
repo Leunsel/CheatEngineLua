@@ -1,6 +1,6 @@
 local NAME = "CTI.Utility"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.3"
+local VERSION = "1.0.4"
 local DESCRIPTION = "Cheat Table Interface (Utility)"
 
 --[[

@@ -1,6 +1,6 @@
 local NAME = 'CTI.FormManager'
 local AUTHOR = {'Leunsel', 'LeFiXER'}
-local VERSION = '1.0.2'
+local VERSION = '1.0.3'
 local DESCRIPTION = 'Cheat Table Interface (Form Manager)'
 
 --[[
@@ -15,6 +15,7 @@ local DESCRIPTION = 'Cheat Table Interface (Form Manager)'
     1.0.0   | ----------   | Leunsel,LeFiXER | Initial release.
     1.0.1   | ----------   | Leunsel         | Added TableFileExplorer
     1.0.2   | 14.02.2025   | Leunsel,LeFiXER | Updated to a diff. Json Module
+    1.0.3   | 26.02.2025   | Leunsel         | Reduced usage of string.format
     -----------------------------------------------------------------------------
     
     Notes:
@@ -431,15 +432,17 @@ function FormManager:ApplyThemeToAddressRecords(theme)
         local newColor = self:GetRecordColor(record, theme, stringTypes, integerTypes, floatTypes)
         -- Ensure correct BGR handling when comparing colors
         if record.Color ~= newColor then
-            self.logger:Info(string.format("Updating color for '%s': Old (#%06X) -> New (#%06X)", record.Description, record.Color, newColor))
+            local logMessage = "Updating color for '" .. record.Description .. "': Old (#" .. string.format("%06X", record.Color) .. ") -> New (#" .. string.format("%06X", newColor) .. ")"
+            self.logger:Info(logMessage)
             record.Color = newColor
             updatedCount = updatedCount + 1
         else
-            self.logger:Debug(string.format("Skipping '%s': Color already set to #%06X", record.Description, record.Color))
+            local logMessage = "Skipping '" .. record.Description .. "': Color already set to #" .. string.format("%06X", record.Color)
+            self.logger:Debug(logMessage)
             skippedCount = skippedCount + 1
         end
     end
-    self.logger:Info(string.format("Color update complete: %d updated, %d skipped.", updatedCount, skippedCount))
+    self.logger:Info("Color update complete: " .. updatedCount .. " updated, " .. skippedCount .. " skipped.")
 end
 
 --
