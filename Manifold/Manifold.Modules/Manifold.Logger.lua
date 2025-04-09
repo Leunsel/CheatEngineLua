@@ -105,9 +105,14 @@ end
 --- @return boolean True if the file was cleared successfully, false if there was an error.
 --
 function Logger:ClearLogFile()
-    local fullFilePath = self.DataDir .. "\\" .. self.LogFileName
+    local logsDir = self.DataDir .. "\\Logs"
+    local fullFilePath = logsDir .. "\\" .. self.LogFileName
+    if not customIO:DirectoryExists(logsDir) and not customIO:CreateDirectory(logsDir) then
+        logger:Error("[Logger] Failed to create 'Logs' directory: " .. logsDir)
+        return false
+    end
     local success, err = pcall(function()
-        local file = io.open(fullFilePath, "w")  -- Open the file in write mode to overwrite it
+        local file = io.open(fullFilePath, "w")
         if file then
             file:close()  -- Simply close the file to clear its contents
             logger:Info("[Logger] Log file cleared: " .. fullFilePath)
@@ -121,6 +126,7 @@ function Logger:ClearLogFile()
         logger:Error("[Logger] Error clearing log file: " .. tostring(err))
         return false
     end
+
     return true
 end
 registerLuaFunctionHighlight('ClearLogFile')
@@ -172,8 +178,11 @@ function Logger:Log(level, message)
     -- We check for customIO since the dependency is loader AFTER the Logger.
     if customIO and self.DataDir and self.LogFileName then
         if customIO:DirectoryExists(self.DataDir) or customIO:CreateDirectory(self.DataDir) then
-            local filePath = self.DataDir .. "\\" .. self.LogFileName
-            customIO:AppendToFile(filePath, formattedMessage)
+            local logsDir = self.DataDir .. "\\Logs"
+            if customIO:DirectoryExists(logsDir) or customIO:CreateDirectory(logsDir) then
+                local filePath = logsDir .. "\\" .. self.LogFileName
+                customIO:AppendToFile(filePath, formattedMessage)
+            end
         end
     end
     if levelId >= self.Level then
@@ -202,8 +211,11 @@ function Logger:ForceLog(level, message)
     -- We check for customIO since the dependency is loader AFTER the Logger.
     if customIO and self.DataDir and self.LogFileName then
         if customIO:DirectoryExists(self.DataDir) or customIO:CreateDirectory(self.DataDir) then
-            local fullFilePath = self.DataDir .. "\\" .. self.LogFileName
-            customIO:AppendToFile(fullFilePath, formattedMessage)
+            local logsDir = self.DataDir .. "\\Logs"
+            if customIO:DirectoryExists(logsDir) or customIO:CreateDirectory(logsDir) then
+                local filePath = logsDir .. "\\" .. self.LogFileName
+                customIO:AppendToFile(filePath, formattedMessage)
+            end
         end
     end
     local success, err = pcall(self.Output, formattedMessage)
