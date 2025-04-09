@@ -490,7 +490,7 @@ function Teleporter:AddSave()
     if not logSavePositionError(name, position) then return end
     self.Saves = self.Saves or {}
     if self.Saves[name] then
-        logger:WarnF("[Teleporter] Duplicate Save Name: '%s'. Overwriting.", name)
+        logger:WarningF("[Teleporter] Duplicate Save Name: '%s'. Overwriting.", name)
     end
     self.Saves[name] = { X = position[1], Y = position[2], Z = position[3] }
     logger:InfoF("[Teleporter] Added Save: '%s' at position (%.4f, %.4f, %.4f).", name, position[1], position[2], position[3])
