@@ -50,7 +50,7 @@ local dataDir = Manifold.CustomIO.GetDataDir()
 
 ## 📦 Modules
 
-### 🔧 Core Utilities
+### Core Utilities
 These modules provide foundational functionality such as file I/O, logging, and general utilities for Table Setup.
 
 - `Manifold.Json` → JSON parser and encoder
@@ -58,13 +58,13 @@ These modules provide foundational functionality such as file I/O, logging, and 
 - `Manifold.Logger` → Structured logging system
 - `Manifold.CustomIO` → Data directory and file operations
 
-### 🧰 Runtime Setup
+### Runtime Setup
 These modules handle runtime configuration and diagnostics.
 
 - `Manifold.Utils` → Displays info, initializes the Cheat Table
 - `Manifold.ProcessHandler` → Sets and manages target process
 
-### 🧠 Functional Modules
+### Functional Modules
 These are the primary tools used during runtime.
 
 - `Manifold.Memory` → Memory read/write
@@ -72,7 +72,7 @@ These are the primary tools used during runtime.
 - `Manifold.AutoAssembler` → Modular AutoAssembler wrapper
 - `Manifold.Teleporter` → Save/restore 3D positions in memory
 
-### 🎨 UI and Themes
+### UI and Themes
 Responsible for user interface adjustments and theme management.
 
 - `Manifold.UI` → Theme system and GUI abstraction
