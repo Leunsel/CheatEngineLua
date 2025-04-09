@@ -67,7 +67,7 @@ These modules handle runtime configuration and diagnostics.
 ### 🧠 Functional Modules
 These are the primary tools used during runtime.
 
-- `Manifold.Memory` → Memory read/write and scanning
+- `Manifold.Memory` → Memory read/write
 - `Manifold.State` → Persistent table state manager
 - `Manifold.AutoAssembler` → Modular AutoAssembler wrapper
 - `Manifold.Teleporter` → Save/restore 3D positions in memory
