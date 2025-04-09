@@ -635,8 +635,12 @@ function Teleporter:SaveLookup()
         logger:Info("[Teleporter] Attempting to load Teleporter save file from '" .. saveFilePath .. "'")
         local data, err = customIO:ReadFromFileAsJson(saveFilePath)
         if data then
-            logger:Info("[Teleporter] Successfully loaded Teleporter save file.")
             self.Saves = data
+            local saveCount = 0
+            for _, _ in pairs(self.Saves) do
+                saveCount = saveCount + 1
+            end
+            logger:Info("[Teleporter] Successfully loaded save data with " .. tostring(saveCount) .. " saves.")
             return data
         elseif err then
             logger:Warning("[Teleporter] Error loading save file: " .. err)
@@ -645,8 +649,12 @@ function Teleporter:SaveLookup()
     logger:Info("[Teleporter] Attempting to load Teleporter data from TableFiles ('" .. saveFileName .. "')")
     local tableData, tableErr = customIO:ReadFromTableFileAsJson(saveFileName)
     if tableData then
-        logger:Info("[Teleporter] Successfully loaded Teleporter data from TableFiles.")
         self.Saves = tableData
+        local saveCount = 0
+        for _, _ in pairs(self.Saves) do
+            saveCount = saveCount + 1
+        end
+        logger:Info("[Teleporter] Successfully loaded table data with " .. tostring(saveCount) .. " saves.")
         return tableData
     elseif tableErr then
         logger:Warning("[Teleporter] Error loading from TableFiles: " .. tableErr)
