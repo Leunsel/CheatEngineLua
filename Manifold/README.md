@@ -43,13 +43,10 @@ local dataDir = Manifold.CustomIO.GetDataDir()
 
 ---
 
-## 📦 Module Load Order
-
-Manifold’s load order ensures critical infrastructure is ready before dependent modules initialize.  
-The main loader (`Manifold.lua`) handles modules in the following order:
+## 📦 Modules
 
 ### 🔧 Core Utilities
-These modules provide foundational functionality such as file I/O, logging, and general utilities.
+These modules provide foundational functionality such as file I/O, logging, and general utilities for Table Setup.
 
 - `Manifold.CustomIO`
 - `Manifold.Logger`
@@ -63,7 +60,7 @@ These modules assist with data handling, process access, and helper functionalit
 - `Manifold.ProcessHandler`
 
 ### 🧠 Functional Modules
-These are the primary tools used during runtime, including memory scanning, state saving, and auto assembling.
+These are the primary tools used during runtime, including memory manipulation, state saving, and auto assembling.
 
 - `Manifold.Memory`
 - `Manifold.State`
@@ -71,13 +68,11 @@ These are the primary tools used during runtime, including memory scanning, stat
 - `Manifold.Teleporter`
 
 ### 🎨 UI and Themes
-Responsible for user interface rendering and theme management.
+Responsible for user interface adjustments and theme management.
 
 - `Manifold.UI`
 
-Each module is loaded once and registered to the global `Manifold` table.  
-Modules are expected to **self-register** when required, exposing their functionality under the appropriate `Manifold.<ModuleName>` namespace.
-
+Each module is only loaded (present) once. Each module got its very own `CheckDependencies()` function to make sure that everything it relies on is available when creating the instance.
 
 ---
 
