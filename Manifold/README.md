@@ -83,7 +83,7 @@ Responsible for user interface adjustments and theme management.
 
 Modules are loaded via a custom helper function, `CETrequire`, which attempts to load from disk first, then from embedded Cheat Engine `TableFiles`.
 
-### 🔁 CETrequire Function
+### CETrequire Function
 
 ```lua
 local tableLuaFilesDirectory = "luaFiles"
