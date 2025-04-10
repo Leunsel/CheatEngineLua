@@ -122,13 +122,16 @@ registerLuaFunctionHighlight('BuildPath')
 --- @note This function logs an error message if the directory creation fails.
 --
 function CustomIO:CreateDirectory(dir)
+    local attributes = lfs.attributes(dir)
+    if attributes and attributes.mode == "directory" then
+        logger:Info("[CustomIO] Directory already exists: " .. dir)
+        return true  -- No need to create it if it already exists
+    end
     local success = lfs.mkdir(dir)
     if not success then
         local err = "Unknown error"
-        if not io.open(dir, "w") then
+        if not lfs.attributes(dir) then
             err = "Permission denied or invalid path"
-        elseif lfs.attributes(dir) then
-            err = "Directory already exists"
         end
         logger:Error("[CustomIO] Failed to create directory '" .. dir .. "'! Error: " .. err)
         return false, err
