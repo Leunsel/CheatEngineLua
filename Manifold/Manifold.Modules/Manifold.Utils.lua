@@ -1,11 +1,14 @@
 local NAME = "Manifold.Utils.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Utils"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-02-26)
+        Minor comment adjustments.
 ]]--
 
 Utils = {
@@ -37,7 +40,7 @@ registerLuaFunctionHighlight('New')
 
 --
 --- ∑ Retrieves module metadata as a structured table.
---- @return table  {name, version, author, description}
+--- @return table # {name, version, author, description}
 --
 function Utils:GetModuleInfo()
     return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
@@ -49,7 +52,9 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --------------------------------------------------------
 
 --
---- ∑ ...
+--- ∑ Retrieves the target (the current target object).
+---   If the target doesn't exist, it returns nil.
+--- @return # The current target or nil if no target is set.
 --
 function Utils:GetTarget()
     return self.Target or nil
@@ -57,7 +62,9 @@ end
 registerLuaFunctionHighlight('GetTarget')
 
 --
---- ∑ ...
+--- ∑ Retrieves the target's name without the file extension.
+---   If the target doesn't exist, it returns nil.
+--- @return # The target name without extension or nil if no target is set.
 --
 function Utils:GetTargetNoExt()
     return self.Target and customIO:StripExt(self.Target) or nil
@@ -67,10 +74,10 @@ registerLuaFunctionHighlight('GetTargetNoExt')
 --
 --- ∑ Automatically disables a memory record after a specified interval.
 ---   If called from a non-main thread, the function ensures thread safety by synchronizing execution.
---- @param id: The ID of the memory record to disable.
---- @param customInterval: (Optional) Custom time interval in milliseconds before disabling.
+--- @param id # The ID of the memory record to disable.
+--- @param customInterval # (Optional) Custom time interval in milliseconds before disabling.
 ---                        Defaults to "self.AutoDisableTimerInterval" if not provided.
---- @return None.
+--- @return # void
 --
 function Utils:AutoDisable(id, customInterval)
     if not inMainThread() then
@@ -104,8 +111,8 @@ registerLuaFunctionHighlight('AutoDisable')
 --
 --- ∑ Verifies the integrity of a file by comparing its MD5 hash to the provided hash.
 ---   If the hashes do not match, a warning is displayed to alert the user.
---- @param hash string - The expected MD5 hash of the file.
---- @return true | false - true is a match, false is a mismatch or error.
+--- @param hash string # The expected MD5 hash of the file.
+--- @return true | false # true is a match, false is a mismatch or error.
 --
 function Utils:VerifyFileHash()
     logger:Debug("[Utils] Starting file hash verification...")
@@ -133,7 +140,7 @@ registerLuaFunctionHighlight('VerifyFileHash')
 --- Sets all memory records of type "Auto Assembler" in the address list to async mode.
 --- This ensures the scripts execute asynchronously.
 ---     [+] Disclaimer: Script(s) need(s) to support async mode!
---- @return None.
+--- @return # void
 --
 function Utils:SetAllScriptsToAsync()
     for i = 0, AddressList.Count - 1 do
@@ -148,7 +155,7 @@ registerLuaFunctionHighlight('SetAllScriptsToAsync')
 --
 --- Sets all memory records of type "Auto Assembler" in the address list to non-async mode.
 --- This ensures the scripts execute synchronously.
---- @return None.
+--- @return # void
 --
 function Utils:SetAllScriptsToNotAsync()
     for i = 0, AddressList.Count - 1 do
@@ -163,8 +170,8 @@ registerLuaFunctionHighlight('SetAllScriptsToNotAsync')
 --
 --- Message Dialog Preset - Info
 --- Displays an informational message dialog to the user.
---- @param message: The message text to display in the dialog.
---- @return None.
+--- @param message # The message text to display in the dialog.
+--- @return # void
 --
 function Utils:ShowInfo(message)
     messageDialog(message, mtInformation, mbOK)
@@ -174,8 +181,8 @@ registerLuaFunctionHighlight('ShowInfo')
 --
 --- Message Dialog Preset - Warning
 --- Displays a warning message dialog to the user.
---- @param message: The message text to display in the dialog.
---- @return None.
+--- @param message # The message text to display in the dialog.
+--- @return # void
 --
 function Utils:ShowWarning(message)
     messageDialog(message, mtWarning, mbOK)
@@ -185,8 +192,8 @@ registerLuaFunctionHighlight('ShowWarning')
 --
 --- Message Dialog Preset - Error
 --- Displays an error message dialog to the user.
---- @param message: The message text to display in the dialog.
---- @return None.
+--- @param message # The message text to display in the dialog.
+--- @return # void
 --
 function Utils:ShowError(message)
     messageDialog(message, mtError, mbOK)
@@ -196,8 +203,8 @@ registerLuaFunctionHighlight('ShowError')
 --
 --- Message Dialog Preset - Confirmation
 --- Displays a confirmation message dialog to the user with "Yes" and "No" options.
---- @param message: The message text to display in the dialog.
---- @return true if the user selects "Yes", false otherwise.
+--- @param message # The message text to display in the dialog.
+--- @return # true if the user selects "Yes", false otherwise.
 --
 function Utils:ShowConfirmation(message)
     local result = messageDialog(message, mtConfirmation, mbYes, mbNo)
@@ -213,7 +220,7 @@ registerLuaFunctionHighlight('ShowConfirmation')
 --- ∑ Conversion Details:
 ---   - In-game time (float) is scaled by 24 (hours in a day) and then by 100 (to represent military time).
 ---   - Reverse scaling is applied for writing values back to memory.
---- @return None.
+--- @return # void
 --
 function Utils:RegisterTimeTypes()
     local TypeName = 'Military Hours'
@@ -239,7 +246,7 @@ registerLuaFunctionHighlight('RegisterTimeTypes')
 ---   The decrypted value is computed as: encrypted / multiplier.
 ---   When writing a value back, the value is multiplied by the multiplier (retrieved from memory) and split into 16 bytes.
 ---   (Used in: Monster Hunter Wilds)
---- @return void
+--- @return # void
 --
 function Utils:RegisterDecryptionType()
     local TypeName, ByteCount, IsFloat = "Decrypted", 16, false
@@ -262,8 +269,8 @@ end
 --
 --- ∑ Removes table files that contain the specified string in their name.
 ---   Opens the "miTable" menu, checks all listed table files, and deletes those containing the given extension.
---- @param extension string The string to match in the table file names (e.g., ".lua").
---- @return void
+--- @param extension string # The string to match in the table file names (e.g., ".lua").
+--- @return # void
 --
 function Utils:RemoveTableFilesByExtension(extension)
     extension = extension or ".lua"
@@ -302,7 +309,7 @@ registerLuaFunctionHighlight('RemoveTableFilesByExtension')
 
 --
 --- ∑ Executes the table Lua script by triggering the Execute button.
---- @return boolean - True if execution succeeds, false otherwise.
+--- @return boolean # True if execution succeeds, false otherwise.
 --
 function Utils:ExecuteTableLuaScript()
     local form = nil
@@ -332,9 +339,9 @@ registerLuaFunctionHighlight('ExecuteTableLuaScript')
 --
 --- ∑ Resolves a pointer path by applying offsets to a base address.
 ---   Reads memory at each step and follows the pointer chain until the final address is resolved.
---- @param baseAddress string|number The base address or symbol.
---- @param offsets table<number> A table containing offsets to apply.
---- @return number|nil The resolved address, or nil if an error occurs.
+--- @param baseAddress string|number # The base address or symbol.
+--- @param offsets table<number> # A table containing offsets to apply.
+--- @return number|nil # The resolved address, or nil if an error occurs.
 --
 function Utils:ResolvePointerPath(baseAddress, offsets)
     if type(baseAddress) ~= "string" and type(baseAddress) ~= "number" then
@@ -372,10 +379,29 @@ end
 registerLuaFunctionHighlight('ResolvePointerPath')
 
 --
+--- ∑ Lua Engine Shortcut
+--- @return # void
+--
+function Utils:OpenLuaEngineWindow()
+    if not inMainThread() then
+        return synchronize(function()
+            self:OpenLuaEngineWindow()
+        end)
+    end
+    local luaEngine = getLuaEngine() or createLuaEngine()
+    if luaEngine then
+        luaEngine.Show()
+    else
+        logger:Warning("[Utils] Failed to open Lua Engine!")
+    end
+end
+registerLuaFunctionHighlight('OpenLuaEngineWindow')
+
+--
 --- ∑ Sets the title of the main Cheat Engine window.
 ---   Ensures thread safety by synchronizing execution if called from a non-main thread.
 ---   The title is formatted using the 'FormatTitle' function based on various components.
---- @return None.
+--- @return # void
 --
 function Utils:SetTitle()
     if not inMainThread() then
@@ -399,8 +425,8 @@ registerLuaFunctionHighlight('SetTitle')
 --
 --- ∑ Formats the Cheat Engine window title using predefined components.
 ---   Constructs a formatted string with relevant game and table version information.
---- @param components table - A table containing title components such as game version, table version, and registry size.
---- @return string - The formatted title string.
+--- @param components table # A table containing title components such as game version, table version, and registry size.
+--- @return string # The formatted title string.
 --
 function Utils:FormatTitle(components)
     return string.format(
@@ -418,7 +444,7 @@ registerLuaFunctionHighlight('FormatTitle')
 --
 --- ∑ Retrieves components used to construct the Cheat Engine window title.
 ---   Extracts information such as game version, table version, registry size, and CE version.
---- @return table - A table containing title components.
+--- @return table # A table containing title components.
 --
 function Utils:GetTitleComponents()
     return {
@@ -435,7 +461,7 @@ registerLuaFunctionHighlight('GetTitleComponents')
 --
 --- ∑ Initializes the Cheat Table by setting up the UI and window title.
 ---   Calls 'ui:InitializeForm()' to prepare the user interface and 'SetTitle()' to update the window title.
---- @return None.
+--- @return # void
 --
 function Utils:InitializeTable()
     ui:InitializeForm()
