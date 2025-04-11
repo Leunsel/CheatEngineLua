@@ -1,11 +1,14 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-04-11)
+        Minor comment adjustments.
 ]]--
 
 ProcessHandler = {
@@ -25,7 +28,7 @@ registerLuaFunctionHighlight('New')
 
 --
 --- ∑ Retrieves module metadata as a structured table.
---- @return table  {name, version, author, description}
+--- @return table # {name, version, author, description}
 --
 function ProcessHandler:GetModuleInfo()
     return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
@@ -38,9 +41,13 @@ registerLuaFunctionHighlight('GetModuleInfo')
 
 --
 --- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
---- @return void
---- @note This function checks for the existence of the 'json' dependency,
----       and attempts to load them if not already present.
+---   The dependencies are specified in a table with their names, paths, and initialization functions.
+--- @return # void
+--- @note This function checks for the existence of the 'logger' and 'utils' dependencies,
+---       and attempts to load them if not already present. If loading fails, an error is logged.
+---
+---   This function ensures that all required dependencies are available before proceeding with the process handler's operations.
+---   It checks if the dependencies are already loaded in the global environment, and if not, it attempts to load them using 'CETrequire'.
 --
 function ProcessHandler:CheckDependencies()
     local dependencies = {
@@ -66,8 +73,11 @@ end
 
 --
 --- ∑ Checks if a process is currently attached.
---- @return boolean True if a process is attached, false otherwise.
+--- @return boolean # True if a process is attached, false otherwise.
 --- @note This function verifies if a process is attached by attempting to read its memory.
+---
+---   This function attempts to read from the process memory. If the read is successful and the result is not 'nil', it confirms that the process is attached.
+---   If an error occurs while reading the memory, a warning message is logged to indicate whether the process is no longer available.
 --
 function ProcessHandler:IsProcessAttached()
     if not process then
@@ -91,7 +101,10 @@ registerLuaFunctionHighlight('IsProcessAttached')
 
 --
 --- ∑ Retrieves the name of the currently attached process.
---- @return string|nil The name of the attached process, or nil if no process is attached.
+--- @return string|nil # The name of the attached process, or nil if no process is attached.
+---
+---   This function checks if a process is attached by calling 'IsProcessAttached'. If the process is attached, it returns the name of the process.
+---   If no process is attached, it returns 'nil'.
 --
 function ProcessHandler:GetAttachedProcessName()
     if self:IsProcessAttached() then
@@ -104,8 +117,11 @@ registerLuaFunctionHighlight('GetAttachedProcessName')
 
 --
 --- ∑ Closes the currently attached process after user confirmation.
---- @return void
+--- @return # void
 --- @note Displays a confirmation dialog before terminating the process.
+---
+---   This function asks the user for confirmation before attempting to terminate the currently attached process using the 'taskkill' command.
+---   If no process is attached, an error message is shown.
 --
 function ProcessHandler:CloseProcess()
     if not self:IsProcessAttached() then
@@ -128,6 +144,9 @@ registerLuaFunctionHighlight('CloseProcess')
 --- @param link string The URL to open.
 --- @return void
 --- @note Displays a confirmation dialog before proceeding.
+---
+---   This function prompts the user for confirmation before opening a specified URL in the default web browser.
+---   If the user confirms, the link is opened using 'ShellExecute'.
 --
 function ProcessHandler:OpenLink(link)
     local result = messageDialog(
@@ -144,6 +163,9 @@ registerLuaFunctionHighlight('OpenLink')
 --- ∑ Automatically attaches to a specified process by repeatedly checking for its existence.
 --- @param processName string|nil The name of the process to attach to. Uses the default process if nil.
 --- @return void
+---
+---   This function automatically attempts to attach to a process by its name at regular intervals, using the 'AutoAttachTimer'.
+---   If the process is found, the 'TryAttachToProcess' function is called to attach to it. If the process is not found within the maximum retries, the timer stops.
 --
 function ProcessHandler:AutoAttach(processName)
     processName = processName or self.ProcessName
@@ -165,6 +187,9 @@ registerLuaFunctionHighlight('AutoAttach')
 --- ∑ Determines whether the auto-attach timer should stop due to exceeding retry limits.
 --- @param timer Timer The active timer instance.
 --- @return boolean True if the auto-attach process should stop, false otherwise.
+---
+---   This function checks if the maximum number of retries for the auto-attach process has been exceeded. 
+---   If it has, the timer is destroyed, and an error message is logged.
 --
 function ProcessHandler:ShouldStopAutoAttach(timer)
     if self.AutoAttachTimerTickMax > 0 and self.AutoAttachTimerTicks >= self.AutoAttachTimerTickMax then
@@ -181,6 +206,9 @@ end
 --- @param processName string The name of the process.
 --- @param processID number The ID of the process.
 --- @return void
+---
+---   This function attempts to attach to the specified process by checking if the process is already attached. If not, it attempts to attach to it.
+---   It also performs necessary post-attachment tasks and handles any process mismatches.
 --
 function ProcessHandler:TryAttachToProcess(timer, processName, processID)
     logger:Debug("[ProcessHandler] Found " .. processName .. " with PID " .. processID .. ". Attempting to attach...")
@@ -205,6 +233,9 @@ end
 --- @param processName string The expected process name.
 --- @param processID number The expected process ID.
 --- @return void
+---
+---   This function checks if the currently attached process matches the expected name and ID. If there is a mismatch, it attempts to reattach to the correct process.
+---   It logs the status and any necessary actions taken during this process.
 --
 function ProcessHandler:HandleProcessMismatch(processName, processID)
     local attachedProcess = process
@@ -225,6 +256,9 @@ end
 --- @param callback function The function to execute on each timer tick.
 --- @return void
 --- @note If an existing timer is running, it will be destroyed before creating a new one.
+---
+---   This function starts the AutoAttach timer to try to attach to a process at regular intervals. 
+---   If a timer is already running, it will be destroyed to ensure only one instance is active.
 --
 function ProcessHandler:StartAutoAttachTimer(callback)
     if self.AutoAttachTimer then
@@ -241,6 +275,9 @@ end
 --- @return void
 --- @note This function is intended to run any post-attachment operations, such as
 ---       setting up tables or verifying file hashes. (Currently unused...)
+---
+---   This function is used for any necessary post-attachment tasks, such as initializing tables or verifying file integrity.
+---   Currently, these tasks are placeholders and may be customized as needed.
 --
 function ProcessHandler:PerformPostAttachTasks()
     utils:InitializeTable()
@@ -251,13 +288,17 @@ end
 
 --
 --- ∑ Starts an auto-attach timer with a specified callback.
---- @param callback function  The function to call on each timer tick.
---- @return void
+---   The callback function will be called on each timer tick.
+--- @param callback function # The function to call on each timer tick.
+--- @return # void
 --- @note 
 --- - Creates a timer attached to the MainForm.
 --- - Sets the timer's interval based on AutoAttachTimerInterval.
 --- - Logs the timer start and its interval.
---
+---
+---   This function sets up a recurring timer to periodically call the specified callback. 
+---   The interval is determined by the 'AutoAttachTimerInterval' property, and the start of the timer is logged for tracking purposes.
+---
 function ProcessHandler:StartAutoAttachTimer(callback)
     local autoAttachTimer = createTimer(MainForm)
     autoAttachTimer.Interval = self.AutoAttachTimerInterval
@@ -266,8 +307,19 @@ function ProcessHandler:StartAutoAttachTimer(callback)
 end
 
 --
---- ∑ ...
---
+--- ∑ Attaches to a process by its name.
+---   If the process is already attached, it checks if it matches the expected process name.
+---   If not, it handles the mismatch.
+--- @param processName string  The name of the process to attach to.
+--- @return bool  Returns true if successfully attached to the process, false otherwise.
+--- @note
+--- - If the process name is invalid or not found, an error is logged.
+--- - If the process is already attached and matches the expected process, a debug message is logged.
+--- - If the process does not match, it handles the mismatch and attempts to attach to the correct process.
+---
+---   This function allows the user to attach to a specified process by name. If the process is already attached and is the expected one, it confirms the attachment. 
+---   Otherwise, it tries to attach to the process specified by 'processName'. If the process cannot be found or attached, an error is logged.
+---
 function ProcessHandler:AttachToProcessByName(processName)
     if self:IsProcessAttached() then
         local attachedProcess = process
