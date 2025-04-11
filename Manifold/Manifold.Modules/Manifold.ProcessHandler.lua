@@ -142,7 +142,7 @@ registerLuaFunctionHighlight('CloseProcess')
 --
 --- ∑ Opens a specified link in the default web browser after user confirmation.
 --- @param link string The URL to open.
---- @return void
+--- @return # void
 --- @note Displays a confirmation dialog before proceeding.
 ---
 ---   This function prompts the user for confirmation before opening a specified URL in the default web browser.
@@ -162,7 +162,7 @@ registerLuaFunctionHighlight('OpenLink')
 --
 --- ∑ Automatically attaches to a specified process by repeatedly checking for its existence.
 --- @param processName string|nil The name of the process to attach to. Uses the default process if nil.
---- @return void
+--- @return # void
 ---
 ---   This function automatically attempts to attach to a process by its name at regular intervals, using the 'AutoAttachTimer'.
 ---   If the process is found, the 'TryAttachToProcess' function is called to attach to it. If the process is not found within the maximum retries, the timer stops.
@@ -185,8 +185,8 @@ registerLuaFunctionHighlight('AutoAttach')
 
 --
 --- ∑ Determines whether the auto-attach timer should stop due to exceeding retry limits.
---- @param timer Timer The active timer instance.
---- @return boolean True if the auto-attach process should stop, false otherwise.
+--- @param timer Timer # The active timer instance.
+--- @return boolean # True if the auto-attach process should stop, false otherwise.
 ---
 ---   This function checks if the maximum number of retries for the auto-attach process has been exceeded. 
 ---   If it has, the timer is destroyed, and an error message is logged.
@@ -202,10 +202,10 @@ end
 
 --
 --- ∑ Attempts to attach to a found process.
---- @param timer Timer The active timer instance.
---- @param processName string The name of the process.
---- @param processID number The ID of the process.
---- @return void
+--- @param timer Timer # The active timer instance.
+--- @param processName string # The name of the process.
+--- @param processID number # The ID of the process.
+--- @return # void
 ---
 ---   This function attempts to attach to the specified process by checking if the process is already attached. If not, it attempts to attach to it.
 ---   It also performs necessary post-attachment tasks and handles any process mismatches.
@@ -230,9 +230,9 @@ end
 
 --
 --- ∑ Ensures the attached process matches the expected process name and ID.
---- @param processName string The expected process name.
---- @param processID number The expected process ID.
---- @return void
+--- @param processName string # The expected process name.
+--- @param processID number # The expected process ID.
+--- @return # void
 ---
 ---   This function checks if the currently attached process matches the expected name and ID. If there is a mismatch, it attempts to reattach to the correct process.
 ---   It logs the status and any necessary actions taken during this process.
@@ -253,8 +253,8 @@ end
 
 --
 --- ∑ Starts the AutoAttach timer to attempt process attachment at regular intervals.
---- @param callback function The function to execute on each timer tick.
---- @return void
+--- @param callback function # The function to execute on each timer tick.
+--- @return # void
 --- @note If an existing timer is running, it will be destroyed before creating a new one.
 ---
 ---   This function starts the AutoAttach timer to try to attach to a process at regular intervals. 
@@ -272,7 +272,7 @@ end
 
 --
 --- ∑ Performs tasks after a successful process attach.
---- @return void
+--- @return # void
 --- @note This function is intended to run any post-attachment operations, such as
 ---       setting up tables or verifying file hashes. (Currently unused...)
 ---
@@ -310,8 +310,8 @@ end
 --- ∑ Attaches to a process by its name.
 ---   If the process is already attached, it checks if it matches the expected process name.
 ---   If not, it handles the mismatch.
---- @param processName string  The name of the process to attach to.
---- @return bool  Returns true if successfully attached to the process, false otherwise.
+--- @param processName string # The name of the process to attach to.
+--- @return bool # Returns true if successfully attached to the process, false otherwise.
 --- @note
 --- - If the process name is invalid or not found, an error is logged.
 --- - If the process is already attached and matches the expected process, a debug message is logged.
