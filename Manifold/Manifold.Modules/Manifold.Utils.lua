@@ -7,7 +7,7 @@ local DESCRIPTION = "Manifold Framework Utils"
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
 
-    ∂ v1.0.1 (2025-02-26)
+    ∂ v1.0.1 (2025-04-11)
         Minor comment adjustments.
 ]]--
 
