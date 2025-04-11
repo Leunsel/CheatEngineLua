@@ -1,11 +1,14 @@
 local NAME = "Manifold.Helper.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Helper"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-04-11)
+        Minor comment adjustments.
 ]]--
 
 Helper = {}
@@ -20,7 +23,7 @@ registerLuaFunctionHighlight('New')
 
 --
 --- ∑ Retrieves module metadata as a structured table.
---- @return table  {name, version, author, description}
+--- @return table # {name, version, author, description}
 --
 function Helper:GetModuleInfo()
     return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
@@ -32,9 +35,8 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --------------------------------------------------------
 
 --
---- Handler: Process Get
 --- ∑ Retrieves the current process object.
---- @return process The current process object.
+--- @return process # The current process object.
 --
 function Helper:GetProcess()
     return process
@@ -42,9 +44,8 @@ end
 registerLuaFunctionHighlight('GetProcess')
 
 --
---- Handler: Process Trimmed Get
 --- ∑ Retrieves the current process name without the ".exe" extension.
---- @return string The name of the current process without the ".exe" extension.
+--- @return string # The name of the current process, excluding the ".exe" extension.
 --
 function Helper:GetProcessTrimmed()
     return process:gsub("%.exe$", "")
@@ -52,9 +53,8 @@ end
 registerLuaFunctionHighlight('GetProcessTrimmed')
 
 --
---- Handler: Game Module Get
 --- ∑ Retrieves the first game module loaded in the process.
---- @return module The first game module object, or nil if no modules are loaded.
+--- @return module # The first game module object, or nil if no modules are loaded.
 --
 function Helper:GetGameModule()
     local modules = enumModules()
@@ -63,9 +63,8 @@ end
 registerLuaFunctionHighlight('GetGameModule')
 
 --
---- Handler: Game Module Is 64-bit
---- ∑ Determines if the game module is 64-bit.
---- @return boolean true if the game module is 64-bit, false if it is not, or nil if no module is found.
+--- ∑ Checks if the game module is 64-bit.
+--- @return boolean # true if the game module is 64-bit, false if not, or nil if no module is found.
 --
 function Helper:GetGameModuleIs64Bit()
     local gm = self:GetGameModule()
@@ -74,9 +73,8 @@ end
 registerLuaFunctionHighlight('GetGameModuleIs64Bit')
 
 --
---- Handler: Game Module Name Get
 --- ∑ Retrieves the name of the game module.
---- @return string The name of the game module, or nil if no module is found.
+--- @return string # The name of the game module, or nil if no module is found.
 --
 function Helper:GetGameModuleName()
     local gm = self:GetGameModule()
@@ -85,9 +83,8 @@ end
 registerLuaFunctionHighlight('GetGameModuleName')
 
 --
---- Handler: Game Module Path Get
 --- ∑ Retrieves the path to the game module's file.
---- @return string The path to the game module's file, or nil if no module is found.
+--- @return string # The file path to the game module, or nil if no module is found.
 --
 function Helper:GetGameModulePathToFile()
     local gm = self:GetGameModule()
@@ -96,9 +93,8 @@ end
 registerLuaFunctionHighlight('GetGameModulePathToFile')
 
 --
---- Handler: Game Module Address Get
 --- ∑ Retrieves the address of the game module in memory.
---- @return integer The address of the game module, or nil if no module is found.
+--- @return integer # The address of the game module in memory, or nil if no module is found.
 --
 function Helper:GetGameModuleAddress()
     local gm = self:GetGameModule()
@@ -106,6 +102,10 @@ function Helper:GetGameModuleAddress()
 end
 registerLuaFunctionHighlight('GetGameModuleAddress')
 
+--
+--- ∑ Retrieves the registry size string based on the game module's architecture.
+--- @return string # A string representing the architecture: "(x64)" for 64-bit or "(x32)" for 32-bit.
+--
 function Helper:GetRegistrySizeStr()
     return self:GetGameModuleIs64Bit() and "(x64)" or "(x32)"
 end
