@@ -1,6 +1,6 @@
 local NAME = "Manifold.CustomIO.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework CustomIO"
 
 --[[
@@ -10,6 +10,9 @@ local DESCRIPTION = "Manifold Framework CustomIO"
     ∂ v1.0.1 (2025-03-27)
         Improved error handling, reduced 'string.format' usage.
         Added CSV read/write support and safe file deletion.
+
+    ∂ v1.0.2 (2025-04-11)
+        Minor comment adjustments.
 ]]--
 
 CustomIO = {}
@@ -39,9 +42,9 @@ registerLuaFunctionHighlight('GetModuleInfo')
 
 --
 --- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
---- @return void
+--- @return # void
 --- @note This function checks for the existence of the 'json' dependency,
----       and attempts to load them if not already present.
+---       and attempts to load it if not already present.
 --
 function CustomIO:CheckDependencies()
     local dependencies = {
@@ -67,8 +70,8 @@ end
 
 --
 --- ∑ Checks if a directory exists.
---- @param dir string  # The directory path to check for existence.
---- @return boolean  # Returns 'true' if the directory exists, 'false' otherwise.
+--- @param dir string # The directory path to check for existence.
+--- @return boolean # Returns 'true' if the directory exists, 'false' otherwise.
 --
 function CustomIO:DirectoryExists(dir)
     local attr = lfs.attributes(dir)
@@ -78,8 +81,8 @@ registerLuaFunctionHighlight('DirectoryExists')
 
 --
 --- ∑ Ensures that a directory exists, creating it if necessary.
---- @param path string  # The directory path to check or create.
---- @return boolean  # Returns 'true' if the directory exists or was created successfully, 'false' otherwise.
+--- @param path string # The directory path to check or create.
+--- @return boolean # Returns 'true' if the directory exists or was created successfully, 'false' otherwise.
 --
 function CustomIO:EnsureDirectoryExists(path)
     if not customIO:DirectoryExists(path) then
@@ -95,9 +98,9 @@ registerLuaFunctionHighlight('EnsureDirectoryExists')
 
 --
 --- ∑ Builds a complete file path from the provided directory and file name.
---- @param dir string  # The directory path.
---- @param fileName string  # The file name (including extension).
---- @return string  # Returns the full path, properly formatted.
+--- @param dir string # The directory path.
+--- @param fileName string # The file name (including extension).
+--- @return string # Returns the full path, properly formatted.
 --
 function CustomIO:BuildPath(dir, fileName)
     if not dir or type(dir) ~= "string" or dir == "" then
@@ -117,8 +120,8 @@ registerLuaFunctionHighlight('BuildPath')
 
 --
 --- ∑ Attempts to create a directory if it does not exist.
---- @param dir string  # The directory path to create.
---- @return boolean  # Returns 'true' if the directory was successfully created, 'false' if there was an error.
+--- @param dir string # The directory path to create.
+--- @return boolean # Returns 'true' if the directory was successfully created, 'false' if there was an error.
 --- @note This function logs an error message if the directory creation fails.
 --
 function CustomIO:CreateDirectory(dir)
@@ -143,8 +146,8 @@ registerLuaFunctionHighlight('CreateDirectory')
 
 --
 --- ∑ Opens a directory using the system's default file explorer.
---- @param dir string  # The directory path to open.
---- @return boolean  # Returns 'true' if the directory was opened successfully, 'false' otherwise.
+--- @param dir string # The directory path to open.
+--- @return boolean # Returns 'true' if the directory was opened successfully, 'false' otherwise.
 --
 function CustomIO:OpenDirectory(dir)
     if not dir or type(dir) ~= "string" or dir == "" then
@@ -168,8 +171,8 @@ registerLuaFunctionHighlight('OpenDirectory')
 
 --
 --- ∑ Strips the extension from a file name.
---- @param fileName string  # The file name to process.
---- @return string|nil  # Returns the file name without the extension, or nil on error.
+--- @param fileName string # The file name to process.
+--- @return string|nil # Returns the file name without the extension, or nil on error.
 --
 function CustomIO:StripExt(fileName)
     if not fileName or type(fileName) ~= "string" or fileName == "" then
@@ -188,8 +191,8 @@ registerLuaFunctionHighlight('StripExt')
 
 --
 --- ∑ Checks if a file exists at the specified path.
---- @param filePath string  # The path of the file to check.
---- @return boolean  # Returns 'true' if the file exists, 'false' otherwise.
+--- @param filePath string # The path of the file to check.
+--- @return boolean # Returns 'true' if the file exists, 'false' otherwise.
 --- @note This function simply attempts to open the file in read mode. If the file can be opened, it is considered to exist.
 --
 function CustomIO:FileExists(filePath)
@@ -205,8 +208,8 @@ registerLuaFunctionHighlight('FileExists')
 
 --
 --- ∑ Attempts to delete a file at the given path.
---- @param filePath string  # The path of the file to delete.
---- @return boolean  # Returns 'true' if the file was successfully deleted, 'false' if there was an error.
+--- @param filePath string # The path of the file to delete.
+--- @return boolean # Returns 'true' if the file was successfully deleted, 'false' if there was an error.
 --- @note This function logs an error message if the file deletion fails.
 --
 function CustomIO:DeleteFile(filePath)
@@ -226,8 +229,8 @@ registerLuaFunctionHighlight('DeleteFile')
 
 --
 --- ∑ Reads the contents of a file and returns it as a string.
---- @param filePath string  # The path of the file to read from.
---- @returns string|nil, string|nil  # Returns the file contents or 'nil' with an error message.
+--- @param filePath string # The path of the file to read from.
+--- @returns string|nil, string|nil # Returns the file contents or 'nil' with an error message.
 --
 function CustomIO:ReadFromFile(filePath)
     if not filePath then
@@ -249,9 +252,9 @@ registerLuaFunctionHighlight('ReadFromFile')
 
 --
 --- ∑ Writes raw text data to a specified file, overwriting it.
---- @param filePath string  # The path of the file to write to.
---- @param text string  # The text content to be written.
---- @return boolean, string|nil  # Returns 'true' if successful, otherwise 'false' and an error message.
+--- @param filePath string # The path of the file to write to.
+--- @param text string # The text content to be written.
+--- @return boolean, string|nil # Returns 'true' if successful, otherwise 'false' and an error message.
 --
 function CustomIO:WriteToFile(filePath, data)
     if not filePath or not data then
@@ -272,9 +275,9 @@ registerLuaFunctionHighlight('WriteToFile')
 
 --
 --- ∑ Appends raw text data to a specified file.
---- @param filePath string  # The path of the file to append to.
---- @param text string  # The text content to be appended.
---- @return boolean, string|nil  # Returns 'true' if successful, otherwise 'false' and an error message.
+--- @param filePath string # The path of the file to append to.
+--- @param text string # The text content to be appended.
+--- @return boolean, string|nil # Returns 'true' if successful, otherwise 'false' and an error message.
 --
 function CustomIO:AppendToFile(filePath, data)
     if not filePath or not data then
@@ -295,9 +298,9 @@ registerLuaFunctionHighlight('AppendToFile')
 
 --
 --- ∑ Attempts to read a CSV file and returns its contents as a table.
---- @param filePath string  # The path of the CSV file to read.
---- @return table  # Returns a table of rows (each row being a table of values), or 'nil' and an error message if failed.
---- @note This function assumes the CSV data is comma-separated and may fail for complex CSV formats (e.g., with commas inside quoted fields).
+--- @param filePath string # The path to the CSV file to read.
+--- @return table|nil, string|nil # A table of rows (each row is a table of values), or 'nil' and an error message if reading fails.
+--- @note Assumes the CSV data is comma-separated and may fail for complex CSV formats (e.g., commas inside quoted fields).
 --
 function CustomIO:ReadCSV(filePath)
     local content, err = self:ReadFromFile(filePath)
@@ -317,10 +320,10 @@ registerLuaFunctionHighlight('ReadCSV')
 
 --
 --- ∑ Writes data to a CSV file at the specified path.
---- @param filePath string  # The path of the CSV file to write to.
---- @param data table  # A table containing rows, where each row is a table of values.
---- @return boolean  # Returns 'true' if the data was successfully written, 'false' if there was an error.
---- @note This function assumes a simple CSV format (comma-separated values). It does not handle special cases like quoted fields with commas.
+--- @param filePath string # The path to the CSV file to write to.
+--- @param data table # A table of rows, each row being a table of values.
+--- @return boolean, string|nil # Returns 'true' if successful, or 'false' and an error message if writing fails.
+--- @note Assumes simple CSV format (comma-separated values) and does not handle special cases like quoted fields with commas.
 --
 function CustomIO:WriteCSV(filePath, data)
     if not filePath or not data then
@@ -343,9 +346,9 @@ registerLuaFunctionHighlight('WriteCSV')
 
 --
 --- ∑ Reads the content of a Cheat Engine table file and returns it as a string.
---- If the file does not exist, it logs a warning and returns 'nil'.
---- @param fileName string  # The name of the table file to read from.
---- @return string|nil  # Returns the file content as a string, or 'nil' if an error occurs.
+--- @param fileName string # The name of the table file to read from.
+--- @return string|nil, string|nil # The file content as a string, or 'nil' and an error message if reading fails.
+--- @note Logs a warning if the file is not found.
 --
 function CustomIO:ReadFromTableFile(fileName)
     if not fileName then
@@ -373,10 +376,10 @@ registerLuaFunctionHighlight('ReadFromTableFile')
 
 --
 --- ∑ Writes a given text string to a Cheat Engine table file.
----   If the specified file is not found, the function attempts to create it.
---- @param fileName string  # The name of the table file to write to.
---- @param text string  # The text content to be written to the file.
---- @return boolean  # Returns true if the write operation is successful, otherwise false.
+--- @param fileName string # The name of the table file to write to.
+--- @param text string # The text content to be written to the file.
+--- @return boolean # Returns true if the write operation is successful, otherwise false.
+--- @note Attempts to create the file if not found.
 --
 function CustomIO:WriteToTableFile(fileName, text)
     if not fileName or type(text) ~= "string" then
@@ -406,10 +409,10 @@ end
 registerLuaFunctionHighlight('WriteToTableFile')
 
 --
---- ∑ Reads the content of a Cheat Engine table file and returns it as a JSON object.
---- If the file does not exist, it logs a warning and returns 'nil'.
---- @param fileName string  # The name of the table file to read from.
---- @return table|nil  # Returns the file content as a parsed JSON table, or 'nil' if an error occurs.
+--- ∑ Reads the content of a Cheat Engine table file and returns it as a parsed JSON object.
+--- @param fileName string # The name of the table file to read from.
+--- @return table|nil, string|nil # The parsed JSON content as a table, or 'nil' and an error message if reading or parsing fails.
+--- @note Logs a warning if the file is not found.
 --
 function CustomIO:ReadFromTableFileAsJson(fileName)
     local content, err = self:ReadFromTableFile(fileName)
@@ -428,11 +431,11 @@ end
 registerLuaFunctionHighlight('ReadFromTableFileAsJson')
 
 --
---- ∑ Writes a given table as JSON to a Cheat Engine table file.
---- If the specified file is not found, the function attempts to create it.
---- @param fileName string  # The name of the table file to write to.
---- @param data table  # The table to be serialized as JSON and written to the file.
---- @return boolean  # Returns true if the write operation is successful, otherwise false.
+--- ∑ Writes a table as JSON to a Cheat Engine table file.
+--- @param fileName string # The name of the table file to write to.
+--- @param data table # The table to be serialized as JSON and written to the file.
+--- @return boolean # Returns true if the write operation is successful, otherwise false.
+--- @note Attempts to create the file if not found.
 --
 function CustomIO:WriteToTableFileAsJson(fileName, data)
     if not fileName or type(data) ~= "table" then
@@ -450,8 +453,8 @@ registerLuaFunctionHighlight('WriteToTableFileAsJson')
 
 --
 --- ∑ Reads a JSON file, decodes it into a Lua table, and returns the data.
---- @param filePath string  # The path of the JSON file to read from.
---- @returns table|nil, string|nil  # Returns the parsed table or 'nil' with an error message.
+--- @param filePath string # The path of the JSON file to read from.
+--- @returns table|nil, string|nil # Returns the parsed table or 'nil' with an error message if reading or decoding fails.
 --
 function CustomIO:ReadFromFileAsJson(filePath)
     if not self:FileExists(filePath) then
@@ -473,9 +476,9 @@ registerLuaFunctionHighlight('ReadFromFileAsJson')
 
 --
 --- ∑ Serializes Lua data into JSON and writes it to a specified file.
---- @param filePath string  # The path of the file to write to.
---- @param data table  # The Lua table to be serialized as JSON.
---- @return boolean, string|nil  # Returns 'true' if successful, otherwise 'false' and an error message.
+--- @param filePath string # The path of the file to write to.
+--- @param data table # The Lua table to be serialized as JSON.
+--- @return boolean, string|nil # Returns 'true' if successful, or 'false' and an error message if writing fails.
 --
 function CustomIO:WriteToFileAsJson(filePath, data)
     if not filePath or not data then
@@ -495,8 +498,8 @@ registerLuaFunctionHighlight('WriteToFileAsJson')
 
 --
 --- ∑ Ensures the Data Directory exists.
---- @return true|false
---- @note Attempts to create the directory if it does not exist. Logs success or failure.
+--- @return boolean # Returns true if the directory exists or is created successfully, false if creation fails.
+--- @note Logs success or failure when attempting to create the directory.
 --
 function CustomIO:EnsureDataDirectory()
     local dataDir = self.DataDir
