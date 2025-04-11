@@ -1,11 +1,14 @@
 local NAME = "Manifold.Memory.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Memory"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-02-26)
+        Minor comment adjustments.
 ]]--
 
 Memory = {}
@@ -20,7 +23,7 @@ registerLuaFunctionHighlight('New')
 
 --
 --- ∑ Retrieves module metadata as a structured table.
---- @return table  {name, version, author, description}
+--- @return table # {name, version, author, description}
 --
 function Memory:GetModuleInfo()
     return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
@@ -31,13 +34,14 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --                  Module Start                      --
 --------------------------------------------------------
 
---
---- Handler: Safe Address Read
---- ∑ Retrieves the address corresponding to the given symbol (AddressString), 
----   and returns the address as an integer, or nil if not found.
---- @param AddressString: string The symbol or module name to query for the address.
---- @param local: boolean Optional flag to query the symbol table of the CE process (defaults to false).
---- @return integer The address corresponding to the AddressString, or nil if not found.
+-- 
+--- SafeGetAddress
+--- ∑ Retrieves the address for a given symbol (AddressString). 
+---   If the address is found, it returns the address as an integer. 
+---   Otherwise, it returns nil.
+--- @param AddressString string # The symbol or module name to query for the address.
+--- @param isLocal boolean # Optional flag to query the local symbol table (default is false).
+--- @return integer # The address corresponding to AddressString, or nil if not found.
 --
 function Memory:SafeGetAddress(AddressString, isLocal)
     local localQuery = isLocal or false
@@ -50,11 +54,12 @@ function Memory:SafeGetAddress(AddressString, isLocal)
 end
 registerLuaFunctionHighlight('SafeGetAddress')
 
---
---- Handler: BYTE Read
---- ∑ Reads a single byte from the specified address.
---- @param address: The memory address to read from.
---- @return The byte value, or nil if the read fails.
+-- 
+--- SafeReadByte
+--- ∑ Reads a byte from the given address. 
+---   If the read is successful, it returns the byte value; otherwise, it returns nil.
+--- @param address integer # The memory address to read from.
+--- @return integer # The byte value read from the address, or nil if the read fails.
 --
 function Memory:SafeReadByte(address)
     local value = readByte(address)
@@ -67,12 +72,13 @@ function Memory:SafeReadByte(address)
 end
 registerLuaFunctionHighlight('SafeReadByte')
 
---
---- Handler: BYTE Write
---- ∑ Writes a single Byte to the specified address.
---- @param address: The memory address to write to.
---- @param value: The byte value to write.
---- @return true if the write succeeds, false otherwise.
+-- 
+--- SafeWriteByte
+--- ∑ Writes a byte to the specified address.
+---   Returns true if the write is successful, otherwise false.
+--- @param address integer # The memory address to write to.
+--- @param value integer # The byte value to write.
+--- @return boolean # True if the write is successful, false otherwise.
 --
 function Memory:SafeWriteByte(address, value)
     local success = writeByte(address, value)
@@ -85,12 +91,13 @@ function Memory:SafeWriteByte(address, value)
 end
 registerLuaFunctionHighlight('SafeWriteByte')
 
---
---- Handler: BYTE Add
---- ∑ Adds a value to the current Byte value at the specified address.
---- @param address: The memory address to modify.
---- @param value: The value to add.
---- @return true if the operation succeeds, false otherwise.
+-- 
+--- SafeAddByte
+--- ∑ Adds a value to the current byte value at the given address.
+---   If the read and write operations are successful, returns true; otherwise, returns false.
+--- @param address integer # The memory address to modify.
+--- @param value integer # The value to add to the current byte value.
+--- @return boolean # True if the operation succeeds, false otherwise.
 --
 function Memory:SafeAddByte(address, value)
     local currentValue = self:SafeReadByte(address)
@@ -109,12 +116,12 @@ function Memory:SafeAddByte(address, value)
 end
 registerLuaFunctionHighlight('SafeAddByte')
 
---
---- Handler: WORD Read
---- ∑ Reads a single 2-Byte from the specified address.
---- @param address: The memory address to modify.
---- @param value: The value to add.
---- @return true if the operation succeeds, false otherwise.
+-- 
+--- SafeReadWord
+--- ∑ Reads a 2-byte value from the specified address.
+---   If successful, returns the word value; otherwise, returns nil.
+--- @param address integer # The memory address to read from.
+--- @return integer # The 2-byte value read from the address, or nil if the read fails.
 --
 function Memory:SafeReadWord(address)
     local value = readSmallInteger(address)
@@ -127,12 +134,13 @@ function Memory:SafeReadWord(address)
 end
 registerLuaFunctionHighlight('SafeReadWord')
 
---
---- Handler: WORD Write
---- ∑ Writes a single 2-Byte value to the specified address.
---- @param address: The memory address to write to.
---- @param value: The word value to write.
---- @return true if the write succeeds, false otherwise.
+-- 
+--- SafeWriteWord
+--- ∑ Writes a 2-byte value to the specified address.
+---   Returns true if the write is successful, otherwise false.
+--- @param address integer # The memory address to write to.
+--- @param value integer # The word value to write.
+--- @return boolean # True if the write is successful, false otherwise.
 --
 function Memory:SafeWriteWord(address, value)
     local success = writeSmallInteger(address, value)
@@ -145,12 +153,13 @@ function Memory:SafeWriteWord(address, value)
 end
 registerLuaFunctionHighlight('SafeWriteWord')
 
---
---- Handler: WORD Add
---- ∑ Adds a value to the current word value at the specified address.
---- @param address: The memory address to modify.
---- @param value: The value to add.
---- @return true if the operation succeeds, false otherwise.
+-- 
+--- SafeAddWord
+--- ∑ Adds a value to the current 2-byte value at the specified address.
+---   Returns true if the operation succeeds, otherwise false.
+--- @param address integer # The memory address to modify.
+--- @param value integer # The value to add.
+--- @return boolean # True if the operation succeeds, false otherwise.
 --
 function Memory:SafeAddWord(address, value)
     local currentValue = self:SafeReadWord(address)
@@ -169,11 +178,12 @@ function Memory:SafeAddWord(address, value)
 end
 registerLuaFunctionHighlight('SafeAddWord')
 
---
---- Handler: INTEGER Read
---- ∑ Reads an integer from the specified address.
---- @param address: The memory address to read from.
---- @return The integer value, or nil if the read fails.
+-- 
+--- SafeReadInteger
+--- ∑ Reads a 4-byte integer from the specified address.
+---   Returns the integer value if the read is successful; otherwise, returns nil.
+--- @param address integer # The memory address to read from.
+--- @return integer # The integer value read from the address, or nil if the read fails.
 --
 function Memory:SafeReadInteger(address)
     local value = readInteger(address)
@@ -186,12 +196,13 @@ function Memory:SafeReadInteger(address)
 end
 registerLuaFunctionHighlight('SafeReadInteger')
 
---
---- Handler: INTEGER Write
---- ∑ Writes an integer to the specified address.
---- @param address: The memory address to write to.
---- @param value: The integer value to write.
---- @return true if the write succeeds, false otherwise.
+-- 
+--- SafeWriteInteger
+--- ∑ Writes a 4-byte integer to the specified address.
+---   Returns true if the write is successful; otherwise, false.
+--- @param address integer # The memory address to write to.
+--- @param value integer # The integer value to write.
+--- @return boolean # True if the write is successful, false otherwise.
 --
 function Memory:SafeWriteInteger(address, value)
     local success = writeInteger(address, value)
@@ -203,12 +214,14 @@ function Memory:SafeWriteInteger(address, value)
 end
 registerLuaFunctionHighlight('SafeWriteInteger')
 
---
---- Handler: INTEGER Add
+
+-- 
+--- SafeAddInteger
 --- ∑ Adds a value to the current integer value at the specified address.
---- @param address: The memory address to modify.
---- @param value: The value to add.
---- @return true if the operation succeeds, false otherwise.
+---   Returns true if the operation succeeds, otherwise false.
+--- @param address integer # The memory address to modify.
+--- @param value integer # The value to add.
+--- @return boolean # True if the operation succeeds, false otherwise.
 --
 function Memory:SafeAddInteger(address, value)
     local currentValue = self:SafeReadInteger(address)
@@ -227,11 +240,12 @@ function Memory:SafeAddInteger(address, value)
 end
 registerLuaFunctionHighlight('SafeAddInteger')
 
---
---- Handler: QWORD Read
---- ∑ Reads an 8-Byte value from the specified address.
---- @param address: The memory address to read from.
---- @return value: The QWord value read from the address or nil if the read fails.
+-- 
+--- SafeReadQWord
+--- ∑ Reads an 8-byte QWord value from the specified address.
+---   Returns the value if successful, otherwise returns nil.
+--- @param address integer # The memory address to read from.
+--- @return integer # The 8-byte value read from the address, or nil if the read fails.
 --
 function Memory:SafeReadQWord(address)
     local value = readQword(address)
@@ -244,12 +258,13 @@ function Memory:SafeReadQWord(address)
 end
 registerLuaFunctionHighlight('SafeReadQWord')
 
---
---- Handler: QWORD Write
---- ∑ Writes an 8-Byte value to the specified address.
---- @param address: The memory address to write to.
---- @param value: The QWord value to write.
---- @return true if the write succeeds, false otherwise.
+-- 
+--- SafeWriteQWord
+--- ∑ Writes an 8-byte QWord value to the specified address.
+---   Returns true if the write is successful, otherwise false.
+--- @param address integer # The memory address to write to.
+--- @param value integer # The QWord value to write.
+--- @return boolean # True if the write is successful, false otherwise.
 --
 function Memory:SafeWriteQWord(address, value)
     local success = writeQword(address, value)  -- Assuming writeBytes can handle 8-byte writes for QWords
@@ -262,12 +277,13 @@ function Memory:SafeWriteQWord(address, value)
 end
 registerLuaFunctionHighlight('SafeWriteQWord')
 
---
---- Handler: QWORD Add
+-- 
+--- SafeAddQWord
 --- ∑ Adds a value to the current QWord value at the specified address.
---- @param address: The memory address to modify.
---- @param value: The value to add.
---- @return true if the operation succeeds, false otherwise.
+---   Returns true if the operation succeeds, otherwise false.
+--- @param address integer # The memory address to modify.
+--- @param value integer # The value to add.
+--- @return boolean # True if the operation succeeds, false otherwise.
 --
 function Memory:SafeAddQWord(address, value)
     local currentValue = self:SafeReadQWord(address)
@@ -286,11 +302,12 @@ function Memory:SafeAddQWord(address, value)
 end
 registerLuaFunctionHighlight('SafeAddQWord')
 
---
---- Handler: FLOAT Read
---- ∑ Reads a float from the specified address.
---- @param address: The memory address to read from.
---- @return The float value, or nil if the read fails.
+-- 
+--- SafeReadFloat
+--- ∑ Reads a float value from the specified memory address.
+---   If the read is successful, it returns the float value; otherwise, it returns nil.
+--- @param address integer # The memory address to read from.
+--- @return float # The float value read from the address, or nil if the read fails.
 --
 function Memory:SafeReadFloat(address)
     local value = readFloat(address)
@@ -302,12 +319,14 @@ function Memory:SafeReadFloat(address)
     return value
 end
 registerLuaFunctionHighlight('SafeReadFloat')
---
---- Handler: FLOAT Write
---- ∑ Writes a float to the specified address.
---- @param address: The memory address to write to.
---- @param value: The float value to write.
---- @return true if the write succeeds, false otherwise.
+
+-- 
+--- SafeWriteFloat
+--- ∑ Writes a float value to the specified memory address.
+---   Returns true if the write operation succeeds, otherwise false.
+--- @param address integer # The memory address to write to.
+--- @param value float # The float value to write to the address.
+--- @return boolean # True if the write is successful, false otherwise.
 --
 function Memory:SafeWriteFloat(address, value)
     local success = writeFloat(address, value)
@@ -320,12 +339,13 @@ function Memory:SafeWriteFloat(address, value)
 end
 registerLuaFunctionHighlight('SafeWriteFloat')
 
---
---- Handler: FLOAT Add
+-- 
+--- SafeAddFloat
 --- ∑ Adds a value to the current float value at the specified address.
---- @param address: The memory address to modify.
---- @param value: The value to add.
---- @return true if the operation succeeds, false otherwise.
+---   If the read and write operations are successful, returns true; otherwise, false.
+--- @param address integer # The memory address to modify.
+--- @param value float # The value to add to the current float value.
+--- @return boolean # True if the addition is successful, false otherwise.
 --
 function Memory:SafeAddFloat(address, value)
     local currentValue = self:SafeReadFloat(address)
@@ -344,11 +364,12 @@ function Memory:SafeAddFloat(address, value)
 end
 registerLuaFunctionHighlight('SafeAddFloat')
 
---
---- Handler: DOUBLE Read
---- ∑ Reads a double from the specified address.
---- @param address: The memory address to read from.
---- @return The double value, or nil if the read fails.
+-- 
+--- SafeReadDouble
+--- ∑ Reads a double value from the specified memory address.
+---   If the read is successful, it returns the double value; otherwise, it returns nil.
+--- @param address integer # The memory address to read from.
+--- @return double # The double value read from the address, or nil if the read fails.
 --
 function Memory:SafeReadDouble(address)
     local value = readDouble(address)
@@ -361,12 +382,13 @@ function Memory:SafeReadDouble(address)
 end
 registerLuaFunctionHighlight('SafeReadDouble')
 
---
---- Handler: DOUBLE Write
---- ∑ Writes a double to the specified address.
---- @param address: The memory address to write to.
---- @param value: The double value to write.
---- @return true if the write succeeds, false otherwise.
+-- 
+--- SafeWriteDouble
+--- ∑ Writes a double value to the specified memory address.
+---   Returns true if the write operation is successful, otherwise false.
+--- @param address integer # The memory address to write to.
+--- @param value double # The double value to write to the address.
+--- @return boolean # True if the write is successful, false otherwise.
 --
 function Memory:SafeWriteDouble(address, value)
     local success = writeDouble(address, value)
@@ -379,12 +401,13 @@ function Memory:SafeWriteDouble(address, value)
 end
 registerLuaFunctionHighlight('SafeWriteDouble')
 
---
---- Handler: DOUBLE Add
+-- 
+--- SafeAddDouble
 --- ∑ Adds a value to the current double value at the specified address.
---- @param address: The memory address to modify.
---- @param value: The value to add.
---- @return true if the operation succeeds, false otherwise.
+---   If the read and write operations are successful, returns true; otherwise, false.
+--- @param address integer # The memory address to modify.
+--- @param value double # The value to add to the current double value.
+--- @return boolean # True if the operation is successful, false otherwise.
 --
 function Memory:SafeAddDouble(address, value)
     local currentValue = self:SafeReadDouble(address)
