@@ -6,6 +6,10 @@ local DESCRIPTION = "Manifold Framework Logger"
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-04-11)
+        Minor comment adjustments.
+        Added a dedicated "Logs" Directory to log to.
 ]]--
 
 Logger = {
@@ -26,7 +30,7 @@ registerLuaFunctionHighlight('New')
 
 --
 ---- ∑ Retrieves module metadata as a structured table.
---- @return table  {name, version, author, description}
+--- @return table # {name, version, author, description}
 --
 function Logger:GetModuleInfo()
     return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
@@ -38,8 +42,8 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --------------------------------------------------------
 
 --
----- ∑ Logger levels for controlling log output.
---- @table Levels {DEBUG, INFO, WARNING, ERROR, CRITICAL}
+--- ∑ Logger levels for controlling log output.
+--- @table Levels # {DEBUG, INFO, WARNING, ERROR, CRITICAL}
 --
 Logger.Levels = {
     DEBUG = 1,
@@ -56,7 +60,9 @@ for name, id in pairs(Logger.Levels) do
 end
 
 --
---- ∑ ...
+--- ∑ Sets the log file name for the logger. 
+---   If no name is provided, the default log file name is used.
+--- @param name string # The name of the log file. If not provided, a default name is used.
 --
 function Logger:SetLogFileName(name)
     if not name or name == "" then
@@ -69,8 +75,9 @@ end
 registerLuaFunctionHighlight('SetLogFileName')
 
 --
----- ∑ Sets the logging level.
---- @param level number The log level to set.
+--- ∑ Sets the logging level for the logger. 
+---   The level controls which messages are logged based on severity.
+--- @param level number # The log level to set. It can be a number (1 = DEBUG, 2 = INFO, etc.) or a string.
 --
 function Logger:SetLevel(level)
     local newLevel = type(level) == "number" and level or self.Levels[level] or self.Levels.INFO
@@ -84,8 +91,9 @@ end
 registerLuaFunctionHighlight('SetLevel')
 
 --
---- ∑ Sets the output function for log messages.
---- @param outputFunc function The function to handle output (e.g., print).
+--- ∑ Sets the output function for log messages. 
+---   This function will handle where log messages are output (e.g., print or a custom function).
+--- @param outputFunc function # The function to handle output (e.g., print). If not provided, it defaults to `print`.
 --
 function Logger:SetOutput(outputFunc)
     self.Output = outputFunc or print
@@ -94,7 +102,7 @@ registerLuaFunctionHighlight('SetOutput')
 
 --
 --- ∑ Retrieves the current date and time in a formatted string.
---- @return string The current time formatted as "[HH:MM:SS]".
+--- @return string # The current time formatted as "[HH:MM:SS]".
 --
 local function GetDateTime()
     return os.date("[%H:%M:%S]")
@@ -102,7 +110,8 @@ end
 
 --
 --- ∑ Clears the log file if it exists.
---- @return boolean True if the file was cleared successfully, false if there was an error.
+---   This function removes all content from the log file while keeping the file itself intact.
+--- @return boolean # True if the file was cleared successfully, false if there was an error.
 --
 function Logger:ClearLogFile()
     local logsDir = self.DataDir .. "\\Logs"
@@ -132,10 +141,11 @@ end
 registerLuaFunctionHighlight('ClearLogFile')
 
 --
---- ∑ Converts values into a string representation.
---- @param value any The value to be converted to a string.
---- @param processed table A table of processed tables to avoid infinite recursion.
---- @return string The stringified value.
+--- ∑ Converts values into a string representation. 
+---   This handles recursion for tables and other complex types.
+--- @param value any # The value to be converted into a string.
+--- @param processed table # A table used to track already processed tables to avoid infinite recursion.
+--- @return string # The stringified value.
 --
 function Logger:Stringify(value, processed)
     processed = processed or {}
@@ -163,8 +173,9 @@ registerLuaFunctionHighlight('Stringify')
 
 --
 --- ∑ Logs a message at a specified log level.
---- @param levelName string The log level (e.g., "DEBUG", "INFO").
---- @param message any The message to be logged.
+---   The level is checked against the current logging level to decide if the message should be logged.
+--- @param levelName string # The log level (e.g., "DEBUG", "INFO").
+--- @param message any # The message to be logged.
 --
 function Logger:Log(level, message)
     local levelName = type(level) == "number" and self.LevelNames[level] or level
@@ -196,8 +207,8 @@ registerLuaFunctionHighlight('Log')
 
 --
 --- ∑ Logs a forced log message regardless of the current log level.
---- @param levelName string The log level (e.g., "DEBUG", "INFO").
---- @param message any The message to be logged.
+--- @param levelName string # The log level (e.g., "DEBUG", "INFO").
+--- @param message any # The message to be logged.
 --
 function Logger:ForceLog(level, message)
     local levelName = type(level) == "number" and self.LevelNames[level] or level
@@ -224,153 +235,173 @@ function Logger:ForceLog(level, message)
     end
 end
 
---
---- ∑ Logs a debug message.
---- @param message any The message to be logged.
---
-function Logger:Debug(message)    self:Log(self.Levels.DEBUG, tostring(message)) end
+-- 
+--- Debug
+--- ∑ Logs a debug message. 
+---   The message is converted to a string and logged at the DEBUG level.
+--- @param message any # The message to be logged.
+function Logger:Debug(message) self:Log(self.Levels.DEBUG, tostring(message)) end
 registerLuaFunctionHighlight('Debug')
 
---
---- ∑ Logs an info message.
---- @param message any The message to be logged.
---
-function Logger:Info(message)     self:Log(self.Levels.INFO, tostring(message)) end
+-- 
+--- Info
+--- ∑ Logs an info message. 
+---   The message is converted to a string and logged at the INFO level.
+--- @param message any # The message to be logged.
+function Logger:Info(message) self:Log(self.Levels.INFO, tostring(message)) end
 registerLuaFunctionHighlight('Info')
 
---
---- ∑ Logs a warning message.
---- @param message any The message to be logged.
---
-function Logger:Warning(message)  self:Log(self.Levels.WARNING, tostring(message)) end
+-- 
+--- Warning
+--- ∑ Logs a warning message. 
+---   The message is converted to a string and logged at the WARNING level.
+--- @param message any # The message to be logged.
+function Logger:Warning(message) self:Log(self.Levels.WARNING, tostring(message)) end
 registerLuaFunctionHighlight('Warning')
 
---
---- ∑ Logs an error message.
---- @param message any The message to be logged.
---
-function Logger:Error(message)    self:Log(self.Levels.ERROR, tostring(message)) end
+-- 
+--- Error
+--- ∑ Logs an error message. 
+---   The message is converted to a string and logged at the ERROR level.
+--- @param message any # The message to be logged.
+function Logger:Error(message) self:Log(self.Levels.ERROR, tostring(message)) end
 registerLuaFunctionHighlight('Error')
 
---
---- ∑ Logs a critical message.
---- @param message any The message to be logged.
---
+-- 
+--- Critical
+--- ∑ Logs a critical message. 
+---   The message is converted to a string and logged at the CRITICAL level.
+--- @param message any # The message to be logged.
 function Logger:Critical(message) self:Log(self.Levels.CRITICAL, tostring(message)) end
 registerLuaFunctionHighlight('Critical')
 
---
---- ∑ Logs a formatted debug message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:DebugF(message, ...)    self:Log(self.Levels.DEBUG, string.format(message, ...)) end
+-- 
+--- DebugF
+--- ∑ Logs a formatted debug message. 
+---   The message is formatted using the provided arguments and logged at the DEBUG level.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:DebugF(message, ...) self:Log(self.Levels.DEBUG, string.format(message, ...)) end
 registerLuaFunctionHighlight('DebugF')
 
---
---- ∑ Logs a formatted info message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:InfoF(message, ...)     self:Log(self.Levels.INFO, string.format(message, ...)) end
+-- 
+--- InfoF
+--- ∑ Logs a formatted info message. 
+---   The message is formatted using the provided arguments and logged at the INFO level.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:InfoF(message, ...) self:Log(self.Levels.INFO, string.format(message, ...)) end
 registerLuaFunctionHighlight('InfoF')
 
---
---- ∑ Logs a formatted warning message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:WarningF(message, ...)  self:Log(self.Levels.WARNING, string.format(message, ...)) end
+-- 
+--- WarningF
+--- ∑ Logs a formatted warning message. 
+---   The message is formatted using the provided arguments and logged at the WARNING level.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:WarningF(message, ...) self:Log(self.Levels.WARNING, string.format(message, ...)) end
 registerLuaFunctionHighlight('WarningF')
 
---
---- ∑ Logs a formatted error message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:ErrorF(message, ...)    self:Log(self.Levels.ERROR, string.format(message, ...)) end
+-- 
+--- ErrorF
+--- ∑ Logs a formatted error message. 
+---   The message is formatted using the provided arguments and logged at the ERROR level.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:ErrorF(message, ...) self:Log(self.Levels.ERROR, string.format(message, ...)) end
 registerLuaFunctionHighlight('ErrorF')
 
---
---- ∑ Logs a formatted critical message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
+-- 
+--- CriticalF
+--- ∑ Logs a formatted critical message. 
+---   The message is formatted using the provided arguments and logged at the CRITICAL level.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
 function Logger:CriticalF(message, ...) self:Log(self.Levels.CRITICAL, string.format(message, ...)) end
 registerLuaFunctionHighlight('CriticalF')
 
---
---- ∑ Logs a forced debug message.
---- @param message any The message to be logged.
---
-function Logger:ForceDebug(message)    self:ForceLog(self.Levels.DEBUG, tostring(message)) end
+-- 
+--- ForceDebug
+--- ∑ Logs a forced debug message. 
+---   The message is converted to a string and forced to log at the DEBUG level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+function Logger:ForceDebug(message) self:ForceLog(self.Levels.DEBUG, tostring(message)) end
 registerLuaFunctionHighlight('ForceDebug')
 
---
---- ∑ Logs a forced info message.
---- @param message any The message to be logged.
---
-function Logger:ForceInfo(message)     self:ForceLog(self.Levels.INFO, tostring(message)) end
+-- 
+--- ForceInfo
+--- ∑ Logs a forced info message. 
+---   The message is converted to a string and forced to log at the INFO level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+function Logger:ForceInfo(message) self:ForceLog(self.Levels.INFO, tostring(message)) end
 registerLuaFunctionHighlight('ForceInfo')
 
---
---- ∑ Logs a forced warning message.
---- @param message any The message to be logged.
---
-function Logger:ForceWarning(message)  self:ForceLog(self.Levels.WARNING, tostring(message)) end
+-- 
+--- ForceWarning
+--- ∑ Logs a forced warning message. 
+---   The message is converted to a string and forced to log at the WARNING level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+function Logger:ForceWarning(message) self:ForceLog(self.Levels.WARNING, tostring(message)) end
 registerLuaFunctionHighlight('ForceWarning')
 
---
---- ∑ Logs a forced error message.
---- @param message any The message to be logged.
---
-function Logger:ForceError(message)    self:ForceLog(self.Levels.ERROR, tostring(message)) end
+-- 
+--- ForceError
+--- ∑ Logs a forced error message. 
+---   The message is converted to a string and forced to log at the ERROR level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+function Logger:ForceError(message) self:ForceLog(self.Levels.ERROR, tostring(message)) end
 registerLuaFunctionHighlight('ForceError')
 
---
---- ∑ Logs a forced critical message.
---- @param message any The message to be logged.
---
+-- 
+--- ForceCritical
+--- ∑ Logs a forced critical message. 
+---   The message is converted to a string and forced to log at the CRITICAL level, ignoring any log level filters.
+--- @param message any # The message to be logged.
 function Logger:ForceCritical(message) self:ForceLog(self.Levels.CRITICAL, tostring(message)) end
 registerLuaFunctionHighlight('ForceCritical')
 
---
---- ∑ Logs a forced formatted debug message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:ForceDebugF(message, ...)    self:ForceLog(self.Levels.DEBUG, string.format(message, ...)) end
+-- 
+--- ForceDebugF
+--- ∑ Logs a forced formatted debug message. 
+---   The message is formatted using the provided arguments and forced to log at the DEBUG level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:ForceDebugF(message, ...) self:ForceLog(self.Levels.DEBUG, string.format(message, ...)) end
 registerLuaFunctionHighlight('ForceDebugF')
 
---
---- ∑ Logs a forced formatted info message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:ForceInfoF(message, ...)     self:ForceLog(self.Levels.INFO, string.format(message, ...)) end
+-- 
+--- ForceInfoF
+--- ∑ Logs a forced formatted info message. 
+---   The message is formatted using the provided arguments and forced to log at the INFO level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:ForceInfoF(message, ...) self:ForceLog(self.Levels.INFO, string.format(message, ...)) end
 registerLuaFunctionHighlight('ForceInfoF')
 
---
---- ∑ Logs a forced formatted warning message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:ForceWarningF(message, ...)  self:ForceLog(self.Levels.WARNING, string.format(message, ...)) end
+-- 
+--- ForceWarningF
+--- ∑ Logs a forced formatted warning message. 
+---   The message is formatted using the provided arguments and forced to log at the WARNING level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:ForceWarningF(message, ...) self:ForceLog(self.Levels.WARNING, string.format(message, ...)) end
 registerLuaFunctionHighlight('ForceWarningF')
 
---
---- ∑ Logs a forced formatted error message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
-function Logger:ForceErrorF(message, ...)    self:ForceLog(self.Levels.ERROR, string.format(message, ...)) end
+-- 
+--- ForceErrorF
+--- ∑ Logs a forced formatted error message. 
+---   The message is formatted using the provided arguments and forced to log at the ERROR level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
+function Logger:ForceErrorF(message, ...) self:ForceLog(self.Levels.ERROR, string.format(message, ...)) end
 registerLuaFunctionHighlight('ForceErrorF')
 
---
---- ∑ Logs a forced formatted critical message.
---- @param message any The message to be logged.
---- @param ... any Additional arguments to format the message.
---
+-- 
+--- ForceCriticalF
+--- ∑ Logs a forced formatted critical message. 
+---   The message is formatted using the provided arguments and forced to log at the CRITICAL level, ignoring any log level filters.
+--- @param message any # The message to be logged.
+--- @param ... any # Additional arguments to format the message.
 function Logger:ForceCriticalF(message, ...) self:ForceLog(self.Levels.CRITICAL, string.format(message, ...)) end
 registerLuaFunctionHighlight('ForceCriticalF')
 
