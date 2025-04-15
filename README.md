@@ -6,8 +6,6 @@ Whether you're handling memory records, automating the auto-assembly process, or
 
 ![Preview](https://i.imgur.com/U0kjEIV.png)
 
----
-
 ## Credits
 Acknowledgments and thanks to the following contributors and resources:
 
@@ -15,15 +13,11 @@ Acknowledgments and thanks to the following contributors and resources:
 - **Jeffrey Friedl**: For sharing his [`json.lua`](http://regex.info/blog/lua/json), which made my life a lot easier.
 - **TheyCallMeTim13**: For providing inspiration through his meticulously crafted Cheat Tables and for creating the `Module.Helper.lua` Module.
 
----
-
 ## Manifold
 Source-Code of Manifold: ![Here](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold)
 
 ## Template Loader
 Source-Code of the Template Loader: ![Here](https://github.com/Leunsel/CheatEngineLua/tree/main/TemplateLoader)
-
----
 
 ## Contribution
 Contributions are welcome! If you have ideas for improvements or new features or themes, feel free to open an issue or submit a pull request.
