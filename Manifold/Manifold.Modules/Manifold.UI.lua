@@ -8,7 +8,7 @@ local DESCRIPTION = "Manifold Framework UI"
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
 
-    ∂ v1.0.1 (2025-02-26)
+    ∂ v1.0.1 (2025-04-16)
         Minor comment adjustments.
         Added: Theme Creator UI
 ]] 

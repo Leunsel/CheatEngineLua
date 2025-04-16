@@ -1,11 +1,14 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
     ∂ v1.0.0 (2025-03-24)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-04-16)
+        Minor comment adjustments.
 ]]--
 
 State = {
@@ -261,9 +264,9 @@ registerLuaFunctionHighlight('SaveTableState')
 
 --
 --- ∑ Creates lookup tables for faster access by ID and description.
---- @return table  # Returns the indexed list of memory records.
---- @return table  # Returns a map of memory records by their ID.
---- @return table  # Returns a map of memory records by their description.
+--- @return table # Returns the indexed list of memory records.
+--- @return table # Returns a map of memory records by their ID.
+--- @return table # Returns a map of memory records by their description.
 --
 function State:CreateLookupTables()
     local indexedList = self:GetIndexedAddressList()
@@ -279,7 +282,10 @@ function State:CreateLookupTables()
 end
 
 --
---- ∑ ...
+--- ∑ Sets the active state of a memory record and waits for any asynchronous processing.
+--- @param mr MemoryRecord The memory record to modify.
+--- @param state boolean The desired active state (true to activate, false to deactivate).
+--- @return boolean # Returns true if the state change succeeded or was already correct, false otherwise.
 --
 function State:SetMemoryRecordState(mr, state)
     if mr.Active == state then
