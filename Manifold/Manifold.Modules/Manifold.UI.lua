@@ -1,6 +1,6 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
