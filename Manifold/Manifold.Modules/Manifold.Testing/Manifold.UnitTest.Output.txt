@@ -1,604 +1,662 @@
 -=== Running Manifold Unit Tests ===- 
-Time	: 2025-04-10 14:41:34 
+Time	: 2025-04-16 22:30:56 
 Process	: None 
 CE Version	: 7.5 
 ===========================
  
 [PASS] Module loads: Manifold.AutoAssembler 
-[PASS] Manifold.AutoAssembler contains key: CheckDependencies 
-[PASS] Manifold.AutoAssembler member type is valid: CheckDependencies 
-[PASS] Manifold.AutoAssembler contains key: FileExtension 
-[PASS] Manifold.AutoAssembler member type is valid: FileExtension 
-[PASS] Manifold.AutoAssembler contains key: GetStateKey 
-[PASS] Manifold.AutoAssembler member type is valid: GetStateKey 
-[PASS] Manifold.AutoAssembler contains key: RequiredProcess 
-[PASS] Manifold.AutoAssembler member type is valid: RequiredProcess 
-[PASS] Manifold.AutoAssembler contains key: GetModuleInfo 
-[PASS] Manifold.AutoAssembler member type is valid: GetModuleInfo 
-[PASS] Manifold.AutoAssembler contains key: BreakOnError 
-[PASS] Manifold.AutoAssembler member type is valid: BreakOnError 
-[PASS] Manifold.AutoAssembler contains key: GameModuleIndex 
-[PASS] Manifold.AutoAssembler member type is valid: GameModuleIndex 
-[PASS] Manifold.AutoAssembler contains key: New 
-[PASS] Manifold.AutoAssembler member type is valid: New 
-[PASS] Manifold.AutoAssembler contains key: LocalFilesFolder 
-[PASS] Manifold.AutoAssembler member type is valid: LocalFilesFolder 
-[PASS] Manifold.AutoAssembler contains key: ValidateProcess 
-[PASS] Manifold.AutoAssembler member type is valid: ValidateProcess 
-[PASS] Manifold.AutoAssembler contains key: PerformAutoAssemble 
-[PASS] Manifold.AutoAssembler member type is valid: PerformAutoAssemble 
-[PASS] Manifold.AutoAssembler contains key: AutoAssemble 
-[PASS] Manifold.AutoAssembler member type is valid: AutoAssemble 
-[PASS] Manifold.AutoAssembler contains key: FormatFileName 
-[PASS] Manifold.AutoAssembler member type is valid: FormatFileName 
-[PASS] Manifold.AutoAssembler contains key: LogSymbolsAndAllocations 
-[PASS] Manifold.AutoAssembler member type is valid: LogSymbolsAndAllocations 
-[PASS] Manifold.AutoAssembler contains key: LoadFile 
-[PASS] Manifold.AutoAssembler member type is valid: LoadFile 
-[PASS] Manifold.AutoAssembler contains key: SetProcessName 
-[PASS] Manifold.AutoAssembler member type is valid: SetProcessName 
-[PASS] Manifold.AutoAssembler contains key: EnsureDirectoriesExist 
-[PASS] Manifold.AutoAssembler member type is valid: EnsureDirectoriesExist 
-[PASS] Manifold.AutoAssembler contains key: States 
-[PASS] Manifold.AutoAssembler member type is valid: States 
-[PASS] Manifold.AutoAssembler contains key: PrintErrors 
-[PASS] Manifold.AutoAssembler member type is valid: PrintErrors 
-[PASS] Manifold.AutoAssembler contains key: UpdateState 
-[PASS] Manifold.AutoAssembler member type is valid: UpdateState 
-[PASS] Manifold.AutoAssembler contains key: GetFilePath 
-[PASS] Manifold.AutoAssembler member type is valid: GetFilePath 
 [PASS] Manifold.AutoAssembler contains key: __index 
 [PASS] Manifold.AutoAssembler member type is valid: __index 
+[PASS] Manifold.AutoAssembler contains key: BreakOnError 
+[PASS] Manifold.AutoAssembler member type is valid: BreakOnError 
+[PASS] Manifold.AutoAssembler contains key: New 
+[PASS] Manifold.AutoAssembler member type is valid: New 
+[PASS] Manifold.AutoAssembler contains key: LoadFile 
+[PASS] Manifold.AutoAssembler member type is valid: LoadFile 
+[PASS] Manifold.AutoAssembler contains key: PrintErrors 
+[PASS] Manifold.AutoAssembler member type is valid: PrintErrors 
+[PASS] Manifold.AutoAssembler contains key: PerformAutoAssemble 
+[PASS] Manifold.AutoAssembler member type is valid: PerformAutoAssemble 
+[PASS] Manifold.AutoAssembler contains key: FileExtension 
+[PASS] Manifold.AutoAssembler member type is valid: FileExtension 
+[PASS] Manifold.AutoAssembler contains key: GetFilePath 
+[PASS] Manifold.AutoAssembler member type is valid: GetFilePath 
+[PASS] Manifold.AutoAssembler contains key: GetModuleInfo 
+[PASS] Manifold.AutoAssembler member type is valid: GetModuleInfo 
+[PASS] Manifold.AutoAssembler contains key: States 
+[PASS] Manifold.AutoAssembler member type is valid: States 
+[PASS] Manifold.AutoAssembler contains key: LocalFilesFolder 
+[PASS] Manifold.AutoAssembler member type is valid: LocalFilesFolder 
+[PASS] Manifold.AutoAssembler contains key: GetStateKey 
+[PASS] Manifold.AutoAssembler member type is valid: GetStateKey 
+[PASS] Manifold.AutoAssembler contains key: UpdateState 
+[PASS] Manifold.AutoAssembler member type is valid: UpdateState 
+[PASS] Manifold.AutoAssembler contains key: EnsureDirectoriesExist 
+[PASS] Manifold.AutoAssembler member type is valid: EnsureDirectoriesExist 
+[PASS] Manifold.AutoAssembler contains key: ValidateProcess 
+[PASS] Manifold.AutoAssembler member type is valid: ValidateProcess 
+[PASS] Manifold.AutoAssembler contains key: FormatFileName 
+[PASS] Manifold.AutoAssembler member type is valid: FormatFileName 
+[PASS] Manifold.AutoAssembler contains key: AutoAssemble 
+[PASS] Manifold.AutoAssembler member type is valid: AutoAssemble 
+[PASS] Manifold.AutoAssembler contains key: LogSymbolsAndAllocations 
+[PASS] Manifold.AutoAssembler member type is valid: LogSymbolsAndAllocations 
+[PASS] Manifold.AutoAssembler contains key: CheckDependencies 
+[PASS] Manifold.AutoAssembler member type is valid: CheckDependencies 
+[PASS] Manifold.AutoAssembler contains key: GameModuleIndex 
+[PASS] Manifold.AutoAssembler member type is valid: GameModuleIndex 
+[PASS] Manifold.AutoAssembler contains key: RequiredProcess 
+[PASS] Manifold.AutoAssembler member type is valid: RequiredProcess 
+[PASS] Manifold.AutoAssembler contains key: SetProcessName 
+[PASS] Manifold.AutoAssembler member type is valid: SetProcessName 
 [PASS] Module loads: Manifold.CustomIO 
-[PASS] Manifold.CustomIO contains key: OpenDirectory 
-[PASS] Manifold.CustomIO member type is valid: OpenDirectory 
-[PASS] Manifold.CustomIO contains key: CheckDependencies 
-[PASS] Manifold.CustomIO member type is valid: CheckDependencies 
+[PASS] Manifold.CustomIO contains key: __index 
+[PASS] Manifold.CustomIO member type is valid: __index 
+[PASS] Manifold.CustomIO contains key: DirectoryExists 
+[PASS] Manifold.CustomIO member type is valid: DirectoryExists 
+[PASS] Manifold.CustomIO contains key: New 
+[PASS] Manifold.CustomIO member type is valid: New 
+[PASS] Manifold.CustomIO contains key: BuildPath 
+[PASS] Manifold.CustomIO member type is valid: BuildPath 
+[PASS] Manifold.CustomIO contains key: WriteToTableFile 
+[PASS] Manifold.CustomIO member type is valid: WriteToTableFile 
 [PASS] Manifold.CustomIO contains key: AppendToFile 
 [PASS] Manifold.CustomIO member type is valid: AppendToFile 
+[PASS] Manifold.CustomIO contains key: WriteToFileAsJson 
+[PASS] Manifold.CustomIO member type is valid: WriteToFileAsJson 
+[PASS] Manifold.CustomIO contains key: ReadFromTableFileAsJson 
+[PASS] Manifold.CustomIO member type is valid: ReadFromTableFileAsJson 
+[PASS] Manifold.CustomIO contains key: GetModuleInfo 
+[PASS] Manifold.CustomIO member type is valid: GetModuleInfo 
+[PASS] Manifold.CustomIO contains key: ReadFromFile 
+[PASS] Manifold.CustomIO member type is valid: ReadFromFile 
+[PASS] Manifold.CustomIO contains key: OpenDirectory 
+[PASS] Manifold.CustomIO member type is valid: OpenDirectory 
+[PASS] Manifold.CustomIO contains key: EnsureDataDirectory 
+[PASS] Manifold.CustomIO member type is valid: EnsureDataDirectory 
+[PASS] Manifold.CustomIO contains key: WriteToFile 
+[PASS] Manifold.CustomIO member type is valid: WriteToFile 
 [PASS] Manifold.CustomIO contains key: ReadFromFileAsJson 
 [PASS] Manifold.CustomIO member type is valid: ReadFromFileAsJson 
 [PASS] Manifold.CustomIO contains key: WriteToTableFileAsJson 
 [PASS] Manifold.CustomIO member type is valid: WriteToTableFileAsJson 
-[PASS] Manifold.CustomIO contains key: StripExt 
-[PASS] Manifold.CustomIO member type is valid: StripExt 
-[PASS] Manifold.CustomIO contains key: EnsureDirectoryExists 
-[PASS] Manifold.CustomIO member type is valid: EnsureDirectoryExists 
-[PASS] Manifold.CustomIO contains key: GetModuleInfo 
-[PASS] Manifold.CustomIO member type is valid: GetModuleInfo 
-[PASS] Manifold.CustomIO contains key: DirectoryExists 
-[PASS] Manifold.CustomIO member type is valid: DirectoryExists 
-[PASS] Manifold.CustomIO contains key: BuildPath 
-[PASS] Manifold.CustomIO member type is valid: BuildPath 
-[PASS] Manifold.CustomIO contains key: ReadFromFile 
-[PASS] Manifold.CustomIO member type is valid: ReadFromFile 
-[PASS] Manifold.CustomIO contains key: CreateDirectory 
-[PASS] Manifold.CustomIO member type is valid: CreateDirectory 
-[PASS] Manifold.CustomIO contains key: WriteToFileAsJson 
-[PASS] Manifold.CustomIO member type is valid: WriteToFileAsJson 
-[PASS] Manifold.CustomIO contains key: WriteToTableFile 
-[PASS] Manifold.CustomIO member type is valid: WriteToTableFile 
-[PASS] Manifold.CustomIO contains key: ReadFromTableFileAsJson 
-[PASS] Manifold.CustomIO member type is valid: ReadFromTableFileAsJson 
-[PASS] Manifold.CustomIO contains key: EnsureDataDirectory 
-[PASS] Manifold.CustomIO member type is valid: EnsureDataDirectory 
-[PASS] Manifold.CustomIO contains key: ReadFromTableFile 
-[PASS] Manifold.CustomIO member type is valid: ReadFromTableFile 
-[PASS] Manifold.CustomIO contains key: WriteCSV 
-[PASS] Manifold.CustomIO member type is valid: WriteCSV 
-[PASS] Manifold.CustomIO contains key: New 
-[PASS] Manifold.CustomIO member type is valid: New 
-[PASS] Manifold.CustomIO contains key: ReadCSV 
-[PASS] Manifold.CustomIO member type is valid: ReadCSV 
 [PASS] Manifold.CustomIO contains key: FileExists 
 [PASS] Manifold.CustomIO member type is valid: FileExists 
-[PASS] Manifold.CustomIO contains key: WriteToFile 
-[PASS] Manifold.CustomIO member type is valid: WriteToFile 
+[PASS] Manifold.CustomIO contains key: CreateDirectory 
+[PASS] Manifold.CustomIO member type is valid: CreateDirectory 
+[PASS] Manifold.CustomIO contains key: ReadFromTableFile 
+[PASS] Manifold.CustomIO member type is valid: ReadFromTableFile 
 [PASS] Manifold.CustomIO contains key: DeleteFile 
 [PASS] Manifold.CustomIO member type is valid: DeleteFile 
-[PASS] Manifold.CustomIO contains key: __index 
-[PASS] Manifold.CustomIO member type is valid: __index 
+[PASS] Manifold.CustomIO contains key: ReadCSV 
+[PASS] Manifold.CustomIO member type is valid: ReadCSV 
+[PASS] Manifold.CustomIO contains key: EnsureDirectoryExists 
+[PASS] Manifold.CustomIO member type is valid: EnsureDirectoryExists 
+[PASS] Manifold.CustomIO contains key: WriteCSV 
+[PASS] Manifold.CustomIO member type is valid: WriteCSV 
+[PASS] Manifold.CustomIO contains key: StripExt 
+[PASS] Manifold.CustomIO member type is valid: StripExt 
+[PASS] Manifold.CustomIO contains key: CheckDependencies 
+[PASS] Manifold.CustomIO member type is valid: CheckDependencies 
 [PASS] Module loads: Manifold.Helper 
-[PASS] Manifold.Helper contains key: New 
-[PASS] Manifold.Helper member type is valid: New 
-[PASS] Manifold.Helper contains key: GetGameModulePathToFile 
-[PASS] Manifold.Helper member type is valid: GetGameModulePathToFile 
+[PASS] Manifold.Helper contains key: __index 
+[PASS] Manifold.Helper member type is valid: __index 
 [PASS] Manifold.Helper contains key: GetGameModuleName 
 [PASS] Manifold.Helper member type is valid: GetGameModuleName 
+[PASS] Manifold.Helper contains key: GetGameModulePathToFile 
+[PASS] Manifold.Helper member type is valid: GetGameModulePathToFile 
 [PASS] Manifold.Helper contains key: GetProcess 
 [PASS] Manifold.Helper member type is valid: GetProcess 
-[PASS] Manifold.Helper contains key: GetRegistrySizeStr 
-[PASS] Manifold.Helper member type is valid: GetRegistrySizeStr 
 [PASS] Manifold.Helper contains key: GetGameModule 
 [PASS] Manifold.Helper member type is valid: GetGameModule 
 [PASS] Manifold.Helper contains key: GetGameModuleIs64Bit 
 [PASS] Manifold.Helper member type is valid: GetGameModuleIs64Bit 
-[PASS] Manifold.Helper contains key: GetModuleInfo 
-[PASS] Manifold.Helper member type is valid: GetModuleInfo 
 [PASS] Manifold.Helper contains key: GetProcessTrimmed 
 [PASS] Manifold.Helper member type is valid: GetProcessTrimmed 
+[PASS] Manifold.Helper contains key: GetRegistrySizeStr 
+[PASS] Manifold.Helper member type is valid: GetRegistrySizeStr 
+[PASS] Manifold.Helper contains key: GetModuleInfo 
+[PASS] Manifold.Helper member type is valid: GetModuleInfo 
 [PASS] Manifold.Helper contains key: GetGameModuleAddress 
 [PASS] Manifold.Helper member type is valid: GetGameModuleAddress 
-[PASS] Manifold.Helper contains key: __index 
-[PASS] Manifold.Helper member type is valid: __index 
+[PASS] Manifold.Helper contains key: New 
+[PASS] Manifold.Helper member type is valid: New 
 [PASS] Module loads: Manifold.Json 
-[PASS] Manifold.Json contains key: __tostring 
-[PASS] Manifold.Json member type is valid: __tostring 
-[PASS] Manifold.Json contains key: onEncodeError 
-[PASS] Manifold.Json member type is valid: onEncodeError 
-[PASS] Manifold.Json contains key: forceNumber 
-[PASS] Manifold.Json member type is valid: forceNumber 
-[PASS] Manifold.Json contains key: newObject 
-[PASS] Manifold.Json member type is valid: newObject 
-[PASS] Manifold.Json contains key: onDecodeError 
-[PASS] Manifold.Json member type is valid: onDecodeError 
-[PASS] Manifold.Json contains key: asNumber 
-[PASS] Manifold.Json member type is valid: asNumber 
-[PASS] Manifold.Json contains key: new 
-[PASS] Manifold.Json member type is valid: new 
-[PASS] Manifold.Json contains key: onTrailingGarbage 
-[PASS] Manifold.Json member type is valid: onTrailingGarbage 
-[PASS] Manifold.Json contains key: forceString 
-[PASS] Manifold.Json member type is valid: forceString 
-[PASS] Manifold.Json contains key: newArray 
-[PASS] Manifold.Json member type is valid: newArray 
-[PASS] Manifold.Json contains key: decode 
-[PASS] Manifold.Json member type is valid: decode 
-[PASS] Manifold.Json contains key: onDecodeOfNilError 
-[PASS] Manifold.Json member type is valid: onDecodeOfNilError 
-[PASS] Manifold.Json contains key: encode_pretty 
-[PASS] Manifold.Json member type is valid: encode_pretty 
-[PASS] Manifold.Json contains key: onDecodeOfHTMLError 
-[PASS] Manifold.Json member type is valid: onDecodeOfHTMLError 
 [PASS] Manifold.Json contains key: encode 
 [PASS] Manifold.Json member type is valid: encode 
-[PASS] Manifold.Json contains key: AUTHOR_NOTE 
-[PASS] Manifold.Json member type is valid: AUTHOR_NOTE 
+[PASS] Manifold.Json contains key: onEncodeError 
+[PASS] Manifold.Json member type is valid: onEncodeError 
+[PASS] Manifold.Json contains key: onDecodeOfNilError 
+[PASS] Manifold.Json member type is valid: onDecodeOfNilError 
 [PASS] Manifold.Json contains key: VERSION 
 [PASS] Manifold.Json member type is valid: VERSION 
+[PASS] Manifold.Json contains key: forceString 
+[PASS] Manifold.Json member type is valid: forceString 
+[PASS] Manifold.Json contains key: decode 
+[PASS] Manifold.Json member type is valid: decode 
+[PASS] Manifold.Json contains key: asNumber 
+[PASS] Manifold.Json member type is valid: asNumber 
+[PASS] Manifold.Json contains key: AUTHOR_NOTE 
+[PASS] Manifold.Json member type is valid: AUTHOR_NOTE 
+[PASS] Manifold.Json contains key: onDecodeError 
+[PASS] Manifold.Json member type is valid: onDecodeError 
+[PASS] Manifold.Json contains key: newObject 
+[PASS] Manifold.Json member type is valid: newObject 
+[PASS] Manifold.Json contains key: new 
+[PASS] Manifold.Json member type is valid: new 
+[PASS] Manifold.Json contains key: newArray 
+[PASS] Manifold.Json member type is valid: newArray 
+[PASS] Manifold.Json contains key: onTrailingGarbage 
+[PASS] Manifold.Json member type is valid: onTrailingGarbage 
+[PASS] Manifold.Json contains key: onDecodeOfHTMLError 
+[PASS] Manifold.Json member type is valid: onDecodeOfHTMLError 
+[PASS] Manifold.Json contains key: encode_pretty 
+[PASS] Manifold.Json member type is valid: encode_pretty 
+[PASS] Manifold.Json contains key: forceNumber 
+[PASS] Manifold.Json member type is valid: forceNumber 
 [PASS] Manifold.Json contains key: __index 
 [PASS] Manifold.Json member type is valid: __index 
+[PASS] Manifold.Json contains key: __tostring 
+[PASS] Manifold.Json member type is valid: __tostring 
 [PASS] Module loads: Manifold.Logger 
-[PASS] Manifold.Logger contains key: Debug 
-[PASS] Manifold.Logger member type is valid: Debug 
-[PASS] Manifold.Logger contains key: Critical 
-[PASS] Manifold.Logger member type is valid: Critical 
-[PASS] Manifold.Logger contains key: ForceInfoF 
-[PASS] Manifold.Logger member type is valid: ForceInfoF 
 [PASS] Manifold.Logger contains key: LevelNames 
 [PASS] Manifold.Logger member type is valid: LevelNames 
-[PASS] Manifold.Logger contains key: DebugF 
-[PASS] Manifold.Logger member type is valid: DebugF 
-[PASS] Manifold.Logger contains key: Info 
-[PASS] Manifold.Logger member type is valid: Info 
-[PASS] Manifold.Logger contains key: Error 
-[PASS] Manifold.Logger member type is valid: Error 
-[PASS] Manifold.Logger contains key: New 
-[PASS] Manifold.Logger member type is valid: New 
-[PASS] Manifold.Logger contains key: ClearLogFile 
-[PASS] Manifold.Logger member type is valid: ClearLogFile 
-[PASS] Manifold.Logger contains key: Levels 
-[PASS] Manifold.Logger member type is valid: Levels 
-[PASS] Manifold.Logger contains key: ForceDebug 
-[PASS] Manifold.Logger member type is valid: ForceDebug 
-[PASS] Manifold.Logger contains key: Level 
-[PASS] Manifold.Logger member type is valid: Level 
-[PASS] Manifold.Logger contains key: Warning 
-[PASS] Manifold.Logger member type is valid: Warning 
-[PASS] Manifold.Logger contains key: CriticalF 
-[PASS] Manifold.Logger member type is valid: CriticalF 
-[PASS] Manifold.Logger contains key: ForceWarning 
-[PASS] Manifold.Logger member type is valid: ForceWarning 
-[PASS] Manifold.Logger contains key: ForceDebugF 
-[PASS] Manifold.Logger member type is valid: ForceDebugF 
-[PASS] Manifold.Logger contains key: GetModuleInfo 
-[PASS] Manifold.Logger member type is valid: GetModuleInfo 
-[PASS] Manifold.Logger contains key: Log 
-[PASS] Manifold.Logger member type is valid: Log 
-[PASS] Manifold.Logger contains key: ForceCriticalF 
-[PASS] Manifold.Logger member type is valid: ForceCriticalF 
-[PASS] Manifold.Logger contains key: SetOutput 
-[PASS] Manifold.Logger member type is valid: SetOutput 
-[PASS] Manifold.Logger contains key: ForceErrorF 
-[PASS] Manifold.Logger member type is valid: ForceErrorF 
-[PASS] Manifold.Logger contains key: SetLevel 
-[PASS] Manifold.Logger member type is valid: SetLevel 
-[PASS] Manifold.Logger contains key: ForceWarningF 
-[PASS] Manifold.Logger member type is valid: ForceWarningF 
-[PASS] Manifold.Logger contains key: Stringify 
-[PASS] Manifold.Logger member type is valid: Stringify 
 [PASS] Manifold.Logger contains key: ForceError 
 [PASS] Manifold.Logger member type is valid: ForceError 
-[PASS] Manifold.Logger contains key: SetLogFileName 
-[PASS] Manifold.Logger member type is valid: SetLogFileName 
-[PASS] Manifold.Logger contains key: ForceCritical 
-[PASS] Manifold.Logger member type is valid: ForceCritical 
-[PASS] Manifold.Logger contains key: ForceInfo 
-[PASS] Manifold.Logger member type is valid: ForceInfo 
-[PASS] Manifold.Logger contains key: ErrorF 
-[PASS] Manifold.Logger member type is valid: ErrorF 
 [PASS] Manifold.Logger contains key: ForceLog 
 [PASS] Manifold.Logger member type is valid: ForceLog 
-[PASS] Manifold.Logger contains key: WarningF 
-[PASS] Manifold.Logger member type is valid: WarningF 
+[PASS] Manifold.Logger contains key: ForceInfoF 
+[PASS] Manifold.Logger member type is valid: ForceInfoF 
+[PASS] Manifold.Logger contains key: GetModuleInfo 
+[PASS] Manifold.Logger member type is valid: GetModuleInfo 
+[PASS] Manifold.Logger contains key: ForceErrorF 
+[PASS] Manifold.Logger member type is valid: ForceErrorF 
+[PASS] Manifold.Logger contains key: SetLogFileName 
+[PASS] Manifold.Logger member type is valid: SetLogFileName 
+[PASS] Manifold.Logger contains key: Level 
+[PASS] Manifold.Logger member type is valid: Level 
+[PASS] Manifold.Logger contains key: SetLevel 
+[PASS] Manifold.Logger member type is valid: SetLevel 
+[PASS] Manifold.Logger contains key: ForceWarning 
+[PASS] Manifold.Logger member type is valid: ForceWarning 
 [PASS] Manifold.Logger contains key: InfoF 
 [PASS] Manifold.Logger member type is valid: InfoF 
+[PASS] Manifold.Logger contains key: ForceDebugF 
+[PASS] Manifold.Logger member type is valid: ForceDebugF 
+[PASS] Manifold.Logger contains key: Debug 
+[PASS] Manifold.Logger member type is valid: Debug 
+[PASS] Manifold.Logger contains key: Warning 
+[PASS] Manifold.Logger member type is valid: Warning 
+[PASS] Manifold.Logger contains key: ForceCriticalF 
+[PASS] Manifold.Logger member type is valid: ForceCriticalF 
+[PASS] Manifold.Logger contains key: New 
+[PASS] Manifold.Logger member type is valid: New 
+[PASS] Manifold.Logger contains key: Error 
+[PASS] Manifold.Logger member type is valid: Error 
+[PASS] Manifold.Logger contains key: Info 
+[PASS] Manifold.Logger member type is valid: Info 
+[PASS] Manifold.Logger contains key: Log 
+[PASS] Manifold.Logger member type is valid: Log 
+[PASS] Manifold.Logger contains key: Stringify 
+[PASS] Manifold.Logger member type is valid: Stringify 
+[PASS] Manifold.Logger contains key: ErrorF 
+[PASS] Manifold.Logger member type is valid: ErrorF 
 [PASS] Manifold.Logger contains key: __index 
 [PASS] Manifold.Logger member type is valid: __index 
+[PASS] Manifold.Logger contains key: ForceWarningF 
+[PASS] Manifold.Logger member type is valid: ForceWarningF 
+[PASS] Manifold.Logger contains key: WarningF 
+[PASS] Manifold.Logger member type is valid: WarningF 
+[PASS] Manifold.Logger contains key: ForceInfo 
+[PASS] Manifold.Logger member type is valid: ForceInfo 
+[PASS] Manifold.Logger contains key: Levels 
+[PASS] Manifold.Logger member type is valid: Levels 
+[PASS] Manifold.Logger contains key: ForceCritical 
+[PASS] Manifold.Logger member type is valid: ForceCritical 
+[PASS] Manifold.Logger contains key: ForceDebug 
+[PASS] Manifold.Logger member type is valid: ForceDebug 
+[PASS] Manifold.Logger contains key: CriticalF 
+[PASS] Manifold.Logger member type is valid: CriticalF 
+[PASS] Manifold.Logger contains key: Critical 
+[PASS] Manifold.Logger member type is valid: Critical 
+[PASS] Manifold.Logger contains key: ClearLogFile 
+[PASS] Manifold.Logger member type is valid: ClearLogFile 
+[PASS] Manifold.Logger contains key: SetOutput 
+[PASS] Manifold.Logger member type is valid: SetOutput 
+[PASS] Manifold.Logger contains key: DebugF 
+[PASS] Manifold.Logger member type is valid: DebugF 
 [PASS] Module loads: Manifold.Memory 
+[PASS] Manifold.Memory contains key: __index 
+[PASS] Manifold.Memory member type is valid: __index 
+[PASS] Manifold.Memory contains key: SafeWriteInteger 
+[PASS] Manifold.Memory member type is valid: SafeWriteInteger 
+[PASS] Manifold.Memory contains key: New 
+[PASS] Manifold.Memory member type is valid: New 
+[PASS] Manifold.Memory contains key: SafeReadInteger 
+[PASS] Manifold.Memory member type is valid: SafeReadInteger 
 [PASS] Manifold.Memory contains key: SafeAddByte 
 [PASS] Manifold.Memory member type is valid: SafeAddByte 
-[PASS] Manifold.Memory contains key: SafeAddQWord 
-[PASS] Manifold.Memory member type is valid: SafeAddQWord 
-[PASS] Manifold.Memory contains key: SafeWriteByte 
-[PASS] Manifold.Memory member type is valid: SafeWriteByte 
+[PASS] Manifold.Memory contains key: SafeWriteFloat 
+[PASS] Manifold.Memory member type is valid: SafeWriteFloat 
+[PASS] Manifold.Memory contains key: SafeReadByte 
+[PASS] Manifold.Memory member type is valid: SafeReadByte 
+[PASS] Manifold.Memory contains key: SafeAddInteger 
+[PASS] Manifold.Memory member type is valid: SafeAddInteger 
+[PASS] Manifold.Memory contains key: GetModuleInfo 
+[PASS] Manifold.Memory member type is valid: GetModuleInfo 
+[PASS] Manifold.Memory contains key: SafeAddDouble 
+[PASS] Manifold.Memory member type is valid: SafeAddDouble 
+[PASS] Manifold.Memory contains key: SafeGetAddress 
+[PASS] Manifold.Memory member type is valid: SafeGetAddress 
 [PASS] Manifold.Memory contains key: SafeWriteWord 
 [PASS] Manifold.Memory member type is valid: SafeWriteWord 
 [PASS] Manifold.Memory contains key: SafeReadFloat 
 [PASS] Manifold.Memory member type is valid: SafeReadFloat 
-[PASS] Manifold.Memory contains key: SafeAddInteger 
-[PASS] Manifold.Memory member type is valid: SafeAddInteger 
-[PASS] Manifold.Memory contains key: SafeWriteFloat 
-[PASS] Manifold.Memory member type is valid: SafeWriteFloat 
-[PASS] Manifold.Memory contains key: GetModuleInfo 
-[PASS] Manifold.Memory member type is valid: GetModuleInfo 
-[PASS] Manifold.Memory contains key: New 
-[PASS] Manifold.Memory member type is valid: New 
-[PASS] Manifold.Memory contains key: SafeReadWord 
-[PASS] Manifold.Memory member type is valid: SafeReadWord 
-[PASS] Manifold.Memory contains key: SafeReadInteger 
-[PASS] Manifold.Memory member type is valid: SafeReadInteger 
-[PASS] Manifold.Memory contains key: SafeAddDouble 
-[PASS] Manifold.Memory member type is valid: SafeAddDouble 
-[PASS] Manifold.Memory contains key: SafeWriteDouble 
-[PASS] Manifold.Memory member type is valid: SafeWriteDouble 
-[PASS] Manifold.Memory contains key: SafeReadByte 
-[PASS] Manifold.Memory member type is valid: SafeReadByte 
 [PASS] Manifold.Memory contains key: SafeWriteQWord 
 [PASS] Manifold.Memory member type is valid: SafeWriteQWord 
+[PASS] Manifold.Memory contains key: SafeWriteDouble 
+[PASS] Manifold.Memory member type is valid: SafeWriteDouble 
 [PASS] Manifold.Memory contains key: SafeReadDouble 
 [PASS] Manifold.Memory member type is valid: SafeReadDouble 
-[PASS] Manifold.Memory contains key: SafeAddWord 
-[PASS] Manifold.Memory member type is valid: SafeAddWord 
 [PASS] Manifold.Memory contains key: SafeAddFloat 
 [PASS] Manifold.Memory member type is valid: SafeAddFloat 
+[PASS] Manifold.Memory contains key: SafeAddQWord 
+[PASS] Manifold.Memory member type is valid: SafeAddQWord 
+[PASS] Manifold.Memory contains key: SafeWriteByte 
+[PASS] Manifold.Memory member type is valid: SafeWriteByte 
 [PASS] Manifold.Memory contains key: SafeReadQWord 
 [PASS] Manifold.Memory member type is valid: SafeReadQWord 
-[PASS] Manifold.Memory contains key: SafeWriteInteger 
-[PASS] Manifold.Memory member type is valid: SafeWriteInteger 
-[PASS] Manifold.Memory contains key: SafeGetAddress 
-[PASS] Manifold.Memory member type is valid: SafeGetAddress 
-[PASS] Manifold.Memory contains key: __index 
-[PASS] Manifold.Memory member type is valid: __index 
+[PASS] Manifold.Memory contains key: SafeReadWord 
+[PASS] Manifold.Memory member type is valid: SafeReadWord 
+[PASS] Manifold.Memory contains key: SafeAddWord 
+[PASS] Manifold.Memory member type is valid: SafeAddWord 
 [PASS] Module loads: Manifold.ProcessHandler 
-[PASS] Manifold.ProcessHandler contains key: AutoAttachTimerInterval 
-[PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerInterval 
-[PASS] Manifold.ProcessHandler contains key: CheckDependencies 
-[PASS] Manifold.ProcessHandler member type is valid: CheckDependencies 
-[PASS] Manifold.ProcessHandler contains key: IsProcessAttached 
-[PASS] Manifold.ProcessHandler member type is valid: IsProcessAttached 
-[PASS] Manifold.ProcessHandler contains key: TryAttachToProcess 
-[PASS] Manifold.ProcessHandler member type is valid: TryAttachToProcess 
-[PASS] Manifold.ProcessHandler contains key: GetModuleInfo 
-[PASS] Manifold.ProcessHandler member type is valid: GetModuleInfo 
-[PASS] Manifold.ProcessHandler contains key: OpenLink 
-[PASS] Manifold.ProcessHandler member type is valid: OpenLink 
+[PASS] Manifold.ProcessHandler contains key: __index 
+[PASS] Manifold.ProcessHandler member type is valid: __index 
+[PASS] Manifold.ProcessHandler contains key: CloseProcess 
+[PASS] Manifold.ProcessHandler member type is valid: CloseProcess 
 [PASS] Manifold.ProcessHandler contains key: New 
 [PASS] Manifold.ProcessHandler member type is valid: New 
-[PASS] Manifold.ProcessHandler contains key: GetAttachedProcessName 
-[PASS] Manifold.ProcessHandler member type is valid: GetAttachedProcessName 
 [PASS] Manifold.ProcessHandler contains key: ShouldStopAutoAttach 
 [PASS] Manifold.ProcessHandler member type is valid: ShouldStopAutoAttach 
-[PASS] Manifold.ProcessHandler contains key: AutoAttach 
-[PASS] Manifold.ProcessHandler member type is valid: AutoAttach 
 [PASS] Manifold.ProcessHandler contains key: AutoAttachTimerTicks 
 [PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerTicks 
+[PASS] Manifold.ProcessHandler contains key: StartAutoAttachTimer 
+[PASS] Manifold.ProcessHandler member type is valid: StartAutoAttachTimer 
+[PASS] Manifold.ProcessHandler contains key: AutoAttachTimerInterval 
+[PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerInterval 
+[PASS] Manifold.ProcessHandler contains key: GetAttachedProcessName 
+[PASS] Manifold.ProcessHandler member type is valid: GetAttachedProcessName 
+[PASS] Manifold.ProcessHandler contains key: GetModuleInfo 
+[PASS] Manifold.ProcessHandler member type is valid: GetModuleInfo 
+[PASS] Manifold.ProcessHandler contains key: TryAttachToProcess 
+[PASS] Manifold.ProcessHandler member type is valid: TryAttachToProcess 
+[PASS] Manifold.ProcessHandler contains key: OpenLink 
+[PASS] Manifold.ProcessHandler member type is valid: OpenLink 
+[PASS] Manifold.ProcessHandler contains key: AutoAttachTimerTickMax 
+[PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerTickMax 
+[PASS] Manifold.ProcessHandler contains key: AutoAttach 
+[PASS] Manifold.ProcessHandler member type is valid: AutoAttach 
 [PASS] Manifold.ProcessHandler contains key: AttachToProcessByName 
 [PASS] Manifold.ProcessHandler member type is valid: AttachToProcessByName 
 [PASS] Manifold.ProcessHandler contains key: PerformPostAttachTasks 
 [PASS] Manifold.ProcessHandler member type is valid: PerformPostAttachTasks 
-[PASS] Manifold.ProcessHandler contains key: AutoAttachTimerTickMax 
-[PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerTickMax 
-[PASS] Manifold.ProcessHandler contains key: StartAutoAttachTimer 
-[PASS] Manifold.ProcessHandler member type is valid: StartAutoAttachTimer 
+[PASS] Manifold.ProcessHandler contains key: IsProcessAttached 
+[PASS] Manifold.ProcessHandler member type is valid: IsProcessAttached 
 [PASS] Manifold.ProcessHandler contains key: HandleProcessMismatch 
 [PASS] Manifold.ProcessHandler member type is valid: HandleProcessMismatch 
-[PASS] Manifold.ProcessHandler contains key: CloseProcess 
-[PASS] Manifold.ProcessHandler member type is valid: CloseProcess 
-[PASS] Manifold.ProcessHandler contains key: __index 
-[PASS] Manifold.ProcessHandler member type is valid: __index 
+[PASS] Manifold.ProcessHandler contains key: CheckDependencies 
+[PASS] Manifold.ProcessHandler member type is valid: CheckDependencies 
 [PASS] Module loads: Manifold.State 
-[PASS] Manifold.State contains key: GetIndexedAddressList 
-[PASS] Manifold.State member type is valid: GetIndexedAddressList 
-[PASS] Manifold.State contains key: CheckDependencies 
-[PASS] Manifold.State member type is valid: CheckDependencies 
-[PASS] Manifold.State contains key: ReadStateFile 
-[PASS] Manifold.State member type is valid: ReadStateFile 
+[PASS] Manifold.State contains key: __index 
+[PASS] Manifold.State member type is valid: __index 
+[PASS] Manifold.State contains key: RestoreState 
+[PASS] Manifold.State member type is valid: RestoreState 
+[PASS] Manifold.State contains key: New 
+[PASS] Manifold.State member type is valid: New 
+[PASS] Manifold.State contains key: GetProcessName 
+[PASS] Manifold.State member type is valid: GetProcessName 
 [PASS] Manifold.State contains key: WriteStateFile 
 [PASS] Manifold.State member type is valid: WriteStateFile 
 [PASS] Manifold.State contains key: RestoreOriginalState 
 [PASS] Manifold.State member type is valid: RestoreOriginalState 
-[PASS] Manifold.State contains key: LoadTableState 
-[PASS] Manifold.State member type is valid: LoadTableState 
-[PASS] Manifold.State contains key: EnsureStateDirectory 
-[PASS] Manifold.State member type is valid: EnsureStateDirectory 
-[PASS] Manifold.State contains key: SetMemoryRecordState 
-[PASS] Manifold.State member type is valid: SetMemoryRecordState 
-[PASS] Manifold.State contains key: GetStateFilePath 
-[PASS] Manifold.State member type is valid: GetStateFilePath 
-[PASS] Manifold.State contains key: RestoreState 
-[PASS] Manifold.State member type is valid: RestoreState 
-[PASS] Manifold.State contains key: CreateLookupTables 
-[PASS] Manifold.State member type is valid: CreateLookupTables 
-[PASS] Manifold.State contains key: New 
-[PASS] Manifold.State member type is valid: New 
-[PASS] Manifold.State contains key: GetModuleInfo 
-[PASS] Manifold.State member type is valid: GetModuleInfo 
-[PASS] Manifold.State contains key: GetProcessName 
-[PASS] Manifold.State member type is valid: GetProcessName 
 [PASS] Manifold.State contains key: SaveTableState 
 [PASS] Manifold.State member type is valid: SaveTableState 
-[PASS] Manifold.State contains key: __index 
-[PASS] Manifold.State member type is valid: __index 
+[PASS] Manifold.State contains key: LoadTableState 
+[PASS] Manifold.State member type is valid: LoadTableState 
+[PASS] Manifold.State contains key: ReadStateFile 
+[PASS] Manifold.State member type is valid: ReadStateFile 
+[PASS] Manifold.State contains key: EnsureStateDirectory 
+[PASS] Manifold.State member type is valid: EnsureStateDirectory 
+[PASS] Manifold.State contains key: GetIndexedAddressList 
+[PASS] Manifold.State member type is valid: GetIndexedAddressList 
+[PASS] Manifold.State contains key: SetMemoryRecordState 
+[PASS] Manifold.State member type is valid: SetMemoryRecordState 
+[PASS] Manifold.State contains key: CreateLookupTables 
+[PASS] Manifold.State member type is valid: CreateLookupTables 
+[PASS] Manifold.State contains key: GetModuleInfo 
+[PASS] Manifold.State member type is valid: GetModuleInfo 
+[PASS] Manifold.State contains key: GetStateFilePath 
+[PASS] Manifold.State member type is valid: GetStateFilePath 
+[PASS] Manifold.State contains key: CheckDependencies 
+[PASS] Manifold.State member type is valid: CheckDependencies 
 [PASS] Module loads: Manifold.Teleporter 
-[PASS] Manifold.Teleporter contains key: RenameSave 
-[PASS] Manifold.Teleporter member type is valid: RenameSave 
-[PASS] Manifold.Teleporter contains key: CheckDependencies 
-[PASS] Manifold.Teleporter member type is valid: CheckDependencies 
-[PASS] Manifold.Teleporter contains key: LogDistanceTraveled 
-[PASS] Manifold.Teleporter member type is valid: LogDistanceTraveled 
-[PASS] Manifold.Teleporter contains key: DeleteSave 
-[PASS] Manifold.Teleporter member type is valid: DeleteSave 
-[PASS] Manifold.Teleporter contains key: Settings 
-[PASS] Manifold.Teleporter member type is valid: Settings 
-[PASS] Manifold.Teleporter contains key: LoadSavedPosition 
-[PASS] Manifold.Teleporter member type is valid: LoadSavedPosition 
-[PASS] Manifold.Teleporter contains key: New 
-[PASS] Manifold.Teleporter member type is valid: New 
-[PASS] Manifold.Teleporter contains key: LoadBackupPosition 
-[PASS] Manifold.Teleporter member type is valid: LoadBackupPosition 
-[PASS] Manifold.Teleporter contains key: PrintSaves 
-[PASS] Manifold.Teleporter member type is valid: PrintSaves 
-[PASS] Manifold.Teleporter contains key: EnsureTeleporterDir 
-[PASS] Manifold.Teleporter member type is valid: EnsureTeleporterDir 
+[PASS] Manifold.Teleporter contains key: __index 
+[PASS] Manifold.Teleporter member type is valid: __index 
 [PASS] Manifold.Teleporter contains key: CalculateSymbolOffsets 
 [PASS] Manifold.Teleporter member type is valid: CalculateSymbolOffsets 
-[PASS] Manifold.Teleporter contains key: TeleportToWaypoint 
-[PASS] Manifold.Teleporter member type is valid: TeleportToWaypoint 
-[PASS] Manifold.Teleporter contains key: Saves 
-[PASS] Manifold.Teleporter member type is valid: Saves 
-[PASS] Manifold.Teleporter contains key: ClearSubrecords 
-[PASS] Manifold.Teleporter member type is valid: ClearSubrecords 
 [PASS] Manifold.Teleporter contains key: TeleportToCoordinates 
 [PASS] Manifold.Teleporter member type is valid: TeleportToCoordinates 
-[PASS] Manifold.Teleporter contains key: Symbols 
-[PASS] Manifold.Teleporter member type is valid: Symbols 
-[PASS] Manifold.Teleporter contains key: GetBackupPosition 
-[PASS] Manifold.Teleporter member type is valid: GetBackupPosition 
-[PASS] Manifold.Teleporter contains key: SaveCurrentPosition 
-[PASS] Manifold.Teleporter member type is valid: SaveCurrentPosition 
-[PASS] Manifold.Teleporter contains key: WriteSavesToTableFile 
-[PASS] Manifold.Teleporter member type is valid: WriteSavesToTableFile 
-[PASS] Manifold.Teleporter contains key: ResolveAddress 
-[PASS] Manifold.Teleporter member type is valid: ResolveAddress 
-[PASS] Manifold.Teleporter contains key: Transform 
-[PASS] Manifold.Teleporter member type is valid: Transform 
-[PASS] Manifold.Teleporter contains key: SaveMemoryRecordName 
-[PASS] Manifold.Teleporter member type is valid: SaveMemoryRecordName 
-[PASS] Manifold.Teleporter contains key: InitTeleporterUI 
-[PASS] Manifold.Teleporter member type is valid: InitTeleporterUI 
+[PASS] Manifold.Teleporter contains key: Additional 
+[PASS] Manifold.Teleporter member type is valid: Additional 
+[PASS] Manifold.Teleporter contains key: LogDistanceTraveled 
+[PASS] Manifold.Teleporter member type is valid: LogDistanceTraveled 
+[PASS] Manifold.Teleporter contains key: SaveFileName 
+[PASS] Manifold.Teleporter member type is valid: SaveFileName 
 [PASS] Manifold.Teleporter contains key: CreateTeleporterSaves 
 [PASS] Manifold.Teleporter member type is valid: CreateTeleporterSaves 
+[PASS] Manifold.Teleporter contains key: CheckDependencies 
+[PASS] Manifold.Teleporter member type is valid: CheckDependencies 
 [PASS] Manifold.Teleporter contains key: WriteSavesToDataDir 
 [PASS] Manifold.Teleporter member type is valid: WriteSavesToDataDir 
-[PASS] Manifold.Teleporter contains key: ReadPositionFromMemory 
-[PASS] Manifold.Teleporter member type is valid: ReadPositionFromMemory 
+[PASS] Manifold.Teleporter contains key: DeleteSave 
+[PASS] Manifold.Teleporter member type is valid: DeleteSave 
+[PASS] Manifold.Teleporter contains key: GetSaveFilePath 
+[PASS] Manifold.Teleporter member type is valid: GetSaveFilePath 
+[PASS] Manifold.Teleporter contains key: EnsureTeleporterDir 
+[PASS] Manifold.Teleporter member type is valid: EnsureTeleporterDir 
 [PASS] Manifold.Teleporter contains key: SaveLookup 
 [PASS] Manifold.Teleporter member type is valid: SaveLookup 
 [PASS] Manifold.Teleporter contains key: GetSavedPosition 
 [PASS] Manifold.Teleporter member type is valid: GetSavedPosition 
-[PASS] Manifold.Teleporter contains key: GetSaveFilePath 
-[PASS] Manifold.Teleporter member type is valid: GetSaveFilePath 
-[PASS] Manifold.Teleporter contains key: SetValueType 
-[PASS] Manifold.Teleporter member type is valid: SetValueType 
-[PASS] Manifold.Teleporter contains key: TeleportToSave 
-[PASS] Manifold.Teleporter member type is valid: TeleportToSave 
+[PASS] Manifold.Teleporter contains key: SaveCurrentPosition 
+[PASS] Manifold.Teleporter member type is valid: SaveCurrentPosition 
+[PASS] Manifold.Teleporter contains key: New 
+[PASS] Manifold.Teleporter member type is valid: New 
+[PASS] Manifold.Teleporter contains key: ResolveAddress 
+[PASS] Manifold.Teleporter member type is valid: ResolveAddress 
+[PASS] Manifold.Teleporter contains key: ReadPositionFromMemory 
+[PASS] Manifold.Teleporter member type is valid: ReadPositionFromMemory 
+[PASS] Manifold.Teleporter contains key: LoadSavedPosition 
+[PASS] Manifold.Teleporter member type is valid: LoadSavedPosition 
+[PASS] Manifold.Teleporter contains key: Transform 
+[PASS] Manifold.Teleporter member type is valid: Transform 
+[PASS] Manifold.Teleporter contains key: WritePositionToMemory 
+[PASS] Manifold.Teleporter member type is valid: WritePositionToMemory 
+[PASS] Manifold.Teleporter contains key: InitTeleporterUI 
+[PASS] Manifold.Teleporter member type is valid: InitTeleporterUI 
+[PASS] Manifold.Teleporter contains key: PrintSaves 
+[PASS] Manifold.Teleporter member type is valid: PrintSaves 
+[PASS] Manifold.Teleporter contains key: RenameSave 
+[PASS] Manifold.Teleporter member type is valid: RenameSave 
+[PASS] Manifold.Teleporter contains key: TeleportToWaypoint 
+[PASS] Manifold.Teleporter member type is valid: TeleportToWaypoint 
 [PASS] Manifold.Teleporter contains key: GetCurrentPosition 
 [PASS] Manifold.Teleporter member type is valid: GetCurrentPosition 
+[PASS] Manifold.Teleporter contains key: ClearSubrecords 
+[PASS] Manifold.Teleporter member type is valid: ClearSubrecords 
+[PASS] Manifold.Teleporter contains key: Settings 
+[PASS] Manifold.Teleporter member type is valid: Settings 
+[PASS] Manifold.Teleporter contains key: SaveMemoryRecordName 
+[PASS] Manifold.Teleporter member type is valid: SaveMemoryRecordName 
+[PASS] Manifold.Teleporter contains key: TeleportToSave 
+[PASS] Manifold.Teleporter member type is valid: TeleportToSave 
 [PASS] Manifold.Teleporter contains key: GetModuleInfo 
 [PASS] Manifold.Teleporter member type is valid: GetModuleInfo 
 [PASS] Manifold.Teleporter contains key: AddSave 
 [PASS] Manifold.Teleporter member type is valid: AddSave 
-[PASS] Manifold.Teleporter contains key: Additional 
-[PASS] Manifold.Teleporter member type is valid: Additional 
+[PASS] Manifold.Teleporter contains key: LoadBackupPosition 
+[PASS] Manifold.Teleporter member type is valid: LoadBackupPosition 
+[PASS] Manifold.Teleporter contains key: GetBackupPosition 
+[PASS] Manifold.Teleporter member type is valid: GetBackupPosition 
+[PASS] Manifold.Teleporter contains key: SetValueType 
+[PASS] Manifold.Teleporter member type is valid: SetValueType 
+[PASS] Manifold.Teleporter contains key: Saves 
+[PASS] Manifold.Teleporter member type is valid: Saves 
+[PASS] Manifold.Teleporter contains key: WriteSavesToTableFile 
+[PASS] Manifold.Teleporter member type is valid: WriteSavesToTableFile 
 [PASS] Manifold.Teleporter contains key: Waypoint 
 [PASS] Manifold.Teleporter member type is valid: Waypoint 
-[PASS] Manifold.Teleporter contains key: WritePositionToMemory 
-[PASS] Manifold.Teleporter member type is valid: WritePositionToMemory 
-[PASS] Manifold.Teleporter contains key: SaveFileName 
-[PASS] Manifold.Teleporter member type is valid: SaveFileName 
-[PASS] Manifold.Teleporter contains key: __index 
-[PASS] Manifold.Teleporter member type is valid: __index 
+[PASS] Manifold.Teleporter contains key: Symbols 
+[PASS] Manifold.Teleporter member type is valid: Symbols 
 [PASS] Module loads: Manifold.UI 
-[PASS] Manifold.UI contains key: ApplyTheme 
-[PASS] Manifold.UI member type is valid: ApplyTheme 
-[PASS] Manifold.UI contains key: ToggleCompactMode 
-[PASS] Manifold.UI member type is valid: ToggleCompactMode 
-[PASS] Manifold.UI contains key: InitializeTableMenu 
-[PASS] Manifold.UI member type is valid: InitializeTableMenu 
-[PASS] Manifold.UI contains key: GetJsonThemesFromTableMenu 
-[PASS] Manifold.UI member type is valid: GetJsonThemesFromTableMenu 
-[PASS] Manifold.UI contains key: GetRecordColor 
-[PASS] Manifold.UI member type is valid: GetRecordColor 
-[PASS] Manifold.UI contains key: BGR2RGB 
-[PASS] Manifold.UI member type is valid: BGR2RGB 
-[PASS] Manifold.UI contains key: GetTheme 
-[PASS] Manifold.UI member type is valid: GetTheme 
-[PASS] Manifold.UI contains key: Theme 
-[PASS] Manifold.UI member type is valid: Theme 
-[PASS] Manifold.UI contains key: CreateTimer 
-[PASS] Manifold.UI member type is valid: CreateTimer 
-[PASS] Manifold.UI contains key: CreateOrUpdateLabel 
-[PASS] Manifold.UI member type is valid: CreateOrUpdateLabel 
-[PASS] Manifold.UI contains key: New 
-[PASS] Manifold.UI member type is valid: New 
-[PASS] Manifold.UI contains key: CheckDependencies 
-[PASS] Manifold.UI member type is valid: CheckDependencies 
-[PASS] Manifold.UI contains key: DisableCompactMode 
-[PASS] Manifold.UI member type is valid: DisableCompactMode 
-[PASS] Manifold.UI contains key: FinalizeThemes 
-[PASS] Manifold.UI member type is valid: FinalizeThemes 
-[PASS] Manifold.UI contains key: ToggleSignatureControls 
-[PASS] Manifold.UI member type is valid: ToggleSignatureControls 
-[PASS] Manifold.UI contains key: CompactMode 
-[PASS] Manifold.UI member type is valid: CompactMode 
-[PASS] Manifold.UI contains key: MatrixReveal 
-[PASS] Manifold.UI member type is valid: MatrixReveal 
-[PASS] Manifold.UI contains key: ApplyThemeToAddressRecords 
-[PASS] Manifold.UI member type is valid: ApplyThemeToAddressRecords 
-[PASS] Manifold.UI contains key: RunInMainThread 
-[PASS] Manifold.UI member type is valid: RunInMainThread 
-[PASS] Manifold.UI contains key: ProcessThemeData 
-[PASS] Manifold.UI member type is valid: ProcessThemeData 
-[PASS] Manifold.UI contains key: ScrollText 
-[PASS] Manifold.UI member type is valid: ScrollText 
-[PASS] Manifold.UI contains key: RevealEffect 
-[PASS] Manifold.UI member type is valid: RevealEffect 
-[PASS] Manifold.UI contains key: HideSignatureStr 
-[PASS] Manifold.UI member type is valid: HideSignatureStr 
 [PASS] Manifold.UI contains key: GlitchText 
 [PASS] Manifold.UI member type is valid: GlitchText 
-[PASS] Manifold.UI contains key: SetControlVisibility 
-[PASS] Manifold.UI member type is valid: SetControlVisibility 
-[PASS] Manifold.UI contains key: StartTextAnimation 
-[PASS] Manifold.UI member type is valid: StartTextAnimation 
-[PASS] Manifold.UI contains key: TypingEffect 
-[PASS] Manifold.UI member type is valid: TypingEffect 
-[PASS] Manifold.UI contains key: CreateSloganStr 
-[PASS] Manifold.UI member type is valid: CreateSloganStr 
-[PASS] Manifold.UI contains key: EnableCompactMode 
-[PASS] Manifold.UI member type is valid: EnableCompactMode 
-[PASS] Manifold.UI contains key: ThemeTokens 
-[PASS] Manifold.UI member type is valid: ThemeTokens 
-[PASS] Manifold.UI contains key: SignatureStr 
-[PASS] Manifold.UI member type is valid: SignatureStr 
-[PASS] Manifold.UI contains key: CreateSignatureStr 
-[PASS] Manifold.UI member type is valid: CreateSignatureStr 
-[PASS] Manifold.UI contains key: DestroyTextLabel 
-[PASS] Manifold.UI member type is valid: DestroyTextLabel 
-[PASS] Manifold.UI contains key: LoadTheme 
-[PASS] Manifold.UI member type is valid: LoadTheme 
-[PASS] Manifold.UI contains key: UpdateTextLabel 
-[PASS] Manifold.UI member type is valid: UpdateTextLabel 
-[PASS] Manifold.UI contains key: RGB2BGR 
-[PASS] Manifold.UI member type is valid: RGB2BGR 
-[PASS] Manifold.UI contains key: DestroySloganStr 
-[PASS] Manifold.UI member type is valid: DestroySloganStr 
-[PASS] Manifold.UI contains key: GetThemeTokens 
-[PASS] Manifold.UI member type is valid: GetThemeTokens 
-[PASS] Manifold.UI contains key: GetModuleInfo 
-[PASS] Manifold.UI member type is valid: GetModuleInfo 
-[PASS] Manifold.UI contains key: ApplyThemeToTreeView 
-[PASS] Manifold.UI member type is valid: ApplyThemeToTreeView 
-[PASS] Manifold.UI contains key: DisableDragDrop 
-[PASS] Manifold.UI member type is valid: DisableDragDrop 
-[PASS] Manifold.UI contains key: ApplyThemeToAddressList 
-[PASS] Manifold.UI member type is valid: ApplyThemeToAddressList 
-[PASS] Manifold.UI contains key: ApplyThemeToMainForm 
-[PASS] Manifold.UI member type is valid: ApplyThemeToMainForm 
-[PASS] Manifold.UI contains key: HideAddresslistBevel 
-[PASS] Manifold.UI member type is valid: HideAddresslistBevel 
-[PASS] Manifold.UI contains key: ToggleControlVisibility 
-[PASS] Manifold.UI member type is valid: ToggleControlVisibility 
-[PASS] Manifold.UI contains key: UpdateThemeSelector 
-[PASS] Manifold.UI member type is valid: UpdateThemeSelector 
-[PASS] Manifold.UI contains key: InitializeForm 
-[PASS] Manifold.UI member type is valid: InitializeForm 
-[PASS] Manifold.UI contains key: DeleteSubrecords 
-[PASS] Manifold.UI member type is valid: DeleteSubrecords 
-[PASS] Manifold.UI contains key: LoadThemes 
-[PASS] Manifold.UI member type is valid: LoadThemes 
-[PASS] Manifold.UI contains key: TokenSearch 
-[PASS] Manifold.UI member type is valid: TokenSearch 
-[PASS] Manifold.UI contains key: SloganStr 
-[PASS] Manifold.UI member type is valid: SloganStr 
 [PASS] Manifold.UI contains key: DisableHeaderSorting 
 [PASS] Manifold.UI member type is valid: DisableHeaderSorting 
-[PASS] Manifold.UI contains key: ThemeList 
-[PASS] Manifold.UI member type is valid: ThemeList 
-[PASS] Manifold.UI contains key: EnsureThemeDirectory 
-[PASS] Manifold.UI member type is valid: EnsureThemeDirectory 
-[PASS] Manifold.UI contains key: HideSignatureControls 
-[PASS] Manifold.UI member type is valid: HideSignatureControls 
-[PASS] Manifold.UI contains key: LoadJsonThemesFromDataDir 
-[PASS] Manifold.UI member type is valid: LoadJsonThemesFromDataDir 
+[PASS] Manifold.UI contains key: BGR2RGB 
+[PASS] Manifold.UI member type is valid: BGR2RGB 
+[PASS] Manifold.UI contains key: GetColorsAndTokensFromListView 
+[PASS] Manifold.UI member type is valid: GetColorsAndTokensFromListView 
+[PASS] Manifold.UI contains key: LoadThemes 
+[PASS] Manifold.UI member type is valid: LoadThemes 
+[PASS] Manifold.UI contains key: GetModuleInfo 
+[PASS] Manifold.UI member type is valid: GetModuleInfo 
+[PASS] Manifold.UI contains key: GetThemeTokens 
+[PASS] Manifold.UI member type is valid: GetThemeTokens 
+[PASS] Manifold.UI contains key: ApplyThemeToMainForm 
+[PASS] Manifold.UI member type is valid: ApplyThemeToMainForm 
+[PASS] Manifold.UI contains key: UpdateTextLabel 
+[PASS] Manifold.UI member type is valid: UpdateTextLabel 
+[PASS] Manifold.UI contains key: ApplyTheme 
+[PASS] Manifold.UI member type is valid: ApplyTheme 
 [PASS] Manifold.UI contains key: TokenColor 
 [PASS] Manifold.UI member type is valid: TokenColor 
+[PASS] Manifold.UI contains key: LoadThemeData 
+[PASS] Manifold.UI member type is valid: LoadThemeData 
+[PASS] Manifold.UI contains key: GetJsonThemesFromTableMenu 
+[PASS] Manifold.UI member type is valid: GetJsonThemesFromTableMenu 
+[PASS] Manifold.UI contains key: ApplyThemeToAddressList 
+[PASS] Manifold.UI member type is valid: ApplyThemeToAddressList 
+[PASS] Manifold.UI contains key: MatrixReveal 
+[PASS] Manifold.UI member type is valid: MatrixReveal 
+[PASS] Manifold.UI contains key: ToggleCompactMode 
+[PASS] Manifold.UI member type is valid: ToggleCompactMode 
+[PASS] Manifold.UI contains key: EnableCompactMode 
+[PASS] Manifold.UI member type is valid: EnableCompactMode 
+[PASS] Manifold.UI contains key: InitializeTableMenu 
+[PASS] Manifold.UI member type is valid: InitializeTableMenu 
+[PASS] Manifold.UI contains key: ThemeTokens 
+[PASS] Manifold.UI member type is valid: ThemeTokens 
+[PASS] Manifold.UI contains key: DeleteSubrecords 
+[PASS] Manifold.UI member type is valid: DeleteSubrecords 
+[PASS] Manifold.UI contains key: PromptThemeFile 
+[PASS] Manifold.UI member type is valid: PromptThemeFile 
+[PASS] Manifold.UI contains key: CreateStyledEdit 
+[PASS] Manifold.UI member type is valid: CreateStyledEdit 
+[PASS] Manifold.UI contains key: TokenSearch 
+[PASS] Manifold.UI member type is valid: TokenSearch 
+[PASS] Manifold.UI contains key: GetRecordColor 
+[PASS] Manifold.UI member type is valid: GetRecordColor 
+[PASS] Manifold.UI contains key: PopulateListView 
+[PASS] Manifold.UI member type is valid: PopulateListView 
+[PASS] Manifold.UI contains key: RGB2BGR 
+[PASS] Manifold.UI member type is valid: RGB2BGR 
+[PASS] Manifold.UI contains key: TypingEffect 
+[PASS] Manifold.UI member type is valid: TypingEffect 
+[PASS] Manifold.UI contains key: Theme 
+[PASS] Manifold.UI member type is valid: Theme 
+[PASS] Manifold.UI contains key: CreateThemeCreatorForm 
+[PASS] Manifold.UI member type is valid: CreateThemeCreatorForm 
+[PASS] Manifold.UI contains key: HideSignatureStr 
+[PASS] Manifold.UI member type is valid: HideSignatureStr 
+[PASS] Manifold.UI contains key: StartTextAnimation 
+[PASS] Manifold.UI member type is valid: StartTextAnimation 
+[PASS] Manifold.UI contains key: UpdateColorLabels 
+[PASS] Manifold.UI member type is valid: UpdateColorLabels 
+[PASS] Manifold.UI contains key: CreateSloganStr 
+[PASS] Manifold.UI member type is valid: CreateSloganStr 
 [PASS] Manifold.UI contains key: __index 
 [PASS] Manifold.UI member type is valid: __index 
+[PASS] Manifold.UI contains key: RevealEffect 
+[PASS] Manifold.UI member type is valid: RevealEffect 
+[PASS] Manifold.UI contains key: SetControlVisibility 
+[PASS] Manifold.UI member type is valid: SetControlVisibility 
+[PASS] Manifold.UI contains key: DestroyTextLabel 
+[PASS] Manifold.UI member type is valid: DestroyTextLabel 
+[PASS] Manifold.UI contains key: TokenDescriptions 
+[PASS] Manifold.UI member type is valid: TokenDescriptions 
+[PASS] Manifold.UI contains key: FinalizeThemes 
+[PASS] Manifold.UI member type is valid: FinalizeThemes 
+[PASS] Manifold.UI contains key: InitializeForm 
+[PASS] Manifold.UI member type is valid: InitializeForm 
+[PASS] Manifold.UI contains key: ToggleSignatureControls 
+[PASS] Manifold.UI member type is valid: ToggleSignatureControls 
+[PASS] Manifold.UI contains key: SetupExportButton 
+[PASS] Manifold.UI member type is valid: SetupExportButton 
+[PASS] Manifold.UI contains key: ThemeList 
+[PASS] Manifold.UI member type is valid: ThemeList 
+[PASS] Manifold.UI contains key: UpdateThemeSelector 
+[PASS] Manifold.UI member type is valid: UpdateThemeSelector 
+[PASS] Manifold.UI contains key: CreateOrUpdateLabel 
+[PASS] Manifold.UI member type is valid: CreateOrUpdateLabel 
+[PASS] Manifold.UI contains key: SignatureStr 
+[PASS] Manifold.UI member type is valid: SignatureStr 
+[PASS] Manifold.UI contains key: InitializeThemeCreator 
+[PASS] Manifold.UI member type is valid: InitializeThemeCreator 
+[PASS] Manifold.UI contains key: SetupApplyButton 
+[PASS] Manifold.UI member type is valid: SetupApplyButton 
+[PASS] Manifold.UI contains key: LoadJsonThemesFromDataDir 
+[PASS] Manifold.UI member type is valid: LoadJsonThemesFromDataDir 
+[PASS] Manifold.UI contains key: ApplyThemeObject 
+[PASS] Manifold.UI member type is valid: ApplyThemeObject 
+[PASS] Manifold.UI contains key: CreateSignatureStr 
+[PASS] Manifold.UI member type is valid: CreateSignatureStr 
+[PASS] Manifold.UI contains key: PopulateThemeUI 
+[PASS] Manifold.UI member type is valid: PopulateThemeUI 
+[PASS] Manifold.UI contains key: ScrollText 
+[PASS] Manifold.UI member type is valid: ScrollText 
+[PASS] Manifold.UI contains key: RebuildImageList 
+[PASS] Manifold.UI member type is valid: RebuildImageList 
+[PASS] Manifold.UI contains key: LoadTheme 
+[PASS] Manifold.UI member type is valid: LoadTheme 
+[PASS] Manifold.UI contains key: NormalizeTheme 
+[PASS] Manifold.UI member type is valid: NormalizeTheme 
+[PASS] Manifold.UI contains key: New 
+[PASS] Manifold.UI member type is valid: New 
+[PASS] Manifold.UI contains key: SetupLoadButton 
+[PASS] Manifold.UI member type is valid: SetupLoadButton 
+[PASS] Manifold.UI contains key: HandleColorSelection 
+[PASS] Manifold.UI member type is valid: HandleColorSelection 
+[PASS] Manifold.UI contains key: DestroySloganStr 
+[PASS] Manifold.UI member type is valid: DestroySloganStr 
+[PASS] Manifold.UI contains key: CreateTokenPreviewPanel 
+[PASS] Manifold.UI member type is valid: CreateTokenPreviewPanel 
+[PASS] Manifold.UI contains key: GetTheme 
+[PASS] Manifold.UI member type is valid: GetTheme 
+[PASS] Manifold.UI contains key: UpdateSelectedToken 
+[PASS] Manifold.UI member type is valid: UpdateSelectedToken 
+[PASS] Manifold.UI contains key: OnListViewSelectItem 
+[PASS] Manifold.UI member type is valid: OnListViewSelectItem 
+[PASS] Manifold.UI contains key: ApplyThemeToAddressRecords 
+[PASS] Manifold.UI member type is valid: ApplyThemeToAddressRecords 
+[PASS] Manifold.UI contains key: OnListViewDblClick 
+[PASS] Manifold.UI member type is valid: OnListViewDblClick 
+[PASS] Manifold.UI contains key: CreateButtonPanel 
+[PASS] Manifold.UI member type is valid: CreateButtonPanel 
+[PASS] Manifold.UI contains key: GetActiveThemeData 
+[PASS] Manifold.UI member type is valid: GetActiveThemeData 
+[PASS] Manifold.UI contains key: CreateTimer 
+[PASS] Manifold.UI member type is valid: CreateTimer 
+[PASS] Manifold.UI contains key: CreateStyledLabel 
+[PASS] Manifold.UI member type is valid: CreateStyledLabel 
+[PASS] Manifold.UI contains key: ProcessThemeData 
+[PASS] Manifold.UI member type is valid: ProcessThemeData 
+[PASS] Manifold.UI contains key: CreateThemeInfoPanel 
+[PASS] Manifold.UI member type is valid: CreateThemeInfoPanel 
+[PASS] Manifold.UI contains key: RunInMainThread 
+[PASS] Manifold.UI member type is valid: RunInMainThread 
+[PASS] Manifold.UI contains key: CreateStyledButton 
+[PASS] Manifold.UI member type is valid: CreateStyledButton 
+[PASS] Manifold.UI contains key: CheckDependencies 
+[PASS] Manifold.UI member type is valid: CheckDependencies 
+[PASS] Manifold.UI contains key: CreateListViewControl 
+[PASS] Manifold.UI member type is valid: CreateListViewControl 
+[PASS] Manifold.UI contains key: ToggleControlVisibility 
+[PASS] Manifold.UI member type is valid: ToggleControlVisibility 
+[PASS] Manifold.UI contains key: DisableCompactMode 
+[PASS] Manifold.UI member type is valid: DisableCompactMode 
+[PASS] Manifold.UI contains key: SloganStr 
+[PASS] Manifold.UI member type is valid: SloganStr 
+[PASS] Manifold.UI contains key: DisableDragDrop 
+[PASS] Manifold.UI member type is valid: DisableDragDrop 
+[PASS] Manifold.UI contains key: EnsureThemeDirectory 
+[PASS] Manifold.UI member type is valid: EnsureThemeDirectory 
+[PASS] Manifold.UI contains key: CreateCopyButton 
+[PASS] Manifold.UI member type is valid: CreateCopyButton 
+[PASS] Manifold.UI contains key: CompactMode 
+[PASS] Manifold.UI member type is valid: CompactMode 
+[PASS] Manifold.UI contains key: HideAddresslistBevel 
+[PASS] Manifold.UI member type is valid: HideAddresslistBevel 
+[PASS] Manifold.UI contains key: ApplyThemeToTreeView 
+[PASS] Manifold.UI member type is valid: ApplyThemeToTreeView 
+[PASS] Manifold.UI contains key: HideSignatureControls 
+[PASS] Manifold.UI member type is valid: HideSignatureControls 
 [PASS] Module loads: Manifold.Utils 
-[PASS] Manifold.Utils contains key: AutoDisableTimerInterval 
-[PASS] Manifold.Utils member type is valid: AutoDisableTimerInterval 
-[PASS] Manifold.Utils contains key: VerifyFileHash 
-[PASS] Manifold.Utils member type is valid: VerifyFileHash 
-[PASS] Manifold.Utils contains key: ResolvePointerPath 
-[PASS] Manifold.Utils member type is valid: ResolvePointerPath 
-[PASS] Manifold.Utils contains key: Target 
-[PASS] Manifold.Utils member type is valid: Target 
-[PASS] Manifold.Utils contains key: ShowInfo 
-[PASS] Manifold.Utils member type is valid: ShowInfo 
-[PASS] Manifold.Utils contains key: ExecuteTableLuaScript 
-[PASS] Manifold.Utils member type is valid: ExecuteTableLuaScript 
-[PASS] Manifold.Utils contains key: InitializeTable 
-[PASS] Manifold.Utils member type is valid: InitializeTable 
-[PASS] Manifold.Utils contains key: RegisterTimeTypes 
-[PASS] Manifold.Utils member type is valid: RegisterTimeTypes 
-[PASS] Manifold.Utils contains key: SetAllScriptsToAsync 
-[PASS] Manifold.Utils member type is valid: SetAllScriptsToAsync 
-[PASS] Manifold.Utils contains key: TargetStr 
-[PASS] Manifold.Utils member type is valid: TargetStr 
-[PASS] Manifold.Utils contains key: FormatTitle 
-[PASS] Manifold.Utils member type is valid: FormatTitle 
-[PASS] Manifold.Utils contains key: GetModuleInfo 
-[PASS] Manifold.Utils member type is valid: GetModuleInfo 
-[PASS] Manifold.Utils contains key: SetTitle 
-[PASS] Manifold.Utils member type is valid: SetTitle 
-[PASS] Manifold.Utils contains key: RemoveTableFilesByExtension 
-[PASS] Manifold.Utils member type is valid: RemoveTableFilesByExtension 
-[PASS] Manifold.Utils contains key: GetTarget 
-[PASS] Manifold.Utils member type is valid: GetTarget 
-[PASS] Manifold.Utils contains key: New 
-[PASS] Manifold.Utils member type is valid: New 
-[PASS] Manifold.Utils contains key: ShowError 
-[PASS] Manifold.Utils member type is valid: ShowError 
-[PASS] Manifold.Utils contains key: GetTitleComponents 
-[PASS] Manifold.Utils member type is valid: GetTitleComponents 
-[PASS] Manifold.Utils contains key: AppVersion 
-[PASS] Manifold.Utils member type is valid: AppVersion 
-[PASS] Manifold.Utils contains key: SetAllScriptsToNotAsync 
-[PASS] Manifold.Utils member type is valid: SetAllScriptsToNotAsync 
-[PASS] Manifold.Utils contains key: RegisterDecryptionType 
-[PASS] Manifold.Utils member type is valid: RegisterDecryptionType 
-[PASS] Manifold.Utils contains key: ShowWarning 
-[PASS] Manifold.Utils member type is valid: ShowWarning 
-[PASS] Manifold.Utils contains key: ShowConfirmation 
-[PASS] Manifold.Utils member type is valid: ShowConfirmation 
-[PASS] Manifold.Utils contains key: MD5Hash 
-[PASS] Manifold.Utils member type is valid: MD5Hash 
-[PASS] Manifold.Utils contains key: AutoDisable 
-[PASS] Manifold.Utils member type is valid: AutoDisable 
-[PASS] Manifold.Utils contains key: Author 
-[PASS] Manifold.Utils member type is valid: Author 
-[PASS] Manifold.Utils contains key: AppID 
-[PASS] Manifold.Utils member type is valid: AppID 
-[PASS] Manifold.Utils contains key: VerifyMD5 
-[PASS] Manifold.Utils member type is valid: VerifyMD5 
-[PASS] Manifold.Utils contains key: Version 
-[PASS] Manifold.Utils member type is valid: Version 
-[PASS] Manifold.Utils contains key: GetTargetNoExt 
-[PASS] Manifold.Utils member type is valid: GetTargetNoExt 
 [PASS] Manifold.Utils contains key: __index 
 [PASS] Manifold.Utils member type is valid: __index 
+[PASS] Manifold.Utils contains key: InitializeTable 
+[PASS] Manifold.Utils member type is valid: InitializeTable 
+[PASS] Manifold.Utils contains key: New 
+[PASS] Manifold.Utils member type is valid: New 
+[PASS] Manifold.Utils contains key: RegisterDecryptionType 
+[PASS] Manifold.Utils member type is valid: RegisterDecryptionType 
+[PASS] Manifold.Utils contains key: GetTarget 
+[PASS] Manifold.Utils member type is valid: GetTarget 
+[PASS] Manifold.Utils contains key: GetTargetNoExt 
+[PASS] Manifold.Utils member type is valid: GetTargetNoExt 
+[PASS] Manifold.Utils contains key: AutoDisableTimerInterval 
+[PASS] Manifold.Utils member type is valid: AutoDisableTimerInterval 
+[PASS] Manifold.Utils contains key: ShowInfo 
+[PASS] Manifold.Utils member type is valid: ShowInfo 
+[PASS] Manifold.Utils contains key: VerifyMD5 
+[PASS] Manifold.Utils member type is valid: VerifyMD5 
+[PASS] Manifold.Utils contains key: AppVersion 
+[PASS] Manifold.Utils member type is valid: AppVersion 
+[PASS] Manifold.Utils contains key: MD5Hash 
+[PASS] Manifold.Utils member type is valid: MD5Hash 
+[PASS] Manifold.Utils contains key: Version 
+[PASS] Manifold.Utils member type is valid: Version 
+[PASS] Manifold.Utils contains key: Author 
+[PASS] Manifold.Utils member type is valid: Author 
+[PASS] Manifold.Utils contains key: GetModuleInfo 
+[PASS] Manifold.Utils member type is valid: GetModuleInfo 
+[PASS] Manifold.Utils contains key: ExecuteTableLuaScript 
+[PASS] Manifold.Utils member type is valid: ExecuteTableLuaScript 
+[PASS] Manifold.Utils contains key: FormatTitle 
+[PASS] Manifold.Utils member type is valid: FormatTitle 
+[PASS] Manifold.Utils contains key: GetTitleComponents 
+[PASS] Manifold.Utils member type is valid: GetTitleComponents 
+[PASS] Manifold.Utils contains key: SetTitle 
+[PASS] Manifold.Utils member type is valid: SetTitle 
+[PASS] Manifold.Utils contains key: TargetStr 
+[PASS] Manifold.Utils member type is valid: TargetStr 
+[PASS] Manifold.Utils contains key: AppID 
+[PASS] Manifold.Utils member type is valid: AppID 
+[PASS] Manifold.Utils contains key: RegisterTimeTypes 
+[PASS] Manifold.Utils member type is valid: RegisterTimeTypes 
+[PASS] Manifold.Utils contains key: ResolvePointerPath 
+[PASS] Manifold.Utils member type is valid: ResolvePointerPath 
+[PASS] Manifold.Utils contains key: ShowError 
+[PASS] Manifold.Utils member type is valid: ShowError 
+[PASS] Manifold.Utils contains key: RemoveTableFilesByExtension 
+[PASS] Manifold.Utils member type is valid: RemoveTableFilesByExtension 
+[PASS] Manifold.Utils contains key: ShowConfirmation 
+[PASS] Manifold.Utils member type is valid: ShowConfirmation 
+[PASS] Manifold.Utils contains key: Target 
+[PASS] Manifold.Utils member type is valid: Target 
+[PASS] Manifold.Utils contains key: ShowWarning 
+[PASS] Manifold.Utils member type is valid: ShowWarning 
+[PASS] Manifold.Utils contains key: SetAllScriptsToNotAsync 
+[PASS] Manifold.Utils member type is valid: SetAllScriptsToNotAsync 
+[PASS] Manifold.Utils contains key: AutoDisable 
+[PASS] Manifold.Utils member type is valid: AutoDisable 
+[PASS] Manifold.Utils contains key: SetAllScriptsToAsync 
+[PASS] Manifold.Utils member type is valid: SetAllScriptsToAsync 
+[PASS] Manifold.Utils contains key: VerifyFileHash 
+[PASS] Manifold.Utils member type is valid: VerifyFileHash 
+[PASS] Manifold.Utils contains key: OpenLuaEngineWindow 
+[PASS] Manifold.Utils member type is valid: OpenLuaEngineWindow 
 
-Test Summary: 595 passed, 0 failed 
-=== Test complete at 2025-04-10 14:41:34 === 
+Test Summary: 653 passed, 0 failed 
+=== Test complete at 2025-04-16 22:30:56 === 
