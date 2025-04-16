@@ -1,35 +1,34 @@
 # Manifold Framework
 
-**Manifold** is a modular Lua framework designed for Cheat Engine, providing utilities for memory manipulation, user interface customization, process handling, logging, and more. Manifold aims to allow for faster and easier Cheat Table development.
+**Manifold** is a modular Lua framework designed specifically for Cheat Engine. It provides utilities for memory manipulation, UI customization, process handling, logging, and more. Manifold aims to simplify and speed up Cheat Table development.
 
----
+[![Languages](https://skillicons.dev/icons?i=lua)](https://skillicons.dev)
 
 ## 🚀 Features
 
-- Modular plug-and-play architecture
+- Plug-and-play modular architecture
 - Structured logging and error handling
 - AutoAssembler integration and memory utilities
-- Process-aware state persistence
-- Themeable UI with JSON support
-- File I/O abstraction with safe directory handling
-- Trainer-friendly Teleporter system
-
----
+- Persistent, process-aware state management
+- Fully themeable UI with JSON support
+- Abstraction for file I/O with safe directory management
+- Trainer-friendly Teleporter system for 3D games
 
 ## 📁 Data Directory Structure
 
-Manifold organizes runtime and user data into a well-defined `DataDirectory`, resolved by default to:
+Manifold organizes runtime and user data in a dedicated `DataDirectory`, resolved by default to:
 
 ```lua
 os.getenv("USERPROFILE") .. "\\AppData\\Local\\Manifold"
 ```
 
 ### Directory Layout
+
 ```
 Manifold/
 ├── CEA/
 │   └── <ProcessName>/
-│       └── *.CEA                      → AutoAssembler files per process
+│       └── *.CEA                      → AutoAssembler files for each process
 ├── Themes/
 │   └── *.json                         → UI theme configuration files
 ├── Teleporter/
@@ -39,19 +38,18 @@ Manifold/
 └── ... (other runtime files)
 ```
 
-Directories are created automatically at runtime by `Manifold.CustomIO`. To retrieve or configure the path manually:
+Directories are automatically created at runtime by `Manifold.CustomIO`. You can manually retrieve or configure the data path:
 
 ```lua
 local dataDir = Manifold.CustomIO.GetDataDir()
 ```
 
----
-
-
 ## 📦 Modules
 
+Manifold is divided into several modules that provide core functionality, runtime utilities, and in-game features.
+
 ### Core Utilities
-These modules provide foundational functionality such as file I/O, logging, and general utilities for Table Setup.
+These modules provide fundamental services like file I/O, logging, and setup utilities.
 
 - `Manifold.Json` → JSON parser and encoder
 - `Manifold.Helper` → Shared utility helpers
@@ -59,29 +57,27 @@ These modules provide foundational functionality such as file I/O, logging, and 
 - `Manifold.CustomIO` → Data directory and file operations
 
 ### Runtime Setup
-These modules handle runtime configuration and diagnostics.
+Modules for runtime configuration and diagnostics.
 
-- `Manifold.Utils` → Displays info, initializes the Cheat Table
-- `Manifold.ProcessHandler` → Sets and manages target process
+- `Manifold.Utils` → Displays information and initializes Cheat Tables
+- `Manifold.ProcessHandler` → Sets and manages the target process
 
 ### Functional Modules
-These are the primary tools used during runtime.
+These modules provide the primary functionality for runtime operations.
 
-- `Manifold.Memory` → Memory read/write
+- `Manifold.Memory` → Memory read/write utilities
 - `Manifold.State` → Persistent table state manager
-- `Manifold.AutoAssembler` → Modular AutoAssembler wrapper
-- `Manifold.Teleporter` → Save/restore 3D positions in memory
+- `Manifold.AutoAssembler` → AutoAssembler script management
+- `Manifold.Teleporter` → Save and restore 3D positions
 
 ### UI and Themes
-Responsible for user interface adjustments and theme management.
+Modules responsible for UI customization and theme management.
 
 - `Manifold.UI` → Theme system and GUI abstraction
 
----
-
 ## 📥 Loading Manifold Modules
 
-Modules are loaded via a custom helper function, `CETrequire`, which attempts to load from disk first, then from embedded Cheat Engine `TableFiles`.
+Manifold modules are loaded using the `CETrequire` function, which first attempts to load from disk and then from embedded Cheat Engine `TableFiles`.
 
 ### CETrequire Function
 
@@ -114,23 +110,20 @@ function CETrequire(moduleStr)
 end
 ```
 
-### Example
+### Example Usage
+
 ```lua
 CETrequire("Manifold.State")
 local state = State:New()
---- Module and it's functions are now available:
+--- Module and its functions are now available:
 state:SaveTableState("Profile-Easy")
 ```
 
-Some modules may require additional setup after loading (e.g., Teleporter).
-
----
+Some modules (like Teleporter) may require additional setup after loading.
 
 ## 🤝 Contributing
 
-Contributions, bug reports, and feature requests are welcome! Please follow the existing coding style and modular structure.
-
----
+Contributions, bug reports, and feature requests are welcome! Please follow the existing coding style and modular structure when submitting pull requests or suggestions.
 
 ## 📜 License
 
