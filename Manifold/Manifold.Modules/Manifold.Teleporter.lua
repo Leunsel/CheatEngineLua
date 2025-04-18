@@ -1,11 +1,14 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-04-18)
+        Fixed a string.format mistake in 'UpdateSave'.
 ]]--
 
 Teleporter = {
@@ -803,7 +806,7 @@ function UpdateSave(name, newPos, ListView)
     teleporter.Saves[name].X = newPos[1] or 0
     teleporter.Saves[name].Y = newPos[2] or 0
     teleporter.Saves[name].Z = newPos[3] or 0
-    logger:InfoF("[Teleporter] Save '%s' updated: X=%d, Y=%d, Z=%d", name, newPos[1], newPos[2], newPos[3])
+    logger:InfoF("[Teleporter] Save '%s' updated: X=%.2f, Y=%.2f, Z=%.2f", name, newPos[1], newPos[2], newPos[3])
     return true
 end
 registerLuaFunctionHighlight('UpdateSave')
