@@ -14,10 +14,10 @@ Acknowledgments and thanks to the following contributors and resources:
 - **TheyCallMeTim13**: For providing inspiration through his meticulously crafted Cheat Tables and for creating the `Module.Helper.lua` Module.
 
 ## Manifold
-Source-Code of Manifold: ![Here](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold)
+Source-Code of Manifold: ![`Here`](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold)
 
 ## Template Loader
-Source-Code of the Template Loader: ![Here](https://github.com/Leunsel/CheatEngineLua/tree/main/TemplateLoader)
+Source-Code of the Template Loader: ![`Here`](https://github.com/Leunsel/CheatEngineLua/tree/main/TemplateLoader)
 
 ## Contribution
 Contributions are welcome! If you have ideas for improvements or new features or themes, feel free to open an issue or submit a pull request.
