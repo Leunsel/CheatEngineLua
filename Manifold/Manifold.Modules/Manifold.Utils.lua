@@ -1,14 +1,20 @@
 local NAME = "Manifold.Utils.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Utils"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
 
-    ∂ v1.0.1 (2025-04-11)
+    ∂ v1.0.1 (2025-02-26)
         Minor comment adjustments.
+
+    ∂ v1.0.2 (2025-04-27)
+        - Added EnsureCompatibleCEVersion.
+          Attempting to notify users of CE 7.6
+          that a Table may be malfunctioning.
+        - Comment Adjustments
 ]]--
 
 Utils = {
@@ -137,8 +143,8 @@ end
 registerLuaFunctionHighlight('VerifyFileHash')
 
 --
---- Sets all memory records of type "Auto Assembler" in the address list to async mode.
---- This ensures the scripts execute asynchronously.
+--- ∑ Sets all memory records of type "Auto Assembler" in the address list to async mode.
+---   This ensures the scripts execute asynchronously.
 ---     [+] Disclaimer: Script(s) need(s) to support async mode!
 --- @return # void
 --
@@ -153,8 +159,8 @@ end
 registerLuaFunctionHighlight('SetAllScriptsToAsync')
 
 --
---- Sets all memory records of type "Auto Assembler" in the address list to non-async mode.
---- This ensures the scripts execute synchronously.
+--- ∑ Sets all memory records of type "Auto Assembler" in the address list to non-async mode.
+---   This ensures the scripts execute synchronously.
 --- @return # void
 --
 function Utils:SetAllScriptsToNotAsync()
@@ -168,8 +174,8 @@ end
 registerLuaFunctionHighlight('SetAllScriptsToNotAsync')
 
 --
---- Message Dialog Preset - Info
---- Displays an informational message dialog to the user.
+--- ∑ Message Dialog Preset - Info
+---   Displays an informational message dialog to the user.
 --- @param message # The message text to display in the dialog.
 --- @return # void
 --
@@ -179,8 +185,8 @@ end
 registerLuaFunctionHighlight('ShowInfo')
 
 --
---- Message Dialog Preset - Warning
---- Displays a warning message dialog to the user.
+--- ∑ Message Dialog Preset - Warning
+---   Displays a warning message dialog to the user.
 --- @param message # The message text to display in the dialog.
 --- @return # void
 --
@@ -190,8 +196,8 @@ end
 registerLuaFunctionHighlight('ShowWarning')
 
 --
---- Message Dialog Preset - Error
---- Displays an error message dialog to the user.
+--- ∑ Message Dialog Preset - Error
+---   Displays an error message dialog to the user.
 --- @param message # The message text to display in the dialog.
 --- @return # void
 --
@@ -201,8 +207,8 @@ end
 registerLuaFunctionHighlight('ShowError')
 
 --
---- Message Dialog Preset - Confirmation
---- Displays a confirmation message dialog to the user with "Yes" and "No" options.
+--- ∑ Message Dialog Preset - Confirmation
+---   Displays a confirmation message dialog to the user with "Yes" and "No" options.
 --- @param message # The message text to display in the dialog.
 --- @return # true if the user selects "Yes", false otherwise.
 --
@@ -211,6 +217,40 @@ function Utils:ShowConfirmation(message)
     return result == mrYes
 end
 registerLuaFunctionHighlight('ShowConfirmation')
+--
+--- ∑ Ensures that the user is running the required Cheat Engine version.
+---   Displays a warning if the version does not match the required version.
+---   Optionally closes Cheat Engine if the version mismatch is critical.
+--- @param requiredVersion # The exact Cheat Engine version the table was designed for.
+--- @param closeOnFail # If true, the table will close automatically on version mismatch.
+--
+function Utils:EnsureCompatibleCEVersion(requiredVersion, closeOnFail)
+    if type(requiredVersion) ~= 'number' then
+        logger:Error('[Utils] EnsureCompatibleCEVersion: requiredVersion must be a number')
+        return
+    end
+    local currentVersion = getCEVersion()
+    logger:Debug(string.format('[Utils] Detected Cheat Engine version: %.1f', currentVersion))
+    if currentVersion ~= requiredVersion then
+        local msg = string.format(
+            "— Cheat Engine Version Mismatch\n\n" ..
+            "This table was developed and tested specifically for Cheat Engine version %.1f.\n" ..
+            "You are currently using version %.1f.\n\n" ..
+            "Using a different version may result in unexpected behavior, errors, or instability.\n\n" ..
+            "For the best experience, please use the recommended Cheat Engine version.",
+            requiredVersion, currentVersion
+        )
+        if closeOnFail then
+            msg = msg .. "\n\nThe table will now close to prevent any issues."
+            self:ShowError(msg)
+            closeCE()
+        else
+            msg = msg .. "\n\nIt is highly recommended to use the correct version."
+            self:ShowWarning(msg)
+        end
+    end
+end
+registerLuaFunctionHighlight('EnsureCompatibleCEVersion')
 
 --
 --- ∑ Registers a custom memory value type for "Military Hours" used in the game "Dying Light."
