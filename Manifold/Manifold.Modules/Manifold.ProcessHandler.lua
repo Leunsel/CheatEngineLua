@@ -321,21 +321,18 @@ end
 ---   Otherwise, it tries to attach to the process specified by 'processName'. If the process cannot be found or attached, an error is logged.
 ---
 function ProcessHandler:AttachToProcessByName(processName)
-    if self:IsProcessAttached() then
-        local attachedProcess = process
-        local expectedProcess = utils:GetTarget()
-        local processID = getProcessIDFromProcessName(expectedProcess)
-        if attachedProcess == expectedProcess then
-            logger:Debug("[ProcessHandler] Already attached to the correct process: " .. expectedProcess)
-            return true
-        else
-            self:HandleProcessMismatch(expectedProcess, processID)
-            return self:IsProcessAttached() and process == expectedProcess
-        end
-    end
     if not processName or processName == "" then
         logger:Error("[ProcessHandler] Invalid process name provided.")
         return false
+    end
+    if self:IsProcessAttached() then
+        local attachedProcess = process
+        if attachedProcess == processName then
+            logger:Debug("[ProcessHandler] Already attached to the correct process: " .. processName)
+            return true
+        else
+            logger:Warning("[ProcessHandler] Attached to '" .. tostring(attachedProcess) .. "', but expected '" .. processName .. "'. Reattaching...")
+        end
     end
     local processID = getProcessIDFromProcessName(processName)
     if not processID then
