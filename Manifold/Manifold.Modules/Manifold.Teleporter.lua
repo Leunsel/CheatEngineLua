@@ -781,7 +781,7 @@ local function LoadTeleporterSaves(TreeView)
         TreeView.endUpdate()
         return
     end
-    teleporter:EnsureAuthors()
+    -- teleporter:EnsureAuthors()
     local grouped = {}
     for name, data in pairs(teleporter.Saves) do
         if type(name) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
