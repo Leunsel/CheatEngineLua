@@ -1,39 +1,20 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.0"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
-
-    ∂ v1.0.1 (2025-04-18)
-        Fixed a string.format mistake in 'UpdateSave'.
 ]]--
 
 Teleporter = {
-    Transform = {
-        Symbol = "TransformPtr",
-        Offsets = { 0x30, 0x34, 0x38}
-    },
-    Waypoint = {
-        Symbol = "WaypointPtr",
-        Offsets = { 0x00, 0x04, 0x08 }
-    },
-    Additional = {
-        --- Reserved for games that require two symbols to be written to.
-        Symbol = nil,
-        Offsets = nil
-    },
-    Symbols = {
-        Saved = "SavedPositionFlt",
-        Backup = "BackupPositionFlt"
-    },
-    Settings = {
-        ValueType = vtSingle
-    },
+    Transform = { Symbol = "TransformPtr", Offsets = { 0x30, 0x34, 0x38 } },
+    Waypoint = { Symbol = "WaypointPtr", Offsets = { 0x00, 0x04, 0x08 } },
+    Additional = { Symbol = nil, Offsets = nil },
+    Symbols = { Saved = "SavedPositionFlt", Backup = "BackupPositionFlt" },
+    Settings = { ValueType = vtSingle },
     Saves = {},
-    --- "Hardcoded" ---
     SaveFileName = "Teleporter.%s.Saves.txt",
     SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"
 }
@@ -94,40 +75,15 @@ function Teleporter:CheckDependencies()
 end
 
 local readFunctions = {
-    [vtByte] =   readByte,    
-    [vtWord] =   readSmallInteger,    
-    [vtDword] =  readInteger,
-    [vtQword] =  readQword,  
-    [vtSingle] = readFloat, 
-    [vtDouble] = readDouble
+    [vtByte] = readByte, [vtWord] = readSmallInteger, [vtDword] = readInteger,
+    [vtQword] = readQword, [vtSingle] = readFloat, [vtDouble] = readDouble
 }
-
 local writeFunctions = {
-    [vtByte] =   writeByte,   
-    [vtWord] =   writeSmallInteger,   
-    [vtDword] =  writeInteger,
-    [vtQword] =  writeQword,
-    [vtSingle] = writeFloat,
-    [vtDouble] = writeDouble
+    [vtByte] = writeByte, [vtWord] = writeSmallInteger, [vtDword] = writeInteger,
+    [vtQword] = writeQword, [vtSingle] = writeFloat, [vtDouble] = writeDouble
 }
-
-local valueTypeMap = {
-    [0]  = "Byte",
-    [1]  = "Word",
-    [2]  = "Dword",
-    [3]  = "Qword",
-    [4]  = "Single",
-    [5]  = "Double",
-}
-
-local typeSizeMap = {
-    [vtByte]   = 1,
-    [vtWord]   = 2,
-    [vtDword]  = 4,
-    [vtQword]  = 8,
-    [vtSingle] = 4,
-    [vtDouble] = 8,
-}
+local valueTypeMap = { [0]="Byte", [1]="Word", [2]="Dword", [3]="Qword", [4]="Single", [5]="Double" }
+local typeSizeMap = { [vtByte]=1, [vtWord]=2, [vtDword]=4, [vtQword]=8, [vtSingle]=4, [vtDouble]=8 }
 
 --
 --- ∑ Calculates the offsets for a 3D symbol based on the defined ValueType.
@@ -147,21 +103,21 @@ end
 
 --
 --- ∑ Resolves a memory address using a teleporter function.
---- @param addressStr string  # The address expression to resolve.
---- @param isPointer boolean  # Whether the address should be resolved as a pointer.
---- @return integer|nil  # The resolved address or nil on failure.
+--- @param addressStr string # The address expression to resolve.
+--- @param isPointer boolean # Whether the address should be resolved as a pointer.
+--- @return integer|nil # The resolved address or nil on failure.
 --
 function Teleporter:ResolveAddress(addressStr, isPointer)
     if type(addressStr) ~= "string" or addressStr == "" then
-        logger:Error("[Memory] Invalid address string provided for resolution.")
+        logger:Error("[Teleporter] Invalid address string provided for resolution.")
         return nil
     end
     local resolvedAddress = memory:SafeGetAddress(isPointer and ("[" .. addressStr .. "]+0") or addressStr)
     if not resolvedAddress then
-        logger:ForceWarningF("[Memory] Failed to resolve address '%s' (Pointer: %s)", addressStr, tostring(isPointer))
+        logger:ForceWarningF("[Teleporter] Failed to resolve address '%s' (Pointer: %s)", addressStr, tostring(isPointer))
         return nil
     end
-    logger:DebugF("[Memory] Resolved address '%s' (Pointer: %s) -> 0x%X", addressStr, tostring(isPointer), resolvedAddress)
+    logger:DebugF("[Teleporter] Resolved address '%s' (Pointer: %s) -> 0x%X", addressStr, tostring(isPointer), resolvedAddress)
     return resolvedAddress
 end
 
@@ -183,10 +139,10 @@ registerLuaFunctionHighlight('SetValueType')
 
 --
 --- ∑ Reads a position from memory based on a symbol and offsets.
---- @param symbol string  # The base address or symbol to resolve.
---- @param offsets table  # A table of integer offsets to apply.
---- @param isPointerRead boolean  # Whether the address is a pointer.
---- @return table|nil  # A table containing the position values or nil on failure.
+--- @param symbol string # The base address or symbol to resolve.
+--- @param offsets table # A table of integer offsets to apply.
+--- @param isPointerRead boolean # Whether the address is a pointer.
+--- @return table|nil # A table containing the position values or nil on failure.
 --
 function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead)
     if type(symbol) ~= "string" or symbol == "" then
@@ -222,11 +178,11 @@ registerLuaFunctionHighlight('ReadPositionFromMemory')
 
 --
 --- ∑ Writes a position to memory based on a symbol and offsets.
---- @param symbol string  # The base address or symbol to resolve.
---- @param offsets table  # A table of integer offsets to apply.
+--- @param symbol string # The base address or symbol to resolve.
+--- @param offsets table # A table of integer offsets to apply.
 --- @param position table # A table of values to write.
---- @param isPointerWrite boolean  # Whether the address is a pointer.
---- @return boolean  # Returns true if successful, false otherwise.
+--- @param isPointerWrite boolean # Whether the address is a pointer.
+--- @return boolean # Returns true if successful, false otherwise.
 --
 function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWrite)
     if type(symbol) ~= "string" or symbol == "" then
@@ -476,9 +432,13 @@ local function logSavePositionError(name, position)
     return true
 end
 
+function Teleporter:GetCurrentAuthor()
+    return os.getenv("USERNAME") or os.getenv("USER") or "Unknown"
+end
+
 --
 --- ∑ Adds a new teleport save and writes to file storage.
---- @param name string  # The name of the save.
+--- @param name string # The name of the save.
 --
 function Teleporter:AddSave()
     if not inMainThread() then
@@ -495,14 +455,14 @@ function Teleporter:AddSave()
     if self.Saves[name] then
         logger:WarningF("[Teleporter] Duplicate Save Name: '%s'. Overwriting.", name)
     end
-    self.Saves[name] = { X = position[1], Y = position[2], Z = position[3] }
+    self.Saves[name] = { X = position[1], Y = position[2], Z = position[3], Author = self:GetCurrentAuthor() }
     logger:InfoF("[Teleporter] Added Save: '%s' at position (%.4f, %.4f, %.4f).", name, position[1], position[2], position[3])
 end
 registerLuaFunctionHighlight('AddSave')
 
 --
 --- ∑ Deletes a saved teleport position and updates file storage.
---- @param saveName string  # The name of the save to delete.
+--- @param saveName string # The name of the save to delete.
 --
 function Teleporter:DeleteSave(saveName)
     if not inMainThread() then
@@ -524,8 +484,8 @@ registerLuaFunctionHighlight('DeleteSave')
 
 --
 --- ∑ Renames a saved teleport position and updates file storage.
---- @param oldName string  # The old name of the save.
---- @param newName string  # The new name of the save.
+--- @param oldName string # The old name of the save.
+--- @param newName string # The new name of the save.
 --
 function Teleporter:RenameSave()
     if not inMainThread() then
@@ -583,7 +543,7 @@ registerLuaFunctionHighlight('ClearSubrecords')
 --
 --- ∑ Ensures the existence of the Teleporter directory within the DataDir.
 ---   If missing, it creates the directory.
---- @return string|nil - The Teleporter directory path if successful, otherwise nil.
+--- @return string|nil # The Teleporter directory path if successful, otherwise nil.
 --
 function Teleporter:EnsureTeleporterDir()
     local teleporterDir = customIO.DataDir .. "\\Teleporter"
@@ -612,7 +572,7 @@ registerLuaFunctionHighlight('EnsureTeleporterDir')
 --
 --- ∑ Retrieves the expected save file path for Teleporter state.
 ---   Ensures the Teleporter directory exists before returning the path.
---- @return string|nil - The full save file path if successful, otherwise nil.
+--- @return string|nil # The full save file path if successful, otherwise nil.
 --
 function Teleporter:GetSaveFilePath()
     local teleporterDir = self:EnsureTeleporterDir()
@@ -630,7 +590,7 @@ registerLuaFunctionHighlight('GetSaveFilePath')
 --- ∑ Attempts to load the teleporter lookup table.
 ---   First, checks DataDir/Teleporter. If unavailable, falls back to TableFiles.
 ---   If both fail, logs an error.
---- @return table|nil - The loaded teleporter data, or nil on failure.
+--- @return table|nil # The loaded teleporter data, or nil on failure.
 --
 function Teleporter:SaveLookup()
     local saveFilePath, saveFileName = self:GetSaveFilePath()
@@ -665,12 +625,11 @@ function Teleporter:SaveLookup()
     logger:Warning("[Teleporter] No valid Teleporter save data found.")
     return nil
 end
-
 registerLuaFunctionHighlight('SaveLookup')
 
 --
 --- ∑ Saves the Teleporter lookup table to a Table File.
---- @return boolean - True if successful, false otherwise.
+--- @return boolean # True if successful, false otherwise.
 --
 function Teleporter:WriteSavesToTableFile()
     local _, saveFileName = self:GetSaveFilePath()
@@ -691,7 +650,7 @@ registerLuaFunctionHighlight('WriteSavesToTableFile')
 
 --
 --- ∑ Saves the Teleporter lookup table to DataDir/Teleporter.
---- @return boolean - True if successful, false otherwise.
+--- @return boolean # True if successful, false otherwise.
 --
 function Teleporter:WriteSavesToDataDir()
     local saveFilePath = select(1, self:GetSaveFilePath())
@@ -730,6 +689,7 @@ function Teleporter:CreateTeleporterSaves()
     logger:InfoF("[Teleporter] Found %d saves to process.", #sortedLocationNames)
     for _, saveName in ipairs(sortedLocationNames) do
         local position = self.Saves[saveName]
+        local author = (position and position.Author) and tostring(position.Author) or "Unknown"
         logger:DebugF("[Teleporter] Processing save: '%s' (X: %.4f, Y: %.4f, Z: %.4f).", saveName, position.X, position.Y, position.Z)
         local mr = addressList.createMemoryRecord()
         mr.Type = vtAutoAssembler
@@ -741,13 +701,14 @@ function Teleporter:CreateTeleporterSaves()
 [ENABLE]
 if syntaxcheck then return end
 --- Save: %s
+--- Author: %s
 ---- X: %.4f
 ---- Y: %.4f
 ---- Z: %.4f
 teleporter:TeleportToSave("%s")
 utils:AutoDisable(memrec.ID)
 [DISABLE]
-]], saveName, position.X, position.Y, position.Z, saveName)
+]], saveName, author, position.X, position.Y, position.Z, saveName)
         mr.Script = scriptContent
     end
     logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves.", #sortedLocationNames)
@@ -765,7 +726,8 @@ function Teleporter:PrintSaves()
     for name, position in pairs(self.Saves) do
         if position and position.X and position.Y and position.Z then
             local positionStr = string.format("(%.4f, %.4f, %.4f)", position.X, position.Y, position.Z)
-            logger:ForceInfoF("[Teleporter] Location '%s' is saved at coordinates %s.", name, positionStr)
+            local authorStr = position.Author and tostring(position.Author) or "Unknown"
+            logger:ForceInfoF("[Teleporter] Location '%s' saved by '%s' at coordinates %s.", name, authorStr, positionStr)
         else
             logger:ForceErrorF("[Teleporter] Invalid save position for '%s'. Details: %s", name, tostring(position))
         end
@@ -775,12 +737,12 @@ registerLuaFunctionHighlight('PrintSaves')
 
 --
 --- ∑ Updates an existing Teleporter save with new coordinates.
---- @param name string - The name of the save to update.
---- @param newPos table - A table containing the new {X, Y, Z} coordinates.
---- @param ListView object - The ListView control to update.
---- @return boolean - True if the update was successful, false otherwise.
+--- @param name string # The name of the save to update.
+--- @param newPos table # A table containing the new {X, Y, Z} coordinates.
+--- @param TreeView object # The TreeView control to update.
+--- @return boolean # True if the update was successful, false otherwise.
 --
-function UpdateSave(name, newPos, ListView)
+function UpdateSave(name, newPos, TreeView)
     if not name or name == "" then
         logger:WarningF("[Teleporter] Update failed: Name is missing.")
         return false
@@ -790,54 +752,63 @@ function UpdateSave(name, newPos, ListView)
         return false
     end
     teleporter.Saves = teleporter.Saves or {}
-    local selectedSaveName = ListView.Selected.Caption or name
+    local selectedSaveName = TreeView.Selected and TreeView.Selected.Text or name
     if not teleporter.Saves[selectedSaveName] then
         logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", selectedSaveName)
         return false
     end
     if selectedSaveName ~= name then
-        local selectedItem = ListView.Selected
-        if selectedItem then
-            selectedItem.Caption = name
-        end
         teleporter.Saves[name] = teleporter.Saves[selectedSaveName]
         teleporter.Saves[selectedSaveName] = nil
     end
-    teleporter.Saves[name].X = newPos[1] or 0
-    teleporter.Saves[name].Y = newPos[2] or 0
-    teleporter.Saves[name].Z = newPos[3] or 0
-    logger:InfoF("[Teleporter] Save '%s' updated: X=%.2f, Y=%.2f, Z=%.2f", name, newPos[1], newPos[2], newPos[3])
+    local save = teleporter.Saves[name]
+    save.X, save.Y, save.Z = newPos[1] or 0, newPos[2] or 0, newPos[3] or 0
+    save.Author = save.Author or teleporter:GetCurrentAuthor()
+    logger:InfoF("[Teleporter] Save '%s' updated: X=%.2f, Y=%.2f, Z=%.2f", name, save.X, save.Y, save.Z)
     return true
 end
 registerLuaFunctionHighlight('UpdateSave')
 
 --
---- ∑ Loads all Teleporter saves into a UI ListView component.
---- @param ListView userdata - The UI ListView element to populate.
---- @return nil
+--- ∑ Loads all Teleporter saves into a UI TreeView component.
+--- @param TreeView userdata # The UI TreeView element to populate.
 --
-local function LoadTeleporterSaves(ListView)
-    ListView.Items:clear()
+local function LoadTeleporterSaves(TreeView)
+    TreeView.beginUpdate()
+    TreeView.Items:clear()
     if not teleporter or not teleporter.Saves then
-        logger:Warning("[Teleporter] No teleporter saves available.")
+        logger:Warning("[Teleporter] No saves to load.")
+        TreeView.endUpdate()
         return
     end
-    local saveNames = {}
-    for name, _ in pairs(teleporter.Saves) do
-        table.insert(saveNames, name)
+    teleporter:EnsureAuthors()
+    local grouped = {}
+    for name, data in pairs(teleporter.Saves) do
+        if type(name) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
+            local author = data.Author or "Unknown"
+            grouped[author] = grouped[author] or {}
+            table.insert(grouped[author], name)
+        else
+            logger:WarningF("[Teleporter] Ignoring bad save: %s", tostring(name))
+        end
     end
-    table.sort(saveNames, function(a, b) return a:lower() < b:lower() end)
-    for _, name in ipairs(saveNames) do
-        local item = ListView.Items:add()
-        item.Caption = name
+    for author, saves in pairs(grouped) do
+        local authorNode = TreeView.Items:add()
+        authorNode.Text = author
+        table.sort(saves, function(a, b) return a:lower() < b:lower() end)
+        for _, saveName in ipairs(saves) do
+            local saveNode = authorNode:add()
+            saveNode.Text = saveName
+        end
     end
+    TreeView.endUpdate()
 end
 
 --
 --- ∑ Creates a button with a given caption and attaches it to a parent UI component.
---- @param parent userdata - The parent UI element.
---- @param caption string - The caption text for the button.
---- @return userdata - The created button instance.
+--- @param parent userdata # The parent UI element.
+--- @param caption string # The caption text for the button.
+--- @return userdata # The created button instance.
 --
 local function CreateButtonWithCaption(parent, caption)
     local button = createButton(parent)
@@ -849,9 +820,9 @@ end
 
 --
 --- ∑ Creates a labeled input field with a given label text and attaches it to a parent UI component.
---- @param parent userdata - The parent UI element.
---- @param labelText string - The label text for the input field.
---- @return userdata - The created input field instance.
+--- @param parent userdata # The parent UI element.
+--- @param labelText string # The label text for the input field.
+--- @return userdata # The created input field instance.
 --
 local function CreateLabeledEdit(parent, labelText)
     local container = createPanel(parent)
@@ -869,43 +840,39 @@ local function CreateLabeledEdit(parent, labelText)
 end
 
 --
---- ∑ Handles the selection of a save entry in the ListView and updates UI input fields accordingly.
---- @param ListView userdata - The UI ListView element containing save entries.
---- @param NameEdit userdata - The input field for the save name.
---- @param XEdit userdata - The input field for the X coordinate.
---- @param YEdit userdata - The input field for the Y coordinate.
---- @param ZEdit userdata - The input field for the Z coordinate.
---- @return nil
+--- Handles the selection of a save entry in the TreeView and updates UI input fields accordingly.
+--- @param TreeView userdata
+--- @param NameEdit, XEdit, YEdit, ZEdit ...
 --
-local function HandleListViewSelection(ListView, NameEdit, XEdit, YEdit, ZEdit)
-    ListView.OnClick = function()
-        local selectedItem = ListView.Selected
-        if selectedItem and teleporter.Saves[selectedItem.Caption] then
-            local pos = teleporter.Saves[selectedItem.Caption]
-            NameEdit.Text = selectedItem.Caption
-            XEdit.Text = tostring(pos.X or "")
-            YEdit.Text = tostring(pos.Y or "")
-            ZEdit.Text = tostring(pos.Z or "")
-        else
-            -- logger:Warning("[Teleporter] No save selected or invalid save.")
+local function HandleTreeViewSelection(TreeView, NameEdit, XEdit, YEdit, ZEdit)
+    TreeView.OnClick = function()
+        local selected = TreeView.Selected
+        if selected and selected.Level == 1 then
+            local saveName = selected.Text
+            local save = teleporter.Saves and teleporter.Saves[saveName]
+            if save then
+                NameEdit.Text = saveName
+                XEdit.Text = tostring(save.X or "")
+                YEdit.Text = tostring(save.Y or "")
+                ZEdit.Text = tostring(save.Z or "")
+            end
         end
     end
 end
 
 --
 --- ∑ Handles the deletion of a selected save when the delete button is clicked.
---- @param DeleteButton userdata - The UI button for deleting saves.
---- @param NameEdit userdata - The input field for the save name.
---- @param ListView userdata - The UI ListView element containing save entries.
---- @return nil
+--- @param DeleteButton userdata # The UI button for deleting saves.
+--- @param NameEdit userdata # The input field for the save name.
+--- @param TreeView userdata # The UI TreeView element containing save entries.
 --
-local function HandleDeleteButtonClick(DeleteButton, NameEdit, ListView)
+local function HandleDeleteButtonClick(DeleteButton, NameEdit, TreeView)
     DeleteButton.OnClick = function()
         local selectedName = NameEdit.Text
         if selectedName ~= "" and teleporter and teleporter.DeleteSave then
             logger:Info("[Teleporter] Deleting save: " .. selectedName)
             teleporter:DeleteSave(selectedName)
-            LoadTeleporterSaves(ListView)
+            LoadTeleporterSaves(TreeView)
         else
             logger:Warning("[Teleporter] No valid save selected for deletion.")
         end
@@ -914,23 +881,22 @@ end
 
 --
 --- ∑ Handles updating a selected save when the update button is clicked.
---- @param UpdateButton userdata - The UI button for updating saves.
---- @param NameEdit userdata - The input field for the save name.
---- @param XEdit userdata - The input field for the X coordinate.
---- @param YEdit userdata - The input field for the Y coordinate.
---- @param ZEdit userdata - The input field for the Z coordinate.
---- @param ListView userdata - The UI ListView element containing save entries.
---- @return nil
+--- @param UpdateButton userdata # The UI button for updating saves.
+--- @param NameEdit userdata # The input field for the save name.
+--- @param XEdit userdata # The input field for the X coordinate.
+--- @param YEdit userdata # The input field for the Y coordinate.
+--- @param ZEdit userdata # The input field for the Z coordinate.
+--- @param TreeView userdata # The UI TreeView element containing save entries.
 --
-local function HandleUpdateButtonClick(UpdateButton, NameEdit, XEdit, YEdit, ZEdit, ListView)
+local function HandleUpdateButtonClick(UpdateButton, NameEdit, XEdit, YEdit, ZEdit, TreeView)
     UpdateButton.OnClick = function()
         local name = NameEdit.Text
         local newPos = { tonumber(XEdit.Text), tonumber(YEdit.Text), tonumber(ZEdit.Text) }
         if name ~= "" and newPos[1] and newPos[2] and newPos[3] then
             logger:Info("[Teleporter] Updating save: " .. name)
-            local success = UpdateSave(name, newPos, ListView)
+            local success = UpdateSave(name, newPos, TreeView)
             if success then
-                LoadTeleporterSaves(ListView)
+                LoadTeleporterSaves(TreeView)
             else
                 logger:Warning("[Teleporter] Update failed.")
             end
@@ -942,12 +908,11 @@ end
 
 --
 --- ∑ Handles duplicating a selected save when the duplicate button is clicked.
---- @param DuplicateButton userdata - The UI button for duplicating saves.
---- @param NameEdit userdata - The input field for the save name.
---- @param ListView userdata - The UI ListView element containing save entries.
---- @return nil
+--- @param DuplicateButton userdata # The UI button for duplicating saves.
+--- @param NameEdit userdata # The input field for the save name.
+--- @param TreeView userdata # The UI TreeView element containing save entries.
 --
-local function HandleDuplicateButtonClick(DuplicateButton, NameEdit, ListView)
+local function HandleDuplicateButtonClick(DuplicateButton, NameEdit, TreeView)
     DuplicateButton.OnClick = function()
         local selectedName = NameEdit.Text
         if not selectedName or selectedName == "" or not teleporter.Saves[selectedName] then
@@ -964,17 +929,18 @@ local function HandleDuplicateButtonClick(DuplicateButton, NameEdit, ListView)
         teleporter.Saves[newSaveName] = {
             X = originalSave.X,
             Y = originalSave.Y,
-            Z = originalSave.Z
+            Z = originalSave.Z,
+            Author = originalSave.Author or Teleporter:GetCurrentAuthor()
         }
         logger:InfoF("[Teleporter] Duplicated save '%s' as '%s'.", selectedName, newSaveName)
-        LoadTeleporterSaves(ListView)
+        LoadTeleporterSaves(TreeView)
     end
 end
 
 --
 --- ∑ Teleports the player to the selected save location.
---- @param NameEdit userdata - The name input field.
---- @return boolean - True if teleportation is successful, false otherwise.
+--- @param NameEdit userdata # The name input field.
+--- @return boolean # True if teleportation is successful, false otherwise.
 --
 local function HandleTeleportButtonClick(TeleportButton, NameEdit)
     TeleportButton.OnClick = function()
@@ -994,18 +960,20 @@ local function HandleTeleportButtonClick(TeleportButton, NameEdit)
 end
 
 --
---- ∑ ...
+--- ∑ Handles deleting all saves when the delete all button is clicked.
+--- @param DeleteAllButton userdata # The UI button for deleting all saves.
+--- @param TreeView userdata # The UI TreeView element containing save entries.
 --
-local function HandleDeleteAllButtonClick(DeleteAllButton, ListView)
+local function HandleDeleteAllButtonClick(DeleteAllButton, TreeView)
     DeleteAllButton.OnClick = function()
         teleporter.Saves = nil
-        LoadTeleporterSaves(ListView)
+        LoadTeleporterSaves(TreeView)
     end
 end
 
 --
 --- ∑ Creates and initializes the Teleporter UI form.
---- @return userdata - The created form instance.
+--- @return userdata # The created form instance.
 --
 local function CreateTeleporterForm()
     local form = createForm(false)
@@ -1030,11 +998,11 @@ local function CreateTeleporterForm()
 end
 
 --
---- ∑ Creates a panel containing a ListView and search bar for Teleporter saves.
---- @param parent userdata - The parent UI element.
---- @return userdata, userdata, userdata - The created panel, search bar, and ListView instances.
+--- ∑ Creates a panel containing a TreeView and search bar for Teleporter saves.
+--- @param parent userdata # The parent UI element.
+--- @return userdata, userdata, userdata - The created panel, search bar, and TreeView instances.
 --
-local function CreateListViewPanel(parent)
+local function CreateTreeViewPanel(parent)
     local panel = createPanel(parent)
     panel.Align = "alLeft"
     panel.Width = 450
@@ -1045,21 +1013,17 @@ local function CreateListViewPanel(parent)
     searchEdit.Height = 30
     searchEdit.BorderSpacing.Around = 3
     searchEdit.Text = ""
-    local listView = createListView(panel)
-    listView.Align = "alClient"
-    listView.ViewStyle = "vsReport"
-    listView.BorderSpacing.Around = 3
-    listView.Columns:add().Caption = "Save Name"
-    listView.Columns[0].AutoSize = true
-    listView.AutoSort = true
-    return panel, searchEdit, listView
+    local treeView = createTreeView(panel)
+    treeView.Align = "alClient"
+    treeView.BorderSpacing.Around = 3
+    return panel, searchEdit, treeView
 end
 
 --
 --- ∑ Creates a panel containing input fields and action buttons for save details.
---- @param parent userdata - The parent UI element.
---- @return userdata, userdata, userdata, userdata, userdata, userdata, userdata - 
---- The created group box, name input, X input, Y input, Z input, update button, and delete button.
+--- @param parent userdata # The parent UI element.
+--- @return userdata, userdata, userdata, userdata, userdata #  
+--- The created group box, name input, X input, Y input, Z input.
 --
 local function CreateSaveDetailsPanel(parent)
     local groupBox = createGroupBox(parent)
@@ -1079,6 +1043,11 @@ local function CreateSaveDetailsPanel(parent)
     return groupBox, nameEdit, xEdit, yEdit, zEdit
 end
 
+--
+--- ∑ Creates a panel with controls for save management.
+--- @param parent userdata # The parent UI element.
+--- @return userdata, ... # The created panel and button instances.
+--
 local function CreateControlsPanel(parent)
     local groupBox = createGroupBox(parent)
     groupBox.Align = "alTop"
@@ -1098,6 +1067,11 @@ local function CreateControlsPanel(parent)
     return buttonPanel, deleteAllButton, deleteButton, updateButton, duplicateButton, teleportToSaveButton
 end
 
+--
+--- ∑ Creates a panel with save details and controls.
+--- @param parent userdata # The parent UI element.
+--- @return ... # The created panels, edits, and buttons.
+--
 local function CreateSaveDetailsWithControlsPanel(parent)
     local containerPanel = createPanel(parent)
     containerPanel.Align = "alClient"
@@ -1109,12 +1083,38 @@ local function CreateSaveDetailsWithControlsPanel(parent)
 end
 
 --
+--- ∑ Ensures all saves have an Author field.
+--
+function Teleporter:EnsureAuthors()
+    local author = self:GetCurrentAuthor()
+    for _, save in pairs(self.Saves or {}) do
+        if type(save) == "table" and not save.Author then
+            save.Author = author
+        end
+    end
+end
+
+--
+--- ∑ Gets a table of save authors.
+--
+function Teleporter:GetAuthors()
+    local authors = {}
+    for name, save in pairs(self.Saves or {}) do
+        if type(save) == "table" then
+            authors[name] = save.Author or "Unknown"
+        else
+            authors[name] = "Unknown"
+        end
+    end
+    return authors
+end
+
+--
 --- ∑ Initializes the Teleporter UI, synchronizing if necessary.
---- @return nil
 --
 function Teleporter:InitTeleporterUI()
     if not inMainThread() then
-        synchronize(function(thread)
+        synchronize(function()
             self:InitTeleporterUI()
         end)
         return
@@ -1127,34 +1127,46 @@ function Teleporter:InitTeleporterUI()
     local saveDetailsWithControlsPanel, saveDetailsGroupBox, buttonPanel,
     nameEdit, xEdit, yEdit, zEdit, deleteAllButton, deleteButton, updateButton, duplicateButton,
     teleportToSaveButton = CreateSaveDetailsWithControlsPanel(containerPanel)
-    local ListViewPanel, SearchEdit, ListView = CreateListViewPanel(containerPanel)
-    HandleListViewSelection(ListView, nameEdit, xEdit, yEdit, zEdit)
-    HandleDeleteAllButtonClick(deleteAllButton, ListView)
-    HandleDeleteButtonClick(deleteButton, nameEdit, ListView)
-    HandleUpdateButtonClick(updateButton, nameEdit, xEdit, yEdit, zEdit, ListView)
-    HandleDuplicateButtonClick(duplicateButton, nameEdit, ListView)
+    local ListViewPanel, SearchEdit, TreeView = CreateTreeViewPanel(containerPanel)
+    HandleTreeViewSelection(TreeView, nameEdit, xEdit, yEdit, zEdit)
+    HandleDeleteAllButtonClick(deleteAllButton, TreeView)
+    HandleDeleteButtonClick(deleteButton, nameEdit, TreeView)
+    HandleUpdateButtonClick(updateButton, nameEdit, xEdit, yEdit, zEdit, TreeView)
+    HandleDuplicateButtonClick(duplicateButton, nameEdit, TreeView)
     HandleTeleportButtonClick(teleportToSaveButton, nameEdit)
-    LoadTeleporterSaves(ListView)
+    LoadTeleporterSaves(TreeView)
     TeleporterForm.CenterScreen()
-    local function updateListView(searchQuery)
-        ListView.Items:clear()
+    local function updateTreeView(TreeView, searchQuery)
+        TreeView.beginUpdate()
+        TreeView.Items:clear()
         if not teleporter or not teleporter.Saves then
+            TreeView.endUpdate()
             return
         end
-        local filteredNames = {}
-        for name, _ in pairs(teleporter.Saves) do
-            if name:lower():find(searchQuery:lower()) then
-                table.insert(filteredNames, name)
+        teleporter:EnsureAuthors()
+        local grouped = {}
+        for name, data in pairs(teleporter.Saves) do
+            if type(name) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
+                if name:lower():find(searchQuery:lower()) then
+                    local author = data.Author or "Unknown"
+                    grouped[author] = grouped[author] or {}
+                    table.insert(grouped[author], name)
+                end
             end
         end
-        table.sort(filteredNames, function(a, b) return a:lower() < b:lower() end)
-        for _, name in ipairs(filteredNames) do
-            local item = ListView.Items:add()
-            item.Caption = name
+        for author, saves in pairs(grouped) do
+            local authorNode = TreeView.Items:add()
+            authorNode.Text = author
+            table.sort(saves, function(a, b) return a:lower() < b:lower() end)
+            for _, saveName in ipairs(saves) do
+                local saveNode = authorNode:add()
+                saveNode.Text = saveName
+            end
         end
+        TreeView.endUpdate()
     end
     SearchEdit.OnChange = function()
-        updateListView(SearchEdit.Text)
+        updateTreeView(TreeView, SearchEdit.Text)
     end
 end
 registerLuaFunctionHighlight('InitTeleporterUI')
