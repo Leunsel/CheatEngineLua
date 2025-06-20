@@ -1,11 +1,16 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2025-06-20)
+        Updated the save system to use a more structured and author-friendly approach.
+        Teleporter Saves do store the Author of the save now, they are part of the created
+        memory records as well and the Teleporter UI has been updated to reflect this.
 ]]--
 
 Teleporter = {
@@ -1016,6 +1021,11 @@ local function CreateTreeViewPanel(parent)
     local treeView = createTreeView(panel)
     treeView.Align = "alClient"
     treeView.BorderSpacing.Around = 3
+    treeView.BorderStyle = "bsNone"
+    treeView.ExpandSignType = "tvestPlusMinus"
+    treeView.AutoExpand = true
+    treeView.TreeLinePenStyle = "psDashDot"
+    treeView.ReadOnly = true
     return panel, searchEdit, treeView
 end
 
