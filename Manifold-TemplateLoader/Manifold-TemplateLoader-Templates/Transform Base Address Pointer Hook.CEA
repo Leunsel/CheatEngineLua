@@ -1,0 +1,47 @@
+<< Header >>
+
+[ENABLE]
+
+aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+<< Alloc >>
+
+label(o_<< HookName >> r_<< HookName >>)
+label(<< HookName >>Ptr)
+label(<< HookName >>Offsets SavedPositionFlt BackupPositionFlt)
+
+n_<< HookName >>:
+  mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+
+o_<< HookName >>:
+<< OriginalOpcodes >>
+  jmp r_<< HookName >>
+  
+<< HookName >>Ptr:
+ << PointerType >> 0
+<< HookName >>Offsets:
+ dd 0
+ dd 0
+ dd 0
+SavedPositionFlt:
+ dd (float)0
+ dd (float)0
+ dd (float)0
+BackupPositionFlt:
+ dd (float)0
+ dd (float)0
+ dd (float)0
+
+<< HookNameParsed >><< AoBOffset >>:
+  << JumpType >> n_<< HookName >>
+  << NopPadding >>
+r_<< HookName >>:
+registersymbol(<< HookNameParsed >> << HookName >>Ptr)
+registersymbol(<< HookName >>Offsets SavedPositionFlt BackupPositionFlt)
+
+[DISABLE]
+
+<< HookNameParsed >><< AoBOffset >>:
+  db << OriginalBytes >>
+
+unregisterSymbol(*)
+dealloc(*)
