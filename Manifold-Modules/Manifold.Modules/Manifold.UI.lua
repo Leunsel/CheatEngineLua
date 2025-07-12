@@ -8,9 +8,9 @@ local DESCRIPTION = "Manifold Framework UI"
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
 
-    ∂ v1.0.1 (2025-04-16)
-        Minor comment adjustments.
-        Added: Theme Creator UI
+    ∂ v1.0.1 (2025-07-12)
+        Added support for theming the Lua Engine.
+        Uses Manifold.Callbacks > OnShow
 ]] 
 
 UI = {
@@ -572,6 +572,122 @@ function UI:ApplyThemeToAddressList(theme)
 end
 
 --
+--- ∑ Applies the theme to the Lua Engine controls.
+--- @param luaEngine table # The Lua Engine instance.
+--- @param theme table # The theme data.
+--- @return # void
+--
+function UI:ApplyThemeToLuaEngineControls(luaEngine, theme)
+    local mainColor = theme["MainForm.Color"] or luaEngine.Color
+    local headerFontColor = theme["AddressList.Header.Font.Color"] or luaEngine.mOutput.Font.Color
+    local foundlistColor = theme["MainForm.Foundlist3.Color"] or mainColor
+
+    luaEngine.Caption = "[Manifold] Logger"
+    luaEngine.Color = mainColor
+    luaEngine.mScript.Color = mainColor
+    luaEngine.mOutput.Color = mainColor
+    luaEngine.mOutput.Font.Name = "Consolas"
+    luaEngine.mOutput.Font.Color = headerFontColor
+    luaEngine.mOutput.BorderStyle = "bsNone"
+    luaEngine.mOutput.ScrollBars = "ssAuto"
+    luaEngine.mOutput.Visible = true
+    luaEngine.mScript.BorderStyle = "bsNone"
+    luaEngine.mScript.ScrollBars = "ssNone"
+    luaEngine.mScript.Gutter.Color = mainColor
+
+    local gutter = luaEngine.mScript.SynLeftGutterPartList1
+    if gutter then
+        local gutterText = gutter.SynGutterLineNumber1.MarkupInfo
+        gutterText.Foreground = headerFontColor
+        gutterText.Background = mainColor
+        if gutter.SynGutterSeparator1 then
+            gutter.SynGutterSeparator1.Visible = false
+        end
+    end
+
+    if Manifold.Setup.IsRelease then
+        if luaEngine.Panel1 then luaEngine.Panel1.Visible = false end
+        if luaEngine.Splitter1 then luaEngine.Splitter1.Visible = false end
+    else
+        if luaEngine.Panel1 then luaEngine.Panel1.Visible = true end
+        if luaEngine.Splitter1 then luaEngine.Splitter1.Visible = true end
+    end
+
+    if luaEngine.GroupBox1 then
+        luaEngine.GroupBox1.Visible = false
+        luaEngine.mOutput.Align = luaEngine.GroupBox1.Align
+    end
+
+    luaEngine.mOutput.Parent = luaEngine
+    luaEngine.mScript.RightEdge = -1
+end
+
+--
+--- ∑ Creates or updates the Lua Engine Execute panel.
+--- @param luaEngine table # The Lua Engine instance.
+--- @param foundlistColor number # The color for the found list.
+--- @param headerFontColor number # The font color for the header.
+--- @param o_LuaEngine_btnExecute_OnClick function # The original OnClick handler for the Execute button.
+--- @return # void
+--
+function UI:CreateOrUpdateLuaEngineExecutePanel(luaEngine, foundlistColor, headerFontColor, mainColor, o_LuaEngine_btnExecute_OnClick)
+    if not btnExecutePanel then
+        btnExecutePanel = createPanel(luaEngine.Panel3)
+        btnExecutePanel.Name = "btnExecutePanel"
+        btnExecutePanel.Align = "alCenter"
+        btnExecutePanel.Height = 25
+        btnExecutePanel.BevelOuter = bvRaised
+        btnExecutePanel.BevelWidth = 1
+        btnExecutePanel.Color = foundlistColor
+        btnExecutePanel.Cursor = -21 -- crHandPoint
+        btnExecutePanel.Caption = "Execute"
+        btnExecutePanel.BorderSpacing.Around = 3
+        btnExecutePanel.BorderColor = 0xFF0000
+        btnExecutePanel.OnClick = function()
+            if o_LuaEngine_btnExecute_OnClick then
+                o_LuaEngine_btnExecute_OnClick(luaEngine.btnExecute)
+            end
+        end
+        luaEngine.btnExecute.Visible = false
+    end
+    btnExecutePanel.OnMouseEnter = function()
+        btnExecutePanel.Color = headerFontColor
+        btnExecutePanel.Font.Color = mainColor
+    end
+    btnExecutePanel.OnMouseLeave = function()
+        btnExecutePanel.Color = mainColor
+        btnExecutePanel.Font.Color = headerFontColor
+    end
+    btnExecutePanel.Color = mainColor
+    btnExecutePanel.Font.Color = headerFontColor
+end
+
+local o_LuaEngine_btnExecute_OnClick = getLuaEngine().btnExecute.OnClick
+--
+----- ∑ Applies the theme to the Lua Engine component.
+--- @param theme table # The theme data.
+--- @return # void
+-- @note This function applies the theme to the Lua Engine controls and creates or updates the execute panel.
+--
+function UI:ApplyThemeToLuaEngine(theme)
+    if not inMainThread() then
+        synchronize(function() self:ApplyThemeToLuaEngine(theme) end)
+        return
+    end
+    local luaEngine = getLuaEngine()
+    if not luaEngine then
+        logger:Warning("[UI] Lua Engine not initialized. Cannot apply theme.")
+        return
+    end
+    local mainColor = theme["MainForm.Color"] or luaEngine.Color
+    local headerFontColor = theme["AddressList.Header.Font.Color"] or luaEngine.mOutput.Font.Color
+    local foundlistColor = theme["MainForm.Foundlist3.Color"] or mainColor
+
+    self:ApplyThemeToLuaEngineControls(luaEngine, theme)
+    self:CreateOrUpdateLuaEngineExecutePanel(luaEngine, foundlistColor, headerFontColor, mainColor, o_LuaEngine_btnExecute_OnClick)
+end
+
+--
 --- ∑ Applies the theme to the Main Form.
 --- @param theme table # The theme data.
 --- @return # void
@@ -684,6 +800,7 @@ function UI:ApplyTheme(themeName, allowReapply)
     self:ApplyThemeToAddressList(theme)
     self:ApplyThemeToMainForm(theme)
     self:ApplyThemeToAddressRecords(theme)
+    self:ApplyThemeToLuaEngine(theme)
     MainForm.repaint()
     self.ActiveTheme = themeName
     logger:Info("[UI] Theme '" .. themeName .. "' applied.")
@@ -1814,6 +1931,7 @@ function UI:ApplyThemeObject(themeObj)
     self:ApplyThemeToAddressList(builtTheme)
     self:ApplyThemeToMainForm(builtTheme)
     self:ApplyThemeToAddressRecords(builtTheme)
+    self:ApplyThemeToLuaEngine(builtTheme)
 end
 
 --
@@ -1931,6 +2049,7 @@ function UI:InitializeThemeCreator()
     end
     self.ThemeCreatorForm.Show()
 end
+registerLuaFunctionHighlight("InitializeThemeCreator")
 
 --------------------------------------------------------
 --                   Module End                       --
