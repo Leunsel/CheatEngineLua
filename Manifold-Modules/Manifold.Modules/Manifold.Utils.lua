@@ -1,6 +1,6 @@
 local NAME = "Manifold.Utils.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework Utils"
 
 --[[
@@ -11,10 +11,13 @@ local DESCRIPTION = "Manifold Framework Utils"
         Minor comment adjustments.
 
     ∂ v1.0.2 (2025-04-27)
-        - Added EnsureCompatibleCEVersion.
-          Attempting to notify users of CE 7.6
-          that a Table may be malfunctioning.
-        - Comment Adjustments
+        Added EnsureCompatibleCEVersion.
+        Attempting to notify users of CE 7.6
+        that a Table may be malfunctioning.
+
+    ∂ v1.0.3 (2025-07-06)
+        Synchronized some functions to ensure they run in the main thread.
+        This is required for CE 7.6 to execute the functions properly.
 ]]--
 
 Utils = {
@@ -180,6 +183,12 @@ registerLuaFunctionHighlight('SetAllScriptsToNotAsync')
 --- @return # void
 --
 function Utils:ShowInfo(message)
+    if not inMainThread() then
+        synchronize(function()
+            self:ShowInfo(message)
+        end)
+        return
+    end
     messageDialog(message, mtInformation, mbOK)
 end
 registerLuaFunctionHighlight('ShowInfo')
@@ -191,6 +200,12 @@ registerLuaFunctionHighlight('ShowInfo')
 --- @return # void
 --
 function Utils:ShowWarning(message)
+    if not inMainThread() then
+        synchronize(function()
+            self:ShowWarning(message)
+        end)
+        return
+    end
     messageDialog(message, mtWarning, mbOK)
 end
 registerLuaFunctionHighlight('ShowWarning')
@@ -202,6 +217,12 @@ registerLuaFunctionHighlight('ShowWarning')
 --- @return # void
 --
 function Utils:ShowError(message)
+    if not inMainThread() then
+        synchronize(function()
+            self:ShowError(message)
+        end)
+        return
+    end
     messageDialog(message, mtError, mbOK)
 end
 registerLuaFunctionHighlight('ShowError')
@@ -213,6 +234,12 @@ registerLuaFunctionHighlight('ShowError')
 --- @return # true if the user selects "Yes", false otherwise.
 --
 function Utils:ShowConfirmation(message)
+    if not inMainThread() then
+        synchronize(function()
+            self:ShowConfirmation(message)
+        end)
+        return
+    end
     local result = messageDialog(message, mtConfirmation, mbYes, mbNo)
     return result == mrYes
 end
@@ -225,6 +252,12 @@ registerLuaFunctionHighlight('ShowConfirmation')
 --- @param closeOnFail # If true, the table will close automatically on version mismatch.
 --
 function Utils:EnsureCompatibleCEVersion(requiredVersion, closeOnFail)
+    if not inMainThread() then
+        synchronize(function()
+            self:EnsureCompatibleCEVersion(requiredVersion, closeOnFail)
+        end)
+        return
+    end
     if type(requiredVersion) ~= 'number' then
         logger:Error('[Utils] EnsureCompatibleCEVersion: requiredVersion must be a number')
         return
@@ -313,6 +346,12 @@ end
 --- @return # void
 --
 function Utils:RemoveTableFilesByExtension(extension)
+    if not inMainThread() then
+        synchronize(function()
+            self:RemoveTableFilesByExtension(extension)
+        end)
+        return
+    end
     extension = extension or ".lua"
     local miTable = MainForm.findComponentByName("miTable")
     if not miTable then
@@ -352,6 +391,12 @@ registerLuaFunctionHighlight('RemoveTableFilesByExtension')
 --- @return boolean # True if execution succeeds, false otherwise.
 --
 function Utils:ExecuteTableLuaScript()
+    if not inMainThread() then
+        synchronize(function()
+            self:ExecuteTableLuaScript()
+        end)
+        return
+    end
     local form = nil
     for i = 0, getFormCount() - 1 do
         if getForm(i).Caption == "Lua script: Cheat Table" then
@@ -372,8 +417,6 @@ function Utils:ExecuteTableLuaScript()
     executeButton.OnClick(executeButton) -- Simulates button press
     return true
 end
-registerLuaFunctionHighlight('ExecuteTableLuaScript')
-
 registerLuaFunctionHighlight('ExecuteTableLuaScript')
 
 --

@@ -1,11 +1,15 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
+    
+    ∂ v1.0.1 (2025-07-06)
+        Fixed a typo in the MainForm.OnProcessOpened Override which
+        prevented the States from being reset correctly.
 ]]--
 
 AutoAssembler = {
@@ -92,8 +96,8 @@ local State = callableObject({
 --- ∑ Retrieves the state key associated with the given file name.
 ---   If the file name ends with the expected file extension, it strips the extension and returns the base name.
 ---   If the file name does not match the expected pattern, it returns the original file name.
---- @param name string  # The file name for which to derive the state key.
---- @return string|nil  # Returns the derived state key (base name) or the original name if no match is found.
+--- @param name string # The file name for which to derive the state key.
+--- @return string|nil # Returns the derived state key (base name) or the original name if no match is found.
 --
 function AutoAssembler:GetStateKey(name)
     if type(name) ~= "string" then
@@ -117,10 +121,10 @@ end
 --
 --- ∑ Updates or creates a state for a given file.
 ---   This function checks if the state for a given file exists or not, then updates or creates it accordingly.
---- @param fileName string  # The name of the file for which the state is being updated.
---- @param memrec table|nil  # The memory record associated with the state (optional).
---- @param targetSelf boolean  # A flag indicating whether the assembly is targeting the self process.
---- @return table|nil  # Returns the updated state or 'nil' if an error occurs.
+--- @param fileName string # The name of the file for which the state is being updated.
+--- @param memrec table|nil # The memory record associated with the state (optional).
+--- @param targetSelf boolean # A flag indicating whether the assembly is targeting the self process.
+--- @return table|nil # Returns the updated state or 'nil' if an error occurs.
 --
 function AutoAssembler:UpdateState(fileName, memrec, targetSelf)
     if type(fileName) ~= "string" then
@@ -148,7 +152,7 @@ end
 --
 --- ∑ Ensures the necessary directories exist for storing files.
 ---   This function checks and creates directories for the data and process-specific directories if needed.
---- @return boolean  # Returns 'true' if all directories are successfully created, otherwise 'false'.
+--- @return boolean # Returns 'true' if all directories are successfully created, otherwise 'false'.
 --
 function AutoAssembler:EnsureDirectoriesExist()
     if not customIO:EnsureDataDirectory() then
@@ -176,8 +180,8 @@ end
 --
 --- ∑ Formats the file name by ensuring the correct extension is appended.
 ---   If the file name already has the correct extension, it returns the file name unchanged.
---- @param name string  # The name of the file to be formatted.
---- @return string  # Returns the formatted file name with the correct extension.
+--- @param name string # The name of the file to be formatted.
+--- @return string # Returns the formatted file name with the correct extension.
 --
 function AutoAssembler:FormatFileName(name)
     if name:lower():find(self.FileExtension:lower() .. '$') then
@@ -189,8 +193,8 @@ end
 --
 --- ∑ Retrieves the full file path for a given file name.
 ---   This function ensures that the required directories exist and constructs the full path to the file.
---- @param fileName string  # The name of the file to get the full path for.
---- @return string|nil  # Returns the full file path, or 'nil' if there is an error.
+--- @param fileName string # The name of the file to get the full path for.
+--- @return string|nil # Returns the full file path, or 'nil' if there is an error.
 --
 function AutoAssembler:GetFilePath(fileName)
     if not self:EnsureDirectoriesExist() then
@@ -208,7 +212,7 @@ end
 --
 --- ∑ Validates if the current process is valid.
 ---   This function checks if a process is attached and whether it matches the required process name.
---- @return boolean  # Returns 'true' if the process is valid, otherwise 'false'.
+--- @return boolean # Returns 'true' if the process is valid, otherwise 'false'.
 --
 function AutoAssembler:ValidateProcess()
     if not processHandler:IsProcessAttached() then
@@ -226,8 +230,8 @@ end
 --
 --- ∑ Loads the content of a file, either from a local file or from a TableFile.
 ---   This function attempts to read the file from disk and falls back to the TableFiles if unsuccessful.
---- @param fileName string  # The name of the file to load.
---- @return string|nil  # Returns the file content as a string, or 'nil' if an error occurs.
+--- @param fileName string # The name of the file to load.
+--- @return string|nil # Returns the file content as a string, or 'nil' if an error occurs.
 --
 function AutoAssembler:LoadFile(fileName)
     local filePath = self:GetFilePath(fileName)
@@ -253,11 +257,11 @@ registerLuaFunctionHighlight('LoadFile')
 --
 --- ∑ Performs the auto-assembly process for a given file.
 ---   This function performs a series of assembly steps, checking the file and performing the assembly, while logging errors.
---- @param fileName string  # The name of the file to assemble.
---- @param fileStr string  # The content of the file to assemble.
---- @param targetSelf boolean  # Flag indicating whether the assembly is targeting the self process.
---- @param disableInfo table|nil  # Information on whether the process should be disabled.
---- @return boolean  # Returns 'true' if the assembly was successful, 'false' otherwise.
+--- @param fileName string # The name of the file to assemble.
+--- @param fileStr string # The content of the file to assemble.
+--- @param targetSelf boolean # Flag indicating whether the assembly is targeting the self process.
+--- @param disableInfo table|nil # Information on whether the process should be disabled.
+--- @return boolean # Returns 'true' if the assembly was successful, 'false' otherwise.
 --
 function AutoAssembler:PerformAutoAssemble(fileName, fileStr, targetSelf, disableInfo)
     logger:Debug("[Auto-Assembler] Performing Assembly for file '" .. fileName .. "'.")
@@ -285,7 +289,7 @@ end
 --
 --- ∑ Logs the symbols and allocations for a given state.
 ---   This function logs the symbols and their corresponding addresses, as well as the allocation details like size, preferred address, and actual address.
---- @param state table  # The state containing the symbols and allocations to log.
+--- @param state table # The state containing the symbols and allocations to log.
 --
 function AutoAssembler:LogSymbolsAndAllocations(state)
     if state.DisableInfo then
@@ -313,10 +317,10 @@ end
 --
 --- ∑ Performs the entire auto-assembly process for a given file.
 ---   This function coordinates the validation, state update, file loading, and assembly steps.
---- @param fileName string  # The name of the file to auto-assemble.
---- @param memrecOrTargetSelf table|boolean  # Either the memory record to associate with the file or a flag indicating whether the assembly is targeting the self process.
---- @param targetSelf boolean  # Flag indicating whether the assembly is targeting the self process.
---- @return boolean  # Returns 'true' if the auto-assembly was successful, 'false' otherwise.
+--- @param fileName string # The name of the file to auto-assemble.
+--- @param memrecOrTargetSelf table|boolean # Either the memory record to associate with the file or a flag indicating whether the assembly is targeting the self process.
+--- @param targetSelf boolean # Flag indicating whether the assembly is targeting the self process.
+--- @return boolean # Returns 'true' if the auto-assembly was successful, 'false' otherwise.
 --
 function AutoAssembler:AutoAssemble(fileName, memrecOrTargetSelf, targetSelf)
     local processName = processHandler:GetAttachedProcessName()
@@ -357,7 +361,7 @@ registerLuaFunctionHighlight('AutoAssemble')
 --
 --- ∑ Sets the required process name for the auto-assembler.
 --- This function allows the user to specify which process the auto-assembler should target.
---- @param processName string  # The name of the required process.
+--- @param processName string # The name of the required process.
 --
 function AutoAssembler:SetProcessName(processName)
     if type(processName) ~= "string" then
@@ -374,7 +378,8 @@ local o_MainForm_OnProcessOpened = MainForm.OnProcessOpened
 --- ∑ OnProcessOpened Override
 --
 function MainForm.OnProcessOpened()
-    AutoAssembler.states = {}
+    -- 
+    AutoAssembler.States = {}
     ProcessID = getOpenedProcessID()
 	o_MainForm_OnProcessOpened()
 end

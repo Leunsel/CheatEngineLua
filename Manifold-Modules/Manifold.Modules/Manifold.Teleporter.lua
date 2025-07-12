@@ -1,16 +1,25 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.4"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
     ∂ v1.0.0 (2025-02-26)
         Initial release with core functions.
 
-    ∂ v1.0.1 (2025-06-20)
-        Updated the save system to use a more structured and author-friendly approach.
-        Teleporter Saves do store the Author of the save now, they are part of the created
-        memory records as well and the Teleporter UI has been updated to reflect this.
+    ∂ v1.0.1 (2025-06-27)
+        Updated Teleporter UI as well as the Save System.
+
+    ∂ v1.0.2 (2025-06-27)
+        Fixed the UI Search Query to work with the new system.
+
+    ∂ v1.0.3 (2025-06-27)
+        Added support for an Author.
+        Added support for a Category.
+        Updated the Teleporter UI to display categories.
+
+    ∂ v1.0.4 (2025-06-27)
+        Added a Theme to the Teleporter UI.
 ]]--
 
 Teleporter = {
@@ -460,7 +469,7 @@ function Teleporter:AddSave()
     if self.Saves[name] then
         logger:WarningF("[Teleporter] Duplicate Save Name: '%s'. Overwriting.", name)
     end
-    self.Saves[name] = { X = position[1], Y = position[2], Z = position[3], Author = self:GetCurrentAuthor() }
+    self.Saves[name] = { X = position[1], Y = position[2], Z = position[3], Author = self:GetCurrentAuthor(), Description = "" }
     logger:InfoF("[Teleporter] Added Save: '%s' at position (%.4f, %.4f, %.4f).", name, position[1], position[2], position[3])
 end
 registerLuaFunctionHighlight('AddSave')
@@ -686,22 +695,43 @@ function Teleporter:CreateTeleporterSaves()
         return
     end
     self:ClearSubrecords(root)
-    local sortedLocationNames = {}
-    for locationName, _ in pairs(self.Saves) do
-        table.insert(sortedLocationNames, locationName)
+    local grouped = {}
+    for saveName, data in pairs(self.Saves or {}) do
+        if type(data) == "table" and data.X and data.Y and data.Z then
+            local author = data.Author or "Unknown"
+            local category = (data.Category ~= "" and data.Category) or "Default"
+            grouped[author] = grouped[author] or {}
+            grouped[author][category] = grouped[author][category] or {}
+            table.insert(grouped[author][category], saveName)
+        end
     end
-    table.sort(sortedLocationNames)
-    logger:InfoF("[Teleporter] Found %d saves to process.", #sortedLocationNames)
-    for _, saveName in ipairs(sortedLocationNames) do
-        local position = self.Saves[saveName]
-        local author = (position and position.Author) and tostring(position.Author) or "Unknown"
-        logger:DebugF("[Teleporter] Processing save: '%s' (X: %.4f, Y: %.4f, Z: %.4f).", saveName, position.X, position.Y, position.Z)
-        local mr = addressList.createMemoryRecord()
-        mr.Type = vtAutoAssembler
-        mr.Description = "Teleport To: '" .. saveName .. "' ()->"
-        mr.Color = 0xFFFFFF
-        mr.Parent = root
-        local scriptContent = string.format([[
+    local sortedAuthors = {}
+    for author in pairs(grouped) do table.insert(sortedAuthors, author) end
+    table.sort(sortedAuthors, function(a, b) return a:lower() < b:lower() end)
+    local totalSaves = 0
+    for _, author in ipairs(sortedAuthors) do
+        local authorHeader = addressList.createMemoryRecord()
+        authorHeader.Type = vtGroupHeader
+        authorHeader.Description = string.format("[— %s —] ()->", author)
+        authorHeader.Color = 0xFFFFFF
+        authorHeader.Parent = root
+        authorHeader.IsAddressGroupHeader = false
+        local categories = grouped[author]
+        local sortedCategories = {}
+        for category in pairs(categories) do table.insert(sortedCategories, category) end
+        table.sort(sortedCategories, function(a, b) return a:lower() < b:lower() end)
+        for _, category in ipairs(sortedCategories) do
+            local categoryHeader = addressList.createMemoryRecord()
+            categoryHeader.Type = vtGroupHeader
+            categoryHeader.IsAddressGroupHeader = false
+            categoryHeader.Description = string.format("[— %s —] ()->", category)
+            categoryHeader.Color = 0xFFFFFF
+            categoryHeader.Parent = authorHeader
+            local saves = categories[category]
+            table.sort(saves, function(a, b) return a:lower() < b:lower() end)
+            for _, saveName in ipairs(saves) do
+                local position = self.Saves[saveName]
+                local scriptContent = string.format([[
 {$lua}
 [ENABLE]
 if syntaxcheck then return end
@@ -714,9 +744,18 @@ teleporter:TeleportToSave("%s")
 utils:AutoDisable(memrec.ID)
 [DISABLE]
 ]], saveName, author, position.X, position.Y, position.Z, saveName)
-        mr.Script = scriptContent
+                local mr = addressList.createMemoryRecord()
+                mr.Type = vtAutoAssembler
+                mr.Description = "Teleport To: '" .. saveName .. "' ()->"
+                mr.Color = 0xFFFFFF
+                mr.Parent = categoryHeader
+                mr.Script = scriptContent
+                totalSaves = totalSaves + 1
+            end
+        end
     end
-    logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves.", #sortedLocationNames)
+
+    logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves (grouped by Author and Category).", totalSaves)
 end
 registerLuaFunctionHighlight('CreateTeleporterSaves')
 
@@ -745,9 +784,12 @@ registerLuaFunctionHighlight('PrintSaves')
 --- @param name string # The name of the save to update.
 --- @param newPos table # A table containing the new {X, Y, Z} coordinates.
 --- @param TreeView object # The TreeView control to update.
+--- @param newAuthor string # The new author of the save (optional).
+--- @param newCategory string # The new category of the save (optional).
+--- @param newDescription string # The new description of the save (optional).
 --- @return boolean # True if the update was successful, false otherwise.
 --
-function UpdateSave(name, newPos, TreeView)
+function UpdateSave(name, newPos, TreeView, newAuthor, newCategory, newDescription)
     if not name or name == "" then
         logger:WarningF("[Teleporter] Update failed: Name is missing.")
         return false
@@ -757,19 +799,22 @@ function UpdateSave(name, newPos, TreeView)
         return false
     end
     teleporter.Saves = teleporter.Saves or {}
-    local selectedSaveName = TreeView.Selected and TreeView.Selected.Text or name
-    if not teleporter.Saves[selectedSaveName] then
-        logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", selectedSaveName)
+    local oldName = TreeView.Selected and TreeView.Selected.Text or name
+    if not teleporter.Saves[oldName] then
+        logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", oldName)
         return false
     end
-    if selectedSaveName ~= name then
-        teleporter.Saves[name] = teleporter.Saves[selectedSaveName]
-        teleporter.Saves[selectedSaveName] = nil
+    if oldName ~= name then
+        teleporter.Saves[name] = teleporter.Saves[oldName]
+        teleporter.Saves[oldName] = nil
     end
     local save = teleporter.Saves[name]
-    save.X, save.Y, save.Z = newPos[1] or 0, newPos[2] or 0, newPos[3] or 0
-    save.Author = save.Author or teleporter:GetCurrentAuthor()
-    logger:InfoF("[Teleporter] Save '%s' updated: X=%.2f, Y=%.2f, Z=%.2f", name, save.X, save.Y, save.Z)
+    save.X, save.Y, save.Z = newPos[1], newPos[2], newPos[3]
+    save.Author = newAuthor or save.Author or teleporter:GetCurrentAuthor()
+    save.Category = newCategory or ""
+    save.Description = newDescription or ""
+    logger:InfoF("[Teleporter] Save '%s' updated: Author='%s', Category='%s', X=%.2f, Y=%.2f, Z=%.2f, Description='%s'",
+                 name, save.Author, save.Category, save.X, save.Y, save.Z, save.Description or "")
     return true
 end
 registerLuaFunctionHighlight('UpdateSave')
@@ -782,32 +827,57 @@ local function LoadTeleporterSaves(TreeView)
     TreeView.beginUpdate()
     TreeView.Items:clear()
     if not teleporter or not teleporter.Saves then
-        logger:Warning("[Teleporter] No saves to load.")
         TreeView.endUpdate()
         return
     end
-    -- teleporter:EnsureAuthors()
+    teleporter:EnsureAuthorsAndCategories()
+    for name, data in pairs(teleporter.Saves) do
+        if type(data) == "table" and data.Description == nil then
+            data.Description = ""
+        end
+    end
     local grouped = {}
     for name, data in pairs(teleporter.Saves) do
         if type(name) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
-            local author = data.Author or "Unknown"
+            local author   = data.Author or "Unknown"
+            local category = data.Category ~= "" and data.Category or "Default"
             grouped[author] = grouped[author] or {}
-            table.insert(grouped[author], name)
-        else
-            logger:WarningF("[Teleporter] Ignoring bad save: %s", tostring(name))
+            grouped[author][category] = grouped[author][category] or {}
+            table.insert(grouped[author][category], name)
         end
     end
-    for author, saves in pairs(grouped) do
+    for author, categoryMap in pairs(grouped) do
         local authorNode = TreeView.Items:add()
         authorNode.Text = author
-        table.sort(saves, function(a, b) return a:lower() < b:lower() end)
-        for _, saveName in ipairs(saves) do
-            local saveNode = authorNode:add()
-            saveNode.Text = saveName
+        local sortedCategories = {}
+        for category in pairs(categoryMap) do
+            table.insert(sortedCategories, category)
+        end
+        table.sort(sortedCategories, function(a, b) return a:lower() < b:lower() end)
+        for _, category in ipairs(sortedCategories) do
+            local saves = categoryMap[category]
+            local categoryNode = authorNode:add()
+            categoryNode.Text = category
+            table.sort(saves, function(a, b) return a:lower() < b:lower() end)
+            for _, saveName in ipairs(saves) do
+                local saveNode = categoryNode:add()
+                saveNode.Text = saveName
+            end
         end
     end
     TreeView.endUpdate()
 end
+
+local COLOR_BG           = 0x2E2723
+local COLOR_PANEL        = 0x3A312C
+local COLOR_ACCENT       = 0x9CBC1A
+local COLOR_TEXT         = 0xEAEAEA
+local COLOR_LABEL        = 0xB0B0B0
+local COLOR_BTN          = 0x2E2723
+local COLOR_BTN_HOVER    = 0x9CBC1A
+local COLOR_BTN_TEXT     = 0xEAEAEA
+local COLOR_TAB_ACTIVE   = 0x9CBC1A
+local COLOR_TAB_INACTIVE = 0x3A312C
 
 --
 --- ∑ Creates a button with a given caption and attaches it to a parent UI component.
@@ -816,11 +886,32 @@ end
 --- @return userdata # The created button instance.
 --
 local function CreateButtonWithCaption(parent, caption)
-    local button = createButton(parent)
-    button.Align = "alTop"
-    button.Caption = caption
-    button.BorderSpacing.Around = 2
-    return button
+    local panel = createPanel(parent)
+    panel.Align = "alTop"
+    panel.Height = 25
+    panel.BevelOuter = bvRaised
+    panel.BevelWidth = 1
+    panel.Color = COLOR_BG
+    panel.Cursor = -21 -- crHandPoint
+    panel.Caption = caption
+    panel.BorderSpacing.Around = 3
+    panel.BorderColor = 0xFF0000
+    local label = createLabel(panel)
+    panel.OnMouseEnter = function()
+        panel.Color = COLOR_TAB_ACTIVE
+        label.Font.Color = COLOR_BG
+    end
+    panel.OnMouseLeave = function()
+        panel.Color = COLOR_BG
+        label.Font.Color = COLOR_TEXT
+    end
+    return panel
+end
+
+local function createDarkPanel(parent)
+    local panel = createPanel(parent)
+    panel.Color = COLOR_PANEL
+    return panel
 end
 
 --
@@ -830,7 +921,7 @@ end
 --- @return userdata # The created input field instance.
 --
 local function CreateLabeledEdit(parent, labelText)
-    local container = createPanel(parent)
+    local container = createDarkPanel(parent)
     container.Align = "alTop"
     container.Height = 25
     container.BevelOuter = "bvNone"
@@ -838,9 +929,16 @@ local function CreateLabeledEdit(parent, labelText)
     label.Caption = labelText
     label.Align = "alLeft"
     label.BorderSpacing.Around = 2
+    label.Font.Color = COLOR_LABEL
+    label.Font.Name = "Consolas"
+    label.Font.Size = 10
     local edit = createEdit(container)
     edit.Align = "alClient"
     edit.BorderSpacing.Around = 2
+    -- edit.Color = COLOR_BG
+    edit.Font.Color = COLOR_TEXT
+    edit.Font.Name = "Consolas"
+    edit.Font.Size = 10
     return edit
 end
 
@@ -849,20 +947,218 @@ end
 --- @param TreeView userdata
 --- @param NameEdit, XEdit, YEdit, ZEdit ...
 --
-local function HandleTreeViewSelection(TreeView, NameEdit, XEdit, YEdit, ZEdit)
+local function HandleTreeViewSelection(TreeView, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit, DescriptionEdit)
     TreeView.OnClick = function()
         local selected = TreeView.Selected
-        if selected and selected.Level == 1 then
+        if not selected then return end
+        if selected.Level == 2 then
             local saveName = selected.Text
-            local save = teleporter.Saves and teleporter.Saves[saveName]
-            if save then
+            local categoryNode = selected.Parent
+            local authorNode = categoryNode and categoryNode.Parent
+            if teleporter.Saves and teleporter.Saves[saveName] then
+                local save = teleporter.Saves[saveName]
                 NameEdit.Text = saveName
+                AuthorEdit.Text = authorNode and authorNode.Text or "Unknown"
+                CategoryEdit.Text = categoryNode and categoryNode.Text or "Default"
                 XEdit.Text = tostring(save.X or "")
                 YEdit.Text = tostring(save.Y or "")
                 ZEdit.Text = tostring(save.Z or "")
+                DescriptionEdit.Lines.Text = save.Description or ""
+            else
+                DescriptionEdit.Lines.Text = ""
+            end
+        else
+            DescriptionEdit.Lines.Text = ""
+        end
+    end
+    TreeView.OnDblClick = function()
+        local selected = TreeView.Selected
+        if not selected or selected.Level ~= 2 then return end
+        local saveName = selected.Text
+        if teleporter.Saves and teleporter.Saves[saveName] then
+            logger:InfoF("[Teleporter] Double-clicked save '%s' - attempting teleport.", saveName)
+            teleporter:TeleportToSave(saveName)
+        end
+    end
+end
+
+--
+--- ∑ Creates and initializes the Teleporter UI form.
+--- @return userdata # The created form instance.
+--
+local function CreateTeleporterForm()
+    local form = createForm(false)
+    form.Top = -2000
+    form.Show()
+    form.Caption = "Teleporter Saves"
+    -- form.Color = 0x0a0305
+    form.Width = 700
+    form.Height = 500
+    form.Constraints.MinWidth = form.Width
+    form.Constraints.MinHeight = form.Height
+    form.Scaled = false
+    form.BorderStyle = "bsSizeable"
+    form.Color = COLOR_BG
+    local defaultDPI = 96
+    local currentDPI = getScreenDPI()
+    local scaleFactor = defaultDPI / currentDPI
+    local baseFontSize = 10
+    form.Font.Name = "Consolas"
+    form.Font.Size = baseFontSize * scaleFactor
+    form.Font.Color = COLOR_TEXT
+    form.Position = "poScreenCenter"
+    form.CenterScreen()
+    return form
+end
+
+--
+--- ∑ Creates a panel containing a TreeView and search bar for Teleporter saves.
+--- @param parent userdata # The parent UI element.
+--- @return userdata, userdata, userdata - The created panel, search bar, and TreeView instances.
+--
+local function CreateTreeViewPanel(parent)
+    local panel = createDarkPanel(parent)
+    panel.Align = "alTop"
+    panel.Constraints.MinHeight = 315
+    panel.BorderSpacing.Around = 3
+    panel.BevelOuter = "bvNone"
+    panel.Anchors = "[akTop,akLeft,akRight,akBottom]"
+    local searchEdit = createEdit(panel)
+    searchEdit.Align = "alTop"
+    searchEdit.Height = 30
+    searchEdit.BorderSpacing.Around = 3
+    searchEdit.Text = ""
+    searchEdit.TextHint = "Search Saves..."
+    searchEdit.Color = COLOR_BG
+    searchEdit.Font.Color = COLOR_TEXT
+    searchEdit.Font.Name = "Consolas"
+    searchEdit.Font.Size = 10
+    local treeView = createTreeView(panel)
+    treeView.Align = "alClient"
+    treeView.BorderSpacing.Around = 3
+    treeView.AutoExpand = true
+    treeView.ReadOnly = true
+    treeView.AutoSize = true
+    treeView.BorderStyle = "bsNone"
+    treeView.Color = COLOR_PANEL
+    treeView.Font.Color = COLOR_TEXT
+    treeView.Font.Name = "Consolas"
+    treeView.Font.Size = 10
+    treeView.ScrollBars = "ssAutoBoth"
+    return panel, searchEdit, treeView
+end
+
+local function CreateSaveDetailsTabControl(parent)
+    local tabButtonPanel = createDarkPanel(parent)
+    tabButtonPanel.Align = "alTop"
+    tabButtonPanel.Height = 25
+    tabButtonPanel.BevelOuter = "bvNone"
+    tabButtonPanel.BorderSpacing.Around = 4
+    local tabContentPanel = createDarkPanel(parent)
+    tabContentPanel.Align = "alClient"
+    tabContentPanel.AutoSize = true
+    tabContentPanel.BevelOuter = "bvNone"
+    tabContentPanel.BorderSpacing.Around = 4
+    local tabs = {
+        {caption = "Details"},
+        {caption = "Coordinates"},
+        {caption = "Description"}
+    }
+    local tabPanels = {}
+    local tabPages = {}
+    for i, tab in ipairs(tabs) do
+        local page = createDarkPanel(tabContentPanel)
+        page.Align = "alClient"
+        page.Visible = (i == 1)
+        page.BevelOuter = "bvNone"
+        tabPages[i] = page
+    end
+    local function selectTab(idx)
+        for i, page in ipairs(tabPages) do
+            page.Visible = (i == idx)
+            if tabPanels[i] then
+                tabPanels[i].Color = (i == idx) and COLOR_TAB_ACTIVE or COLOR_TAB_INACTIVE
+                tabPanels[i].Font.Color = (i == idx) and COLOR_BG or COLOR_TEXT
             end
         end
     end
+    for i, tab in ipairs(tabs) do
+        local p = createDarkPanel(tabButtonPanel)
+        p.Left = (i-1)*140
+        p.Top = 2
+        p.Width = 132
+        p.Height = 25
+        p.BevelOuter = bvRaised
+        p.BevelWidth = 1
+        p.Caption = tab.caption
+        p.Font.Name = "Consolas"
+        p.Font.Size = 10
+        p.Color = COLOR_TAB_INACTIVE
+        p.Font.Color = COLOR_TEXT
+        p.ParentFont = false
+        p.Cursor = -21 -- crHandPoint
+        p.OnClick = function()
+            selectTab(i)
+        end
+        tabPanels[i] = p
+    end
+    selectTab(1)
+    return tabButtonPanel, tabContentPanel, tabPages
+end
+
+--
+--- ∑ Creates a panel containing input fields and action buttons for save details.
+--- @param parent userdata # The parent UI element.
+--- @return userdata, userdata, userdata, userdata, userdata #  
+--- The created group box, name input, X input, Y input, Z input.
+--
+local function CreateSaveDetailsPanel(parent)
+    local layoutPanel = createPanel(parent)
+    layoutPanel.Align = "alClient"
+    layoutPanel.AutoSize = true
+    layoutPanel.BorderSpacing.Around = 5
+    layoutPanel.BevelOuter = "bvNone"
+    local updateButton = CreateButtonWithCaption(layoutPanel, "Update Save")
+    local teleportToSaveButton = CreateButtonWithCaption(layoutPanel, "Teleport To Save")
+    local nameEdit = CreateLabeledEdit(layoutPanel, "Name: ")
+    nameEdit.TextHint = "Save Name"
+    local categoryEdit = CreateLabeledEdit(layoutPanel, "Category: ")
+    categoryEdit.TextHint = "Save Category"
+    local authorEdit = CreateLabeledEdit(layoutPanel, "Author: ")
+    authorEdit.TextHint = "Save Author"
+    return groupBox, nameEdit, authorEdit, categoryEdit, teleportToSaveButton, updateButton
+end
+
+local function CreateCoordinatesPanel(parent)
+    local coordinatesPanel = createPanel(parent)
+    coordinatesPanel.Align = "alClient"
+    coordinatesPanel.BevelOuter = "bvNone"
+    coordinatesPanel.BorderSpacing.Around = 5
+    local zEdit = CreateLabeledEdit(coordinatesPanel, "Z: ")
+    zEdit.TextHint = "Z Coordinate"
+    local yEdit = CreateLabeledEdit(coordinatesPanel, "Y: ")
+    yEdit.TextHint = "Y Coordinate"
+    local xEdit = CreateLabeledEdit(coordinatesPanel, "X: ")
+    xEdit.TextHint = "X Coordinate"
+    return xEdit, yEdit, zEdit
+end
+
+local function CreateDescriptionPanel(parent)
+    local descriptionPanel = createDarkPanel(parent)
+    descriptionPanel.Align = "alClient"
+    descriptionPanel.BevelOuter = "bvNone"
+    descriptionPanel.BorderSpacing.Around = 5
+    local descriptionEdit = createMemo(descriptionPanel)
+    descriptionEdit.Align = "alClient"
+    descriptionEdit.BorderSpacing.Around = 5
+    descriptionEdit.TextHint = "Description (optional)"
+    descriptionEdit.Color = COLOR_BG
+    descriptionEdit.Font.Color = COLOR_TEXT
+    descriptionEdit.Font.Name = "Consolas"
+    descriptionEdit.Font.Size = 10
+    descriptionEdit.WordWrap = true
+    descriptionEdit.Scrollbars = "ssAutoBoth"
+    return descriptionEdit
 end
 
 --
@@ -893,13 +1189,16 @@ end
 --- @param ZEdit userdata # The input field for the Z coordinate.
 --- @param TreeView userdata # The UI TreeView element containing save entries.
 --
-local function HandleUpdateButtonClick(UpdateButton, NameEdit, XEdit, YEdit, ZEdit, TreeView)
+local function HandleUpdateButtonClick(UpdateButton, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit, TreeView, DescriptionEdit)
     UpdateButton.OnClick = function()
         local name = NameEdit.Text
         local newPos = { tonumber(XEdit.Text), tonumber(YEdit.Text), tonumber(ZEdit.Text) }
+        local newAuthor = AuthorEdit.Text
+        local newCategory = CategoryEdit.Text
+        local newDescription = DescriptionEdit.Lines.Text -- Use Lines.Text for full memo content
         if name ~= "" and newPos[1] and newPos[2] and newPos[3] then
             logger:Info("[Teleporter] Updating save: " .. name)
-            local success = UpdateSave(name, newPos, TreeView)
+            local success = UpdateSave(name, newPos, TreeView, newAuthor, newCategory, newDescription)
             if success then
                 LoadTeleporterSaves(TreeView)
             else
@@ -935,7 +1234,8 @@ local function HandleDuplicateButtonClick(DuplicateButton, NameEdit, TreeView)
             X = originalSave.X,
             Y = originalSave.Y,
             Z = originalSave.Z,
-            Author = originalSave.Author or Teleporter:GetCurrentAuthor()
+            Author = originalSave.Author or Teleporter:GetCurrentAuthor(),
+            Description = originalSave.Description or ""
         }
         logger:InfoF("[Teleporter] Duplicated save '%s' as '%s'.", selectedName, newSaveName)
         LoadTeleporterSaves(TreeView)
@@ -977,104 +1277,35 @@ local function HandleDeleteAllButtonClick(DeleteAllButton, TreeView)
 end
 
 --
---- ∑ Creates and initializes the Teleporter UI form.
---- @return userdata # The created form instance.
+--- ∑ Creates a context menu for the TreeView with options to teleport, update, duplicate, and delete saves.
+--- @param TreeView userdata # The TreeView control to attach the context menu to.
+--- @param NameEdit userdata # The input field for the save name.
+--- @param AuthorEdit userdata # The input field for the save author.
+--- @param CategoryEdit userdata # The input field for the save category.
+--- @param XEdit userdata # The input field for the X coordinate.
+--- @param YEdit userdata # The input field for the Y coordinate.
+--- @param ZEdit userdata # The input field for the Z coordinate.
+--- @return 
 --
-local function CreateTeleporterForm()
-    local form = createForm(false)
-    form.Top = -2000
-    form.Show()
-    form.Caption = "Teleporter Saves"
-    form.Width = 700
-    form.Height = 500
-    form.Constraints.MinWidth = form.Width
-    form.Constraints.MinHeight = form.Height
-    form.Scaled = false
-    form.BorderStyle = "bsSizeable"
-    local defaultDPI = 96
-    local currentDPI = getScreenDPI()
-    local scaleFactor = defaultDPI / currentDPI
-    local baseFontSize = 10
-    form.Font.Name = "Consolas"
-    form.Font.Size = baseFontSize * scaleFactor
-    form.Position = "poScreenCenter"
-    form.CenterScreen()
-    return form
-end
-
---
---- ∑ Creates a panel containing a TreeView and search bar for Teleporter saves.
---- @param parent userdata # The parent UI element.
---- @return userdata, userdata, userdata - The created panel, search bar, and TreeView instances.
---
-local function CreateTreeViewPanel(parent)
-    local panel = createPanel(parent)
-    panel.Align = "alLeft"
-    panel.Width = 450
-    panel.BorderSpacing.Around = 3
-    panel.BevelOuter = "bvNone"
-    local searchEdit = createEdit(panel)
-    searchEdit.Align = "alTop"
-    searchEdit.Height = 30
-    searchEdit.BorderSpacing.Around = 3
-    searchEdit.Text = ""
-    local treeView = createTreeView(panel)
-    treeView.Align = "alClient"
-    treeView.BorderSpacing.Around = 3
-    treeView.BorderStyle = "bsNone"
-    treeView.ExpandSignType = "tvestPlusMinus"
-    treeView.AutoExpand = true
-    treeView.TreeLinePenStyle = "psDashDot"
-    treeView.ReadOnly = true
-    return panel, searchEdit, treeView
-end
-
---
---- ∑ Creates a panel containing input fields and action buttons for save details.
---- @param parent userdata # The parent UI element.
---- @return userdata, userdata, userdata, userdata, userdata #  
---- The created group box, name input, X input, Y input, Z input.
---
-local function CreateSaveDetailsPanel(parent)
-    local groupBox = createGroupBox(parent)
-    groupBox.Align = "alTop"
-    groupBox.AutoSize = true
-    groupBox.Caption = "Save Details"
-    groupBox.BorderSpacing.Around = 5
-    local layoutPanel = createPanel(groupBox)
-    layoutPanel.Align = "alClient"
-    layoutPanel.AutoSize = true
-    layoutPanel.BorderSpacing.Around = 5
-    layoutPanel.BevelOuter = "bvNone"
-    local zEdit = CreateLabeledEdit(layoutPanel, "Z: ")
-    local yEdit = CreateLabeledEdit(layoutPanel, "Y: ")
-    local xEdit = CreateLabeledEdit(layoutPanel, "X: ")
-    local nameEdit = CreateLabeledEdit(layoutPanel, "") -- Name
-    return groupBox, nameEdit, xEdit, yEdit, zEdit
-end
-
---
---- ∑ Creates a panel with controls for save management.
---- @param parent userdata # The parent UI element.
---- @return userdata, ... # The created panel and button instances.
---
-local function CreateControlsPanel(parent)
-    local groupBox = createGroupBox(parent)
-    groupBox.Align = "alTop"
-    groupBox.AutoSize = true
-    groupBox.Caption = "Controls"
-    groupBox.BorderSpacing.Around = 5
-    local buttonPanel = createPanel(groupBox)
-    buttonPanel.Align = "alTop"
-    buttonPanel.AutoSize = true
-    buttonPanel.BorderSpacing.Around = 5
-    buttonPanel.BevelOuter = "bvNone"
-    local deleteAllButton = CreateButtonWithCaption(buttonPanel, "Delete All Saves")
-    local deleteButton = CreateButtonWithCaption(buttonPanel, "Delete Save")
-    local updateButton = CreateButtonWithCaption(buttonPanel, "Update Save")
-    local duplicateButton = CreateButtonWithCaption(buttonPanel, "Duplicate Save")
-    local teleportToSaveButton = CreateButtonWithCaption(buttonPanel, "Teleport To Save")
-    return buttonPanel, deleteAllButton, deleteButton, updateButton, duplicateButton, teleportToSaveButton
+local function CreateContextMenuForTreeView(TreeView, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit)
+    local contextMenu = createPopupMenu(TreeView)
+    TreeView.PopupMenu = contextMenu
+    local teleportItem = createMenuItem(contextMenu)
+    teleportItem.Caption = "Teleport To Save"
+    HandleTeleportButtonClick(teleportItem, NameEdit)
+    contextMenu.Items.add(teleportItem)
+    local updateItem = createMenuItem(contextMenu)
+    updateItem.Caption = "Update Save"
+    HandleUpdateButtonClick(updateItem, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit, TreeView)
+    contextMenu.Items.add(updateItem)
+    local duplicateItem = createMenuItem(contextMenu)
+    duplicateItem.Caption = "Duplicate Save"
+    HandleDuplicateButtonClick(duplicateItem, NameEdit, TreeView)
+    contextMenu.Items.add(duplicateItem)
+    local deleteItem = createMenuItem(contextMenu)
+    deleteItem.Caption = "Delete Save"
+    HandleDeleteButtonClick(deleteItem, NameEdit, TreeView)
+    contextMenu.Items.add(deleteItem)
 end
 
 --
@@ -1086,20 +1317,23 @@ local function CreateSaveDetailsWithControlsPanel(parent)
     local containerPanel = createPanel(parent)
     containerPanel.Align = "alClient"
     containerPanel.BevelOuter = "bvNone"
-    local buttonPanel, deleteAllButton, deleteButton, updateButton, duplicateButton, teleportToSaveButton = CreateControlsPanel(containerPanel)
-    local saveDetailsGroupBox, nameEdit, xEdit, yEdit, zEdit = CreateSaveDetailsPanel(containerPanel)
-    return containerPanel, saveDetailsGroupBox, buttonPanel, nameEdit, xEdit, yEdit, zEdit,
-           deleteAllButton, deleteButton, updateButton, duplicateButton, teleportToSaveButton
+    local tabButtonPanel, tabContentPanel, tabPages = CreateSaveDetailsTabControl(containerPanel)
+    local saveDetailsGroupBox, nameEdit, authorEdit, categoryEdit, teleportToSaveButton, updateButton = CreateSaveDetailsPanel(tabPages[1])
+    local xEdit, yEdit, zEdit = CreateCoordinatesPanel(tabPages[2])
+    local descriptionEdit = CreateDescriptionPanel(tabPages[3])
+    return containerPanel, saveDetailsGroupBox,
+           nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, teleportToSaveButton, updateButton, descriptionEdit
 end
 
 --
 --- ∑ Ensures all saves have an Author field.
 --
-function Teleporter:EnsureAuthors()
-    local author = self:GetCurrentAuthor()
-    for _, save in pairs(self.Saves or {}) do
-        if type(save) == "table" and not save.Author then
-            save.Author = author
+function Teleporter:EnsureAuthorsAndCategories()
+    for name, data in pairs(self.Saves or {}) do
+        if type(data) == "table" then
+            data.Author = data.Author or self:GetCurrentAuthor()
+            data.Category = data.Category or ""
+            data.Description = data.Description or ""
         end
     end
 end
@@ -1133,17 +1367,13 @@ function Teleporter:InitTeleporterUI()
     local containerPanel = createPanel(TeleporterForm)
     containerPanel.Align = "alClient"
     containerPanel.BevelOuter = "bvNone"
-    local Splitter = createSplitter(containerPanel)
-    local saveDetailsWithControlsPanel, saveDetailsGroupBox, buttonPanel,
-    nameEdit, xEdit, yEdit, zEdit, deleteAllButton, deleteButton, updateButton, duplicateButton,
-    teleportToSaveButton = CreateSaveDetailsWithControlsPanel(containerPanel)
-    local ListViewPanel, SearchEdit, TreeView = CreateTreeViewPanel(containerPanel)
-    HandleTreeViewSelection(TreeView, nameEdit, xEdit, yEdit, zEdit)
-    HandleDeleteAllButtonClick(deleteAllButton, TreeView)
-    HandleDeleteButtonClick(deleteButton, nameEdit, TreeView)
-    HandleUpdateButtonClick(updateButton, nameEdit, xEdit, yEdit, zEdit, TreeView)
-    HandleDuplicateButtonClick(duplicateButton, nameEdit, TreeView)
+    local saveDetailsWithControlsPanel, saveDetailsGroupBox,
+          nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, teleportToSaveButton, updateButton, descriptionEdit = CreateSaveDetailsWithControlsPanel(containerPanel)
+    local TreeViewPanel, SearchEdit, TreeView = CreateTreeViewPanel(containerPanel)
+    HandleTreeViewSelection(TreeView, nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, descriptionEdit)
+    HandleUpdateButtonClick(updateButton, nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, TreeView, descriptionEdit)
     HandleTeleportButtonClick(teleportToSaveButton, nameEdit)
+    CreateContextMenuForTreeView(TreeView, nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit)
     LoadTeleporterSaves(TreeView)
     TeleporterForm.CenterScreen()
     local function updateTreeView(TreeView, searchQuery)
@@ -1153,24 +1383,32 @@ function Teleporter:InitTeleporterUI()
             TreeView.endUpdate()
             return
         end
-        teleporter:EnsureAuthors()
+        teleporter:EnsureAuthorsAndCategories()
         local grouped = {}
-        for name, data in pairs(teleporter.Saves) do
-            if type(name) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
-                if name:lower():find(searchQuery:lower()) then
-                    local author = data.Author or "Unknown"
+        for saveName, data in pairs(teleporter.Saves) do
+            if type(saveName) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
+                local author = data.Author or "Unknown"
+                local category = data.Category ~= "" and data.Category or "Default"
+                if saveName:lower():find(searchQuery:lower())
+                or author:lower():find(searchQuery:lower())
+                or category:lower():find(searchQuery:lower()) then
                     grouped[author] = grouped[author] or {}
-                    table.insert(grouped[author], name)
+                    grouped[author][category] = grouped[author][category] or {}
+                    table.insert(grouped[author][category], saveName)
                 end
             end
         end
-        for author, saves in pairs(grouped) do
+        for author, categoryMap in pairs(grouped) do
             local authorNode = TreeView.Items:add()
             authorNode.Text = author
-            table.sort(saves, function(a, b) return a:lower() < b:lower() end)
-            for _, saveName in ipairs(saves) do
-                local saveNode = authorNode:add()
-                saveNode.Text = saveName
+            for category, saves in pairs(categoryMap) do
+                local categoryNode = authorNode:add()
+                categoryNode.Text = category
+                table.sort(saves, function(a, b) return a:lower() < b:lower() end)
+                for _, name in ipairs(saves) do
+                    local saveNode = categoryNode:add()
+                    saveNode.Text = name
+                end
             end
         end
         TreeView.endUpdate()
