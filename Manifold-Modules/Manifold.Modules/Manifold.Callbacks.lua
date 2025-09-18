@@ -363,7 +363,7 @@ registerLuaFunctionHighlight('AddressList.OnValueChange')
 --- @param memrec MemoryRecord # The memory record being edited
 --- @return boolean # true to prevent the edit, false to allow it
 --
-o_AddressList_OnAutoAssemblerEdit = AddressList.OnAutoAssemblerEdit
+local o_AddressList_OnAutoAssemblerEdit = AddressList.OnAutoAssemblerEdit
 AddressList.OnAutoAssemblerEdit = function(addresslist, memrec)
     local ok, err = pcall(function()
         logger:InfoF(
