@@ -2,11 +2,11 @@
     Manifold.TemplateLoader.Loader.lua
     --------------------------------
 
-    AUTHOR  : Leunsel, LeFiXER
-    VERSION : 2.0.0
+    AUTHOR  : Leunsel
+    VERSION : 2.0.1
     LICENSE : MIT
     CREATED : 2025-06-21
-    UPDATED : 2025-06-24
+    UPDATED : 2025-11-14
     
     MIT License:
         Copyright (c) 2025 Leunsel
@@ -36,13 +36,12 @@ local sep = package.config:sub(1, 1)
 package.path = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "?.lua;" .. package.path
 
 local Log     = require("Manifold-TemplateLoader-Log")
-local Json    = require("Manifold-TemplateLoader-Json")
+local JSON    = require("Manifold-TemplateLoader-Json")
 local File    = require("Manifold-TemplateLoader-File")
 local Memory  = require("Manifold-TemplateLoader-Memory")
 local Manager = require("Manifold-TemplateLoader-Manager")
 
 local log     = Log:New()
-local json    = Json:new()
 local file    = File:New()
 local memory  = Memory:New()
 local manager = Manager:New()
@@ -81,7 +80,7 @@ function Loader:LoadConfig()
     local configLoaded = false
     if file:Exists(self.ConfigPath) then
         local content = file:ReadFile(self.ConfigPath)
-        local ok, config = pcall(function() return json:decode(content) end)
+        local ok, config = pcall(function() return JSON:decode(content) end)
         if ok and type(config) == "table" then
             self.Config = deepCopy(self.DefaultConfig)
             for section, sectionData in pairs(config) do
@@ -109,7 +108,7 @@ function Loader:LoadConfig()
 end
 
 function Loader:SaveConfig()
-    file:WriteFile(self.ConfigPath, json:encode_pretty(self.Config))
+    file:WriteFile(self.ConfigPath, JSON:encode_pretty(self.Config))
     log:Info("[Loader] Configuration saved to " .. self.ConfigPath)
 end
 
