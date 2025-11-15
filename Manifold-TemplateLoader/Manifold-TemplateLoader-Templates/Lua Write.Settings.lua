@@ -1,6 +1,6 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Auto-Assemble",
+    SubMenuName = "Miscellaneous Hooks",
     Caption = "Lua Write",
     Shortcut = "",
     AskForInjectionAddress = true,

@@ -1,8 +1,8 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Pointer Hooks — Dedicated",
-    Caption = "Base Address Pointer Hook — Multiplier",
-    Shortcut = "Ctrl+Alt+3",
+    SubMenuName = "Byte Patch Hooks — Dedicated",
+    Caption = "Early Out Hook",
+    Shortcut = "Ctrl+Alt+8",
     AskForInjectionAddress = true,
     AskForHookName = true,
     AppendToHookName = "Hook"

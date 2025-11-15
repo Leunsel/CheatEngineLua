@@ -1,8 +1,8 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Auto-Assemble",
-    Caption = "Base Address Pointer Hook - Extended",
-    Shortcut = "",
+    SubMenuName = "Pointer Hooks — Dedicated",
+    Caption = "Base Address Pointer Hook — Extended",
+    Shortcut = "Ctrl+Alt+2",
     AskForInjectionAddress = true,
     AskForHookName = true,
     AppendToHookName = "Hook"
