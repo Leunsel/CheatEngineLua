@@ -684,6 +684,9 @@ function UI:ApplyThemeToLuaEngine(theme)
     local foundlistColor = theme["MainForm.Foundlist3.Color"] or mainColor
 
     self:ApplyThemeToLuaEngineControls(luaEngine, theme)
+    -- Edge case of the Lua Engine already being present due to autorun scripts for example...
+    -- We need to apply the theme a second time!
+    self:ApplyThemeToLuaEngineControls(luaEngine, theme)
     self:CreateOrUpdateLuaEngineExecutePanel(luaEngine, foundlistColor, headerFontColor, mainColor, o_LuaEngine_btnExecute_OnClick)
 end
 
