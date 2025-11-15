@@ -6,7 +6,7 @@
     VERSION : 2.0.1
     LICENSE : MIT
     CREATED : 2025-06-21
-    UPDATED : 2025-11-14
+    UPDATED : 2025-11-15
     
     MIT License:
         Copyright (c) 2025 Leunsel
@@ -169,23 +169,40 @@ function Loader:LoadTemplates()
         log:Warning("[Loader] No templates to load")
         return
     end
+    local usedShortcuts = {}
     for _, template in ipairs(self.RegisteredTemplates) do
+        local shortcut = template.settings and template.settings.Shortcut
+        if shortcut and shortcut ~= "" then
+            if usedShortcuts[shortcut] then
+                log:Error(string.format(
+                    "[Loader] Shortcut conflict for '%s': '%s' is already used by template '%s'.",
+                    template.fileName, shortcut, usedShortcuts[shortcut]))
+                template.settings.Shortcut = ""
+            else
+                usedShortcuts[shortcut] = template.fileName
+            end
+        end
         self:RegisterTemplate(template)
     end
 end
 
 function Loader:RegisterTemplate(template)
     local caption = template.fileName
-    local shortcut = template.settings and template.settings.shortcut
+    local shortcut = template.settings and template.settings.Shortcut -- optional
     log:Info("[Loader] Registering template: " .. tostring(caption))
-    local id = registerAutoAssemblerTemplate(
-        caption,
-        function(script, sender) self:GetTemplateScript(template, script, sender) end,
-        shortcut
-    )
+    local function templateFunc(script, sender)
+        self:GetTemplateScript(template, script, sender)
+    end
+    local id = registerAutoAssemblerTemplate(caption, templateFunc, shortcut)
     if id then
         self.RegisteredTemplates[caption] = id
-        log:Info("[Loader] Registered template '" .. tostring(caption) .. "' with id " .. tostring(id))
+        if shortcut == nil then
+            log:Info(string.format("[Loader] Registered template '%s' with id %d (no shortcut set)", caption, id))
+        elseif shortcut == "" then
+            log:Info(string.format("[Loader] Registered template '%s' with id %d (empty shortcut)", caption, id))
+        else
+            log:Info(string.format("[Loader] Registered template '%s' with id %d and shortcut '%s'", caption, id, shortcut))
+        end
     else
         log:Error("[Loader] Failed to register template: " .. tostring(caption))
     end
@@ -588,8 +605,39 @@ local function getMainMenuTree(self, indices)
     }
 end
 
+local function addSeparatorAfter(parentMenu, itemName)
+    if not parentMenu or parentMenu.Count == 0 then return end
+    for i = 0, parentMenu.Count - 1 do
+        local item = parentMenu:getItem(i)
+        if item.Name == itemName then
+            local sep = createMenuItem(parentMenu)
+            sep:setCaption("-")
+            parentMenu:insert(i + 1, sep)
+            return true
+        end
+    end
+    return false
+end
+
 function Loader:SetupMenu(form)
     log:Debug("[Loader] Initializing menu...")
+    local template1 = nil
+    for i = 0, form.ComponentCount - 1 do
+        local comp = form.Component[i]
+        if comp.ClassName == "TMenuItem" and comp.Name == "emplate1" then
+            template1 = comp
+            break
+        end
+    end
+    if template1 then
+        if addSeparatorAfter(template1, "CheatTablecompliantcodee1") then
+            log:Info("[Loader] Separator after 'Cheat Table Framework Code' added.")
+        else
+            log:Warning("[Loader] Target menu item not found inside emplate1!")
+        end
+    else
+        log:Warning("[Loader] emplate1 not found!")
+    end
     local aaImageList = form.aaImageList
     local memoryViewForm = getMemoryViewForm()
     local indices = {
@@ -605,7 +653,6 @@ function Loader:AttachMenuToForm()
     local function onFormCreate(form)
         if form.ClassName == "TfrmAutoInject" then
             createTimer(50, function() self:SetupMenu(form) end)
-            menu = form.getMenu()
         end
     end
     log:Info("[Loader] Attaching menu to TfrmAutoInject form.")
