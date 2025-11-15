@@ -1,0 +1,17 @@
+<< Header >>
+
+[ENABLE]
+
+aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+
+<< HookNameParsed >><< AoBOffset >>:
+  db C3
+
+registersymbol(<< HookNameParsed >>)
+
+[DISABLE]
+
+<< HookNameParsed >><< AoBOffset >>:
+  db << OriginalBytes >>
+
+unregisterSymbol(*)
