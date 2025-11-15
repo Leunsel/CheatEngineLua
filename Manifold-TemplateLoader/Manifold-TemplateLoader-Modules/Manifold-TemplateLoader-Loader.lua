@@ -605,6 +605,16 @@ local function getMainMenuTree(self, indices)
     }
 end
 
+function Loader:FindMenuItem(form, name)
+    for i = 0, form.ComponentCount - 1 do
+        local comp = form.Component[i]
+        if comp.ClassName == "TMenuItem" and comp.Name == name then
+            return comp
+        end
+    end
+    return nil
+end
+
 local function addSeparatorAfter(parentMenu, itemName)
     if not parentMenu or parentMenu.Count == 0 then return end
     for i = 0, parentMenu.Count - 1 do
@@ -619,16 +629,54 @@ local function addSeparatorAfter(parentMenu, itemName)
     return false
 end
 
-function Loader:SetupMenu(form)
-    log:Debug("[Loader] Initializing menu...")
-    local template1 = nil
-    for i = 0, form.ComponentCount - 1 do
-        local comp = form.Component[i]
-        if comp.ClassName == "TMenuItem" and comp.Name == "emplate1" then
-            template1 = comp
-            break
+function Loader:CategorizeExistingMenuItems(form, menu)
+    local template1 = menu
+    if not template1 then
+        log:Error("[Loader] emplate1 not found!")
+        return
+    end
+    local categories = {}        -- SubMenuName -> SubMenu
+    local itemsPerCategory = {}  -- SubMenuName -> { item1, item2, ... }
+    for i = template1.Count - 1, 0, -1 do
+        local item = template1:getItem(i)
+        for _, template in ipairs(self.RegisteredTemplates) do
+            local caption = (template.settings and template.settings.Caption) or template.fileName
+            if item.Caption == caption then
+                local subName = (template.settings and template.settings.SubMenuName) or "Templates"
+                if not itemsPerCategory[subName] then
+                    itemsPerCategory[subName] = {}
+                end
+                table.insert(itemsPerCategory[subName], item)
+                template1:delete(i)
+                break
+            end
         end
     end
+    local categoryNames = {}
+    for subName in pairs(itemsPerCategory) do
+        table.insert(categoryNames, subName)
+    end
+    table.sort(categoryNames, function(a, b) return a:lower() < b:lower() end)
+    for _, subName in ipairs(categoryNames) do
+        local items = itemsPerCategory[subName]
+        table.sort(items, function(a, b) return a.Caption:lower() < b.Caption:lower() end)
+        local subMenu = categories[subName]
+        if not subMenu then
+            subMenu = createMenuItem(template1)
+            subMenu:setCaption(subName)
+            template1:add(subMenu)
+            categories[subName] = subMenu
+        end
+        for _, item in ipairs(items) do
+            subMenu:add(item)
+            log:Info(string.format("[Loader] Template '%s' moved under '%s'", item.Caption, subName))
+        end
+    end
+end
+
+function Loader:SetupMenu(form)
+    log:Debug("[Loader] Initializing menu...")
+    local template1 = self:FindMenuItem(form, "emplate1")
     if template1 then
         if addSeparatorAfter(template1, "CheatTablecompliantcodee1") then
             log:Info("[Loader] Separator after 'Cheat Table Framework Code' added.")
@@ -647,6 +695,7 @@ function Loader:SetupMenu(form)
     }
     local menuTree = getMainMenuTree(self, indices)
     buildMenuTree(form.MainMenu1, menuTree)
+     self:CategorizeExistingMenuItems(form, template1)
 end
 
 function Loader:AttachMenuToForm()
