@@ -471,14 +471,14 @@ local function getInjectionMenu(config, memory, onSetLineCount, onSetAppendToHoo
             name = "SetInjInfoRemoveSpaces",
             autoCheck = true,
             checked = config.InjectionInfo.RemoveSpaces == true,
-            onClick = onToggle("RemoveSpaces", memory.SetInjInfoRemoveSpaces)
+            onClick = onToggle("RemoveSpaces", function(val) memory:SetInjInfoRemoveSpaces(val) end)
         },
         {
             caption = "Add Tabs",
             name = "SetInjInfoAddTabs",
             autoCheck = true,
             checked = config.InjectionInfo.AddTabs == true,
-            onClick = onToggle("AddTabs", memory.SetInjInfoAddTabs)
+            onClick = onToggle("AddTabs", function(val) memory:SetInjInfoAddTabs(val) end)
         }
     }
 end

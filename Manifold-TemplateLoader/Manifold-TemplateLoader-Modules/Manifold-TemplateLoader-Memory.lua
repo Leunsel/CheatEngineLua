@@ -6,7 +6,7 @@
     VERSION : 2.0.0
     LICENSE : MIT
     CREATED : 2025-06-21
-    UPDATED : 2025-06-24
+    UPDATED : 2025-11-15
 
     MIT License:
         Copyright (c) 2025 Leunsel
