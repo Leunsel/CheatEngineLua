@@ -53,7 +53,8 @@ local Loader = {
     DefaultConfig = {
         Logger = { Level = "ERROR", LogToFile = true },
         InjectionInfo = { LineCount = 3, RemoveSpaces = true, AddTabs = true, AppendToHookName = "Hook" }
-    }
+    },
+    AutoInjectForm = nil
 }
 Loader.__index = Loader
 local instance = nil
@@ -187,36 +188,47 @@ function Loader:LoadTemplates()
 end
 
 function Loader:RegisterTemplate(template)
-    local caption = template.fileName
-    local shortcut = template.settings and template.settings.Shortcut -- optional
+    local caption = template.settings.Caption
+    local shortcut = template.settings and template.settings.Shortcut
     log:Info("[Loader] Registering template: " .. tostring(caption))
     local function templateFunc(script, sender)
         self:GetTemplateScript(template, script, sender)
     end
     local id = registerAutoAssemblerTemplate(caption, templateFunc, shortcut)
-    if id then
-        self.RegisteredTemplates[caption] = id
-        if shortcut == nil then
-            log:Info(string.format("[Loader] Registered template '%s' with id %d (no shortcut set)", caption, id))
-        elseif shortcut == "" then
-            log:Info(string.format("[Loader] Registered template '%s' with id %d (empty shortcut)", caption, id))
-        else
-            log:Info(string.format("[Loader] Registered template '%s' with id %d and shortcut '%s'", caption, id, shortcut))
-        end
-    else
+    if not id then
         log:Error("[Loader] Failed to register template: " .. tostring(caption))
+        return
+    end
+    self.RegisteredTemplates[caption] = {
+        id = id,
+        caption = caption,
+        file = template.fileName,
+        subMenu = template.settings.SubMenuName or "Templates",
+        settings = template.settings,
+        templateObj = template
+    }
+    if shortcut == nil then
+        log:Info(string.format("[Loader] Registered template '%s' with id %d (no shortcut set)", caption, id))
+    elseif shortcut == "" then
+        log:Info(string.format("[Loader] Registered template '%s' with id %d (empty shortcut)", caption, id))
+    else
+        log:Info(string.format("[Loader] Registered template '%s' with id %d and shortcut '%s'", caption, id, shortcut))
     end
 end
 
 function Loader:UnregisterTemplate(caption)
-    local id = self.RegisteredTemplates[caption]
-    if id then
-        unregisterAutoAssemblerTemplate(id)
-        self.RegisteredTemplates[caption] = nil
-        log:Info("[Loader] Unregistered template: " .. tostring(caption))
-    else
+    local entry = self.RegisteredTemplates[caption]
+    if not entry then
         log:Warning("[Loader] Tried to unregister unknown template: " .. tostring(caption))
+        return
     end
+    if entry.id then
+        unregisterAutoAssemblerTemplate(entry.id)
+        log:Info(string.format("[Loader] Unregistered template '%s' (id=%d)", caption, entry.id))
+    else
+        log:Error(string.format("[Loader] Template '%s' has no id to unregister!", caption))
+    end
+    self.RegisteredTemplates[caption] = nil
 end
 
 function Loader:GetTemplateScript(template, script, sender)
@@ -370,12 +382,45 @@ function Loader:UnloadTemplates()
     log:ForceInfo("[Loader] All templates unloaded.")
 end
 
+function Loader:RebuildMenu(form)
+    local template1 = self:FindMenuItem(form, "emplate1")
+    if not template1 then return end
+    local myCaptions = {}
+    local mySubMenus = {}
+    for _, template in ipairs(self.RegisteredTemplates) do
+        local settings = template.settings or {}
+        local cap = settings.Caption or template.fileName
+        local sub = settings.SubMenuName or "Templates"
+        myCaptions[cap] = true
+        mySubMenus[sub] = true
+    end
+    for i = template1.Count - 1, 0, -1 do
+        local item = template1:getItem(i)
+        if myCaptions[item.Caption] then
+            template1:delete(i)
+        end
+    end
+    for i = template1.Count - 1, 0, -1 do
+        local item = template1:getItem(i)
+        if item.Count ~= nil and mySubMenus[item.Caption] then
+            template1:delete(i)
+        end
+    end
+    self:LoadTemplates()
+    self:CategorizeExistingMenuItems(form, template1)
+end
+
 function Loader:ReloadTemplates()
     log:ForceInfo("[Loader] Reloading templates...")
     self:UnloadTemplates()
     self.RegisteredTemplates = manager:DiscoverTemplates()
     log:ForceInfo("[Loader] Discovered templates: " .. tostring(#self.RegisteredTemplates))
     self:LoadTemplates()
+    if self.AutoInjectForm then
+        self:RebuildMenu(self.AutoInjectForm)
+    else
+        log:Warning("[Loader] No TfrmAutoInject found (maybe not opened yet).")
+    end
 end
 
 function Loader:ReloadDependencies()
@@ -451,13 +496,13 @@ local function getLoggerMenu(config, indices, onLevelChange, onLogToFile, onView
         {
             caption = "Log Level",
             name = "LogLevelMenu",
-            image = indices.BreakAndTrace,
+            image = indices.Level,
             sub = getLogLevelMenu(config.Logger.Level or "INFO", indices, onLevelChange)
         },
         {
             caption = "Log to File",
             name = "LogToFile",
-            image = indices.Reload,
+            image = indices.Log,
             autoCheck = true,
             checked = config.Logger.LogToFile == true,
             onClick = onLogToFile
@@ -465,13 +510,13 @@ local function getLoggerMenu(config, indices, onLevelChange, onLogToFile, onView
         {
             caption = "View Log File",
             name = "ViewLogFile",
-            image = indices.Reload,
+            image = indices.Eye,
             onClick = onViewLog
         }
     }
 end
 
-local function getInjectionMenu(config, memory, onSetLineCount, onSetAppendToHookName, onToggle)
+local function getInjectionMenu(config, indices, memory, onSetLineCount, onSetAppendToHookName, onToggle, onOpenTemplateFolder)
     return {
         {
             caption = "Set Info Line Count...",
@@ -496,6 +541,12 @@ local function getInjectionMenu(config, memory, onSetLineCount, onSetAppendToHoo
             autoCheck = true,
             checked = config.InjectionInfo.AddTabs == true,
             onClick = onToggle("AddTabs", function(val) memory:SetInjInfoAddTabs(val) end)
+        },
+        {
+            caption = "Open Template Folder",
+            name = "ViewTemplateFolder",
+            image = indices.Eye,
+            onClick = onOpenTemplateFolder
         }
     }
 end
@@ -531,6 +582,14 @@ local function getMainMenuTree(self, indices)
             shellExecute(logPath)
         else
             messageDialog("Log File does not exist:\n" .. logPath, mtWarning, mbOK)
+        end
+    end
+    local function onOpenTemplateFolder()
+        local templateFolderPath = manager:GetTemplateFolder()
+        if file:FolderExists(templateFolderPath) then
+            shellExecute(templateFolderPath)
+        else
+            log:Error("[Loader] Template Folder does not seem to exist!")
         end
     end
     local function onSetLineCount()
@@ -569,31 +628,31 @@ local function getMainMenuTree(self, indices)
                 {
                     caption = "Logger Settings",
                     name = "LoggerSettings",
-                    image = indices.BreakAndTrace,
+                    image = indices.Log,
                     sub = getLoggerMenu(config, indices, onLevelChange, onLogToFile, onViewLog)
                 },
                 {
                     caption = "Injection Settings",
                     name = "InjectionSettings",
-                    image = indices.BreakAndTrace,
-                    sub = getInjectionMenu(config, memory, onSetLineCount, onSetAppendToHookName, onToggle)
+                    image = indices.Template,
+                    sub = getInjectionMenu(config, indices, memory, onSetLineCount, onSetAppendToHookName, onToggle, onOpenTemplateFolder)
                 },
                 {
                     caption = "Reload Dependencies",
                     name = "ReloadDependencies",
-                    image = indices.Resync,
+                    image = indices.Toggle,
                     onClick = function() self:ReloadDependencies() end
                 },
                 {
                     caption = "Reload Templates",
                     name = "ReloadTemplates",
-                    image = indices.Resync,
+                    image = indices.Toggle,
                     onClick = function() self:ReloadTemplates() end
                 },
                 {
                     caption = "Reset Configuration",
                     name = "ResetConfig",
-                    image = indices.Resync,
+                    image = indices.Toggle,
                     onClick = function()
                         if messageDialog("Are you sure you want to reset the configuration to defaults?", mtConfirmation, mbYes, mbNo) == mrYes then
                             self:ResetConfig()
@@ -629,7 +688,7 @@ local function addSeparatorAfter(parentMenu, itemName)
     return false
 end
 
-function Loader:CategorizeExistingMenuItems(form, menu)
+function Loader:CategorizeExistingMenuItems(form, menu, indices)
     local template1 = menu
     if not template1 then
         log:Error("[Loader] emplate1 not found!")
@@ -664,10 +723,12 @@ function Loader:CategorizeExistingMenuItems(form, menu)
         if not subMenu then
             subMenu = createMenuItem(template1)
             subMenu:setCaption(subName)
+            subMenu.ImageIndex = indices.Inject
             template1:add(subMenu)
             categories[subName] = subMenu
         end
         for _, item in ipairs(items) do
+            item.ImageIndex = indices.Template
             subMenu:add(item)
             log:Info(string.format("[Loader] Template '%s' moved under '%s'", item.Caption, subName))
         end
@@ -689,18 +750,22 @@ function Loader:SetupMenu(form)
     local aaImageList = form.aaImageList
     local memoryViewForm = getMemoryViewForm()
     local indices = {
-        Resync = aaImageList.add(MainForm.miResyncFormsWithLua.Bitmap),
-        BreakAndTrace = aaImageList.add(memoryViewForm.miBreakAndTrace.Bitmap),
-        Reload = aaImageList.add(memoryViewForm.miLoadTrace.Bitmap)
+        Eye = aaImageList.add(memoryViewForm.Watchmemoryallocations1.Bitmap),
+        Template = aaImageList.add(memoryViewForm.AutoInject1.Bitmap),
+        Toggle = aaImageList.add(memoryViewForm.CreateThread1.Bitmap),
+        Log = aaImageList.add(memoryViewForm.miDebugSetAddress.Bitmap),
+        Inject = aaImageList.add(memoryViewForm.InjectDLL1.Bitmap),
+        Level = aaImageList.add(memoryViewForm.MenuItem14.Bitmap),
     }
     local menuTree = getMainMenuTree(self, indices)
     buildMenuTree(form.MainMenu1, menuTree)
-     self:CategorizeExistingMenuItems(form, template1)
+     self:CategorizeExistingMenuItems(form, template1, indices)
 end
 
 function Loader:AttachMenuToForm()
     local function onFormCreate(form)
         if form.ClassName == "TfrmAutoInject" then
+            self.AutoInjectForm = form
             createTimer(50, function() self:SetupMenu(form) end)
         end
     end
