@@ -605,6 +605,7 @@ function Loader:AttachMenuToForm()
     local function onFormCreate(form)
         if form.ClassName == "TfrmAutoInject" then
             createTimer(50, function() self:SetupMenu(form) end)
+            menu = form.getMenu()
         end
     end
     log:Info("[Loader] Attaching menu to TfrmAutoInject form.")
