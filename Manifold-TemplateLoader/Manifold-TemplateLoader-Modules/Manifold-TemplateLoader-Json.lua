@@ -911,9 +911,9 @@ function JSON:encode(value, etc, options)
 end
 
 function JSON:encode_pretty(value, etc, options)
-   if type(self) ~= 'table' or self.__index ~= JSON then
-      JSON:onEncodeError("JSON:encode_pretty must be called in method format", etc)
-   end
+   -- if type(self) ~= 'table' or self.__index ~= JSON then
+   --    JSON:onEncodeError("JSON:encode_pretty must be called in method format", etc)
+   -- end
 
    --
    -- If the user didn't pass in a table of decode options, use the default pretty ones
@@ -939,7 +939,7 @@ function JSON:new(args)
          new[key] = val
       end
    end
-
+   
    return setmetatable(new, JSON)
 end
 

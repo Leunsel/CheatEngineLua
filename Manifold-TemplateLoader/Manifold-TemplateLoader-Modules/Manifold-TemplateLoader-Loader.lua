@@ -46,7 +46,8 @@ local log     = Log:New()
 local file    = File:New()
 local memory  = Memory:New()
 local manager = Manager:New()
-local ui = UI:New()
+local ui      = UI:New()
+local json    = JSON:new()
 
 local Loader = {
     RegisteredTemplates = {},
@@ -85,7 +86,7 @@ function Loader:LoadConfig()
     local configLoaded = false
     if file:Exists(self.ConfigPath) then
         local content = file:ReadFile(self.ConfigPath)
-        local ok, config = pcall(function() return JSON:decode(content) end)
+        local ok, config = pcall(function() return json:decode(content) end)
         if ok and type(config) == "table" then
             self.Config = deepCopy(self.DefaultConfig)
             for section, sectionData in pairs(config) do
@@ -113,7 +114,7 @@ function Loader:LoadConfig()
 end
 
 function Loader:SaveConfig()
-    file:WriteFile(self.ConfigPath, JSON:encode_pretty(self.Config))
+    file:WriteFile(self.ConfigPath, json:encode_pretty(self.Config))
     log:Info("[Loader] Configuration saved to " .. self.ConfigPath)
 end
 
@@ -239,6 +240,21 @@ function Loader:GetTemplateScript(template, script, sender)
     log:Info("[Loader] Getting script for template: " .. tostring(template.fileName))
     local env = self:GetEnvironment()
     if not env then
+        -- local fileName   = tostring(template.fileName or "<unknown>")
+        -- local scriptPath = tostring(template.scriptPath or "<unknown>")
+        -- local senderName = tostring((sender and sender.Name) or sender or "<unknown>")
+        -- local msg =
+        --     "Failed to initialize template environment.\n\n" ..
+        --     "Template: " .. fileName .. "\n" ..
+        --     "Script Path: " .. scriptPath .. "\n" ..
+        --     "Triggered By: " .. senderName .. "\n\n" ..
+        --     "This means the loader could not create a runtime environment for the template.\n" ..
+        --     "Possible causes:\n" ..
+        --     "  • The template contains syntax errors\n" ..
+        --     "  • A required module failed to load\n" ..
+        --     "  • An internal failure occurred inside the environment builder\n\n" ..
+        --     "Check the log for more detailed error output."
+        -- messageDialog("Template Environment Error", msg, mtError, mbOK)
         log:Error("[Loader] No environment for template: " .. tostring(template.fileName))
         return
     end
@@ -272,7 +288,6 @@ end
 function Loader:CompileFile(path, env)
     path = manager:NormalizePath(path)
     log:Info("[Loader] Compiling file: " .. tostring(path))
-
     if not path or not file:Exists(path) then
         log:Error("[Loader] File not found: " .. tostring(path))
         return nil, "File not found"
@@ -281,8 +296,7 @@ function Loader:CompileFile(path, env)
     if not f then
         log:Error(string.format(
             "[Loader] Failed to open file '%s'. Error: %s\nPossible causes:\n- UTF-8 file name?\n- Permissions?\n- CE sandbox?",
-            tostring(path), tostring(err)
-        ))
+            tostring(path), tostring(err)))
         return nil, tostring(err)
     end
     local raw = f:read("*all")
@@ -469,7 +483,7 @@ function Loader:ReloadTemplates()
             "Please make sure you have saved all your work before continuing.\n\n" ..
             "Do you want to close all old AutoInject windows now?",
             #oldForms)
-        local result = messageDialog(messageText, "Reload Templates", mtConfirmation, mbYes, mbNo)
+        local result = messageDialog("Reload Templates", messageText, mtConfirmation, mbYes, mbNo)
         if result ~= mrYes then
             log:ForceInfo("[Loader] User canceled reload: Old windows remain open.")
             self.AutoInjectForm = latestForm
@@ -491,7 +505,6 @@ function Loader:ReloadTemplates()
     log:ForceInfo(string.format("[Loader] Template discovery complete: %d template(s) found.",
         #self.RegisteredTemplates))
     log:Info("[Loader] Loading templates into environment...")
-    self:LoadTemplates()
     for _, oldForm in ipairs(oldForms) do
         if oldForm and oldForm.ClassName == "TfrmAutoInject" and oldForm.Handle then
             log:Info(string.format("[Loader] Closing old AutoInject form: %s",
@@ -515,34 +528,64 @@ end
 
 function Loader:ReloadDependencies()
     log:ForceInfo("[Loader] Reloading dependencies...")
+    if self.AutoInjectForm and self.AutoInjectForm.Handle then
+        local form = self.AutoInjectForm
+        local oldUI = ui
+        local root = oldUI:FindMenuItem(form, "emplate1")
+        if root then
+            log:ForceInfo("[Loader] Removing old menu entries...")
+            self:RemoveOldMenuEntries(root)
+        else
+            log:ForceWarning("[Loader] Old menu cleanup skipped: 'emplate1' not found.")
+        end
+    end
     local modules = {
-        "Manifold-TemplateLoader-Manager",
-        "Manifold-TemplateLoader-Memory",
-        "Manifold-TemplateLoader-File",
         "Manifold-TemplateLoader-Log",
+        "Manifold-TemplateLoader-File",
+        "Manifold-TemplateLoader-Memory",
+        "Manifold-TemplateLoader-Manager",
         "Manifold-TemplateLoader-UI"
     }
-    for _, m in ipairs(modules) do
+    for _,m in pairs(modules) do
         package.loaded[m] = nil
     end
-    Log = require("Manifold-TemplateLoader-Log")
-    File = require("Manifold-TemplateLoader-File")
-    Memory = require("Manifold-TemplateLoader-Memory")
-    Manager = require("Manifold-TemplateLoader-Manager")
-    UI = require("Manifold-TemplateLoader-UI")
-    log = Log:New()
-    file = File:New()
-    memory = Memory:New()
-    manager = Manager:New()
-    log:ForceInfo("[Loader] All modules reloaded successfully.")
-    if self.AutoInjectForm then
-        log:ForceInfo("[Loader] Rebuilding UI...")
-        self:SetupMenu(self.AutoInjectForm)
+    local nLog      = require("Manifold-TemplateLoader-Log")
+    local nFile     = require("Manifold-TemplateLoader-File")
+    local nMemory   = require("Manifold-TemplateLoader-Memory")
+    local nManager  = require("Manifold-TemplateLoader-Manager")
+    local nUI       = require("Manifold-TemplateLoader-UI")
+    log     = nLog:New()
+    file    = nFile:New()
+    memory  = nMemory:New()
+    manager = nManager:New()
+    ui      = nUI:New()
+    log:ForceInfo("[Loader] Modules reloaded...")
+    if #self.AutoInjectForms > 1 then
+        local latest = self.AutoInjectForms[#self.AutoInjectForms]
+        for i = 1, #self.AutoInjectForms - 1 do
+            local old = self.AutoInjectForms[i]
+            if old and old.Handle then old:Close() end
+        end
+        self.AutoInjectForms = { latest }
+        self.AutoInjectForm  = latest
     end
-    log:ForceInfo("[Loader] Reloading templates...")
-    self.RegisteredTemplates = manager:DiscoverTemplates()
-    self:LoadTemplates()
-    log:ForceInfo("[Loader] Dependencies reload completed.")
+    if self.AutoInjectForm and self.AutoInjectForm.Handle then
+        log:ForceInfo("[Loader] Rebuilding UI (menu)...")
+        local form = self.AutoInjectForm
+        local timer = createTimer()
+        timer.Interval = 50
+        timer.OnTimer = function()
+            timer.destroy()
+            local root = ui:FindMenuItem(form, "emplate1")
+            if root then
+                self:BuildMenu(root)
+                log:ForceInfo("[Loader] UI rebuild complete. [SECONDARY RELOAD]")
+            else
+                log:ForceWarning("[Loader] Menu rebuild skipped: 'emplate1' not found. [SECONDARY RELOAD]")
+            end
+        end
+    end
+    log:ForceInfo("[Loader] Dependency reload completed. [MAIN RELOAD]")
 end
 
 function Loader:BuildUICallbacks(indices)
@@ -659,6 +702,16 @@ function Loader:SetupMenu(form)
     local menuTree = ui:GetMainMenuTree(self.Config, indices, self:BuildUICallbacks())
     ui:BuildTree(form.MainMenu1, menuTree)
     ui:CategorizeMenuItems(self, template1, indices)
+    -- DEBUG
+    -- for i = 0, form.ComponentCount - 1 do
+    --     log:ForceInfo("[Loader] Component: " .. form.Component[i].Name)
+    -- end
+    -- if _G.ui and type(_G.ui.ApplyThemeToAutoInject) == "function" then
+    --     _G.ui:ApplyThemeToAutoInject(form)
+    -- end
+    form.Assemblescreen.ScrollBars = 'ssAutoBoth'
+    form.Assemblescreen.RightEdge = -1
+    form.Panel2.BorderStyle = "bsNone"
 end
 
 function Loader:AttachMenuToForm()
