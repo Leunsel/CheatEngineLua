@@ -40,11 +40,13 @@ local JSON    = require("Manifold-TemplateLoader-Json")
 local File    = require("Manifold-TemplateLoader-File")
 local Memory  = require("Manifold-TemplateLoader-Memory")
 local Manager = require("Manifold-TemplateLoader-Manager")
+local UI      = require("Manifold-TemplateLoader-UI")
 
 local log     = Log:New()
 local file    = File:New()
 local memory  = Memory:New()
 local manager = Manager:New()
+local ui = UI:New()
 
 local Loader = {
     RegisteredTemplates = {},
@@ -54,7 +56,8 @@ local Loader = {
         Logger = { Level = "ERROR", LogToFile = true },
         InjectionInfo = { LineCount = 3, RemoveSpaces = true, AddTabs = true, AppendToHookName = "Hook" }
     },
-    AutoInjectForm = nil
+    AutoInjectForm = nil,
+    AutoInjectForms = {}
 }
 Loader.__index = Loader
 local instance = nil
@@ -69,10 +72,11 @@ local function deepCopy(src)
 end
 
 function Loader:New()
-    if not instance then instance = setmetatable({}, Loader) end
-    instance:LoadConfig()
-    instance.RegisteredTemplates = manager:DiscoverTemplates()
-    log:Info("[Loader] Discovered templates: " .. tostring(#instance.RegisteredTemplates))
+    if not instance then
+        instance = setmetatable({}, Loader)
+        instance:LoadConfig()
+        instance.RegisteredTemplates = manager:DiscoverTemplates()
+    end
     return instance
 end
 
@@ -268,27 +272,52 @@ end
 function Loader:CompileFile(path, env)
     path = manager:NormalizePath(path)
     log:Info("[Loader] Compiling file: " .. tostring(path))
+
     if not path or not file:Exists(path) then
         log:Error("[Loader] File not found: " .. tostring(path))
         return nil, "File not found"
     end
-    local f, err = io.open(path, "r")
+    local f, err = io.open(path, "rb")
     if not f then
-        log:Error("[Loader] Failed to open file: " .. tostring(path) .. " (" .. tostring(err) .. ")")
+        log:Error(string.format(
+            "[Loader] Failed to open file '%s'. Error: %s\nPossible causes:\n- UTF-8 file name?\n- Permissions?\n- CE sandbox?",
+            tostring(path), tostring(err)
+        ))
         return nil, tostring(err)
     end
-    local template = f:read("*all")
+    local raw = f:read("*all")
     f:close()
-    return self:Compile(template, env)
+    if not raw then
+        log:Error("[Loader] File read returned nil for: " .. tostring(path))
+        return nil, "File read error"
+    end
+    -- UTF-8 BOM detection
+    if raw:sub(1,3) == "\239\187\191" then
+        log:Info("[Loader] UTF-8 BOM detected in file: " .. path)
+        raw = raw:sub(4) -- strip BOM
+    end
+    -- Non-UTF8 characters? (not a guarantee, but a good indicator...)
+    if not raw:match("^[%z\1-\127\194-\244][\128-\191]*") then
+        log:Warning("[Loader] Potential non-UTF8 characters detected in file: " .. path)
+    end
+    return self:Compile(raw, env)
+end
+
+local function getSafeLongBracket(text)
+    local eq = ""
+    while text:find("%[" .. eq .. "%[", 1, true) or text:find("%]" .. eq .. "%]", 1, true) do
+        eq = eq .. "="
+    end
+    return eq
 end
 
 function Loader:Append(builder, text, code)
     if code then
         builder[#builder + 1] = code
     else
+        local eq = getSafeLongBracket(text)
         local fmt = '_ret[#_ret + 1] = [%s[\n%s]%s]'
-        local mlsFix = string.rep('=', 10)
-        builder[#builder + 1] = string.format(fmt, mlsFix, text, mlsFix)
+        builder[#builder + 1] = string.format(fmt, eq, text, eq)
     end
 end
 
@@ -362,20 +391,10 @@ function Loader:ApplyCompiledTemplate(compiledTemplate, script)
     end
 end
 
-function Loader:GenerateTemplateScript(template, script, sender)
-    local env = self:GetEnvironment()
-    if not env then return end
-    env.Header = self:CompileHeaderTemplate(env)
-    local compiledTemplate = self:CompileFile(template.scriptPath, env)
-    if compiledTemplate then
-        self:ApplyCompiledTemplate(compiledTemplate, script)
-    end
-end
-
 function Loader:UnloadTemplates()
     log:ForceInfo("[Loader] Unloading templates...")
     for caption, id in pairs(self.RegisteredTemplates) do
-        unregisterAutoAssemblerTemplate(id)
+        unregisterAutoAssemblerTemplate(id.id)
         log:ForceInfo("[Loader] Unregistered template: " .. tostring(caption))
     end
     self.RegisteredTemplates = {}
@@ -383,7 +402,7 @@ function Loader:UnloadTemplates()
 end
 
 function Loader:RebuildMenu(form)
-    local template1 = self:FindMenuItem(form, "emplate1")
+    local template1 = ui:FindMenuItem(form, "emplate1")
     if not template1 then return end
     local myCaptions = {}
     local mySubMenus = {}
@@ -407,339 +426,168 @@ function Loader:RebuildMenu(form)
         end
     end
     self:LoadTemplates()
-    self:CategorizeExistingMenuItems(form, template1)
+    ui:CategorizeMenuItems(self, template1, self.Indices)
 end
 
 function Loader:ReloadTemplates()
     log:ForceInfo("[Loader] Reloading templates...")
+    if #self.AutoInjectForms == 0 then
+        log:Warning("[Loader] No TfrmAutoInject found (maybe not opened yet).")
+        return
+    end
+    local latestForm = self.AutoInjectForms[#self.AutoInjectForms]
+    local oldForms = { table.unpack(self.AutoInjectForms, 1, #self.AutoInjectForms - 1) }
+    if #oldForms > 0 then
+        local result = messageDialog(
+            "There are old AutoInject windows open. Do you want to close them now?\n" ..
+            "Make sure to save your scripts to prevent data loss.",
+            mtConfirmation,
+            mbYes, mbNo)
+        if result ~= mrYes then
+            log:Info("[Loader] User canceled closing old AutoInject windows.")
+            self.AutoInjectForm = latestForm
+            return
+        end
+    end
     self:UnloadTemplates()
     self.RegisteredTemplates = manager:DiscoverTemplates()
     log:ForceInfo("[Loader] Discovered templates: " .. tostring(#self.RegisteredTemplates))
     self:LoadTemplates()
-    if self.AutoInjectForm then
-        self:RebuildMenu(self.AutoInjectForm)
-    else
-        log:Warning("[Loader] No TfrmAutoInject found (maybe not opened yet).")
+    for _, oldForm in ipairs(oldForms) do
+        if oldForm and oldForm.ClassName == "TfrmAutoInject" and oldForm.Handle then
+            log:Info(string.format("[Loader] Closing old AutoInject form: %s", oldForm.Name or "<unnamed>"))
+            oldForm:Close()
+        end
     end
+    self.AutoInjectForms = { latestForm }
+    self.AutoInjectForm = latestForm
+    self:RebuildMenu(latestForm)
 end
 
 function Loader:ReloadDependencies()
     log:ForceInfo("[Loader] Reloading dependencies...")
-    package.loaded["Manifold-TemplateLoader-Manager"] = nil
-    package.loaded["Manifold-TemplateLoader-Memory"] = nil
-    package.loaded["Manifold-TemplateLoader-File"] = nil
-    package.loaded["Manifold-TemplateLoader-Log"] = nil
+    local modules = {
+        "Manifold-TemplateLoader-Manager",
+        "Manifold-TemplateLoader-Memory",
+        "Manifold-TemplateLoader-File",
+        "Manifold-TemplateLoader-Log",
+        "Manifold-TemplateLoader-UI"
+    }
+    for _, m in ipairs(modules) do
+        package.loaded[m] = nil
+    end
     Log = require("Manifold-TemplateLoader-Log")
-    log = Log:New()
-    log:ForceInfo("[Loader] Log Module reloaded successfully.")
     File = require("Manifold-TemplateLoader-File")
-    log:ForceInfo("[Loader] File module reloaded successfully.")
-    file = File:New()
     Memory = require("Manifold-TemplateLoader-Memory")
-    memory = Memory:New()
-    log:ForceInfo("[Loader] Memory module reloaded successfully.")
     Manager = require("Manifold-TemplateLoader-Manager")
+    UI = require("Manifold-TemplateLoader-UI")
+    log = Log:New()
+    file = File:New()
+    memory = Memory:New()
     manager = Manager:New()
-    log:ForceInfo("[Loader] Manager module reloaded successfully.")
-    log:ForceInfo("[Loader] All dependencies reloaded successfully.")
-end
-
-local function createMenu(parent, opts)
-    local item = createMenuItem(parent)
-    for k, v in pairs(opts or {}) do
-        item[k] = v
+    log:ForceInfo("[Loader] All modules reloaded successfully.")
+    if self.AutoInjectForm then
+        log:ForceInfo("[Loader] Rebuilding UI...")
+        self:SetupMenu(self.AutoInjectForm)
     end
-    if parent == parent.Owner.MainMenu1 then
-        parent.Items:add(item)
-    else
-        parent:add(item)
-    end
-    return item
+    log:ForceInfo("[Loader] Reloading templates...")
+    self.RegisteredTemplates = manager:DiscoverTemplates()
+    self:LoadTemplates()
+    log:ForceInfo("[Loader] Dependencies reload completed.")
 end
 
-local function buildMenuTree(parent, tree)
-    for _, entry in ipairs(tree) do
-        local item = createMenu(parent, {
-            Caption = entry.caption,
-            Name = entry.name,
-            ImageIndex = entry.image,
-            AutoCheck = entry.autoCheck,
-            RadioItem = entry.radio,
-            Checked = entry.checked,
-            OnClick = entry.onClick
-        })
-        if entry.sub then
-            buildMenuTree(item, entry.sub)
-        end
-    end
-end
-
-local function getLogLevelMenu(currentLevel, indices, onLevelChange)
-    local levels = { "DEBUG", "INFO", "WARNING", "ERROR" }
-    local items = {}
-    for _, level in ipairs(levels) do
-        table.insert(items, {
-            caption = level,
-            name = "LogLevel_" .. level,
-            radio = true,
-            checked = (level == currentLevel),
-            onClick = function(sender)
-                onLevelChange(level, sender)
-            end
-        })
-    end
-    return items
-end
-
-local function getLoggerMenu(config, indices, onLevelChange, onLogToFile, onViewLog)
-    return {
-        {
-            caption = "Log Level",
-            name = "LogLevelMenu",
-            image = indices.Level,
-            sub = getLogLevelMenu(config.Logger.Level or "INFO", indices, onLevelChange)
-        },
-        {
-            caption = "Log to File",
-            name = "LogToFile",
-            image = indices.Log,
-            autoCheck = true,
-            checked = config.Logger.LogToFile == true,
-            onClick = onLogToFile
-        },
-        {
-            caption = "View Log File",
-            name = "ViewLogFile",
-            image = indices.Eye,
-            onClick = onViewLog
-        }
-    }
-end
-
-local function getInjectionMenu(config, indices, memory, onSetLineCount, onSetAppendToHookName, onToggle, onOpenTemplateFolder)
-    return {
-        {
-            caption = "Set Info Line Count...",
-            name = "SetInjInfoLineCount",
-            onClick = onSetLineCount
-        },
-        {
-            caption = "Set Append To Hook Name...",
-            name = "SetAppendToHookName",
-            onClick = onSetAppendToHookName
-        },
-        {
-            caption = "Remove Spaces",
-            name = "SetInjInfoRemoveSpaces",
-            autoCheck = true,
-            checked = config.InjectionInfo.RemoveSpaces == true,
-            onClick = onToggle("RemoveSpaces", function(val) memory:SetInjInfoRemoveSpaces(val) end)
-        },
-        {
-            caption = "Add Tabs",
-            name = "SetInjInfoAddTabs",
-            autoCheck = true,
-            checked = config.InjectionInfo.AddTabs == true,
-            onClick = onToggle("AddTabs", function(val) memory:SetInjInfoAddTabs(val) end)
-        },
-        {
-            caption = "Open Template Folder",
-            name = "ViewTemplateFolder",
-            image = indices.Eye,
-            onClick = onOpenTemplateFolder
-        }
-    }
-end
-
-local function getMainMenuTree(self, indices)
+function Loader:BuildUICallbacks(indices)
     local config = self.Config
-    local memory = memory
-    local function onLevelChange(level, sender)
-        local numericLevel = log.LogLevel[level]
-        if numericLevel then
-            log:SetLogLevel(numericLevel)
-            local parent = sender.Parent
-            for i = 0, parent.Count - 1 do
-                parent[i].Checked = (parent[i].Caption == level)
-            end
-            config.Logger.Level = level
-            self:SaveConfig()
-            log:ForceInfo("[Loader] Log level set to " .. level)
-        else
-            log:ForceError("[Loader] Invalid log level: " .. tostring(level))
-        end
-    end
-    local function onLogToFile(sender)
-        config.Logger.LogToFile = not config.Logger.LogToFile
-        log.LogToFile = config.Logger.LogToFile
-        sender.Checked = log.LogToFile
-        self:SaveConfig()
-        log:Info("[Loader] Log to File " .. (log.LogToFile and "enabled" or "disabled"))
-    end
-    local function onViewLog()
-        local logPath = log.LogFileName or "Manifold-TemplateLoader-Log.txt"
-        if file:Exists(logPath) then
-            shellExecute(logPath)
-        else
-            messageDialog("Log File does not exist:\n" .. logPath, mtWarning, mbOK)
-        end
-    end
-    local function onOpenTemplateFolder()
-        local templateFolderPath = manager:GetTemplateFolder()
-        if file:FolderExists(templateFolderPath) then
-            shellExecute(templateFolderPath)
-        else
-            log:Error("[Loader] Template Folder does not seem to exist!")
-        end
-    end
-    local function onSetLineCount()
-        local val = inputQuery("Set Injection Info Line Count", "Enter line count (number > 0):", tostring(config.InjectionInfo.LineCount or ""))
-        local num = tonumber(val)
-        if num and num > 0 then
-            config.InjectionInfo.LineCount = num
-            memory:SetInjInfoLineCount(num)
-            self:SaveConfig()
-        end
-    end
-    local function onSetAppendToHookName()
-        local val = inputQuery("Set Append To Hook Name", "Enter value for AppendToHookName (string):", tostring(config.InjectionInfo.AppendToHookName or ""))
-        if val ~= nil then
-            config.InjectionInfo.AppendToHookName = val
-            if memory.AppendToHookName then
-                memory:SetAppendToHookName(val)
-            end
-            self:SaveConfig()
-        end
-    end
-    local function onToggle(optKey, setter)
-        return function(sender)
-            local newVal = not config.InjectionInfo[optKey]
-            config.InjectionInfo[optKey] = newVal
-            setter(newVal)
-            self:SaveConfig()
-            sender.Checked = newVal
-        end
-    end
+    local memory = memory  -- dein globales Modul
+    local log = log
+    local manager = manager
     return {
-        {
-            caption = "Template Options",
-            name = "TemplateOptions",
-            sub = {
-                {
-                    caption = "Logger Settings",
-                    name = "LoggerSettings",
-                    image = indices.Log,
-                    sub = getLoggerMenu(config, indices, onLevelChange, onLogToFile, onViewLog)
-                },
-                {
-                    caption = "Injection Settings",
-                    name = "InjectionSettings",
-                    image = indices.Template,
-                    sub = getInjectionMenu(config, indices, memory, onSetLineCount, onSetAppendToHookName, onToggle, onOpenTemplateFolder)
-                },
-                {
-                    caption = "Reload Dependencies",
-                    name = "ReloadDependencies",
-                    image = indices.Toggle,
-                    onClick = function() self:ReloadDependencies() end
-                },
-                {
-                    caption = "Reload Templates",
-                    name = "ReloadTemplates",
-                    image = indices.Toggle,
-                    onClick = function() self:ReloadTemplates() end
-                },
-                {
-                    caption = "Reset Configuration",
-                    name = "ResetConfig",
-                    image = indices.Toggle,
-                    onClick = function()
-                        if messageDialog("Are you sure you want to reset the configuration to defaults?", mtConfirmation, mbYes, mbNo) == mrYes then
-                            self:ResetConfig()
-                        end
-                    end
-                }
-            }
-        }
-    }
-end
-
-function Loader:FindMenuItem(form, name)
-    for i = 0, form.ComponentCount - 1 do
-        local comp = form.Component[i]
-        if comp.ClassName == "TMenuItem" and comp.Name == name then
-            return comp
-        end
-    end
-    return nil
-end
-
-local function addSeparatorAfter(parentMenu, itemName)
-    if not parentMenu or parentMenu.Count == 0 then return end
-    for i = 0, parentMenu.Count - 1 do
-        local item = parentMenu:getItem(i)
-        if item.Name == itemName then
-            local sep = createMenuItem(parentMenu)
-            sep:setCaption("-")
-            parentMenu:insert(i + 1, sep)
-            return true
-        end
-    end
-    return false
-end
-
-function Loader:CategorizeExistingMenuItems(form, menu, indices)
-    local template1 = menu
-    if not template1 then
-        log:Error("[Loader] emplate1 not found!")
-        return
-    end
-    local categories = {}        -- SubMenuName -> SubMenu
-    local itemsPerCategory = {}  -- SubMenuName -> { item1, item2, ... }
-    for i = template1.Count - 1, 0, -1 do
-        local item = template1:getItem(i)
-        for _, template in ipairs(self.RegisteredTemplates) do
-            local caption = (template.settings and template.settings.Caption) or template.fileName
-            if item.Caption == caption then
-                local subName = (template.settings and template.settings.SubMenuName) or "Templates"
-                if not itemsPerCategory[subName] then
-                    itemsPerCategory[subName] = {}
+        memory = memory,
+        onLevelChange = function(level, sender)
+            local numericLevel = log.LogLevel[level]
+            if numericLevel then
+                log:SetLogLevel(numericLevel)
+                local parent = sender.Parent
+                for i = 0, parent.Count - 1 do
+                    parent[i].Checked = (parent[i].Caption == level)
                 end
-                table.insert(itemsPerCategory[subName], item)
-                template1:delete(i)
-                break
+                config.Logger.Level = level
+                self:SaveConfig()
+                log:ForceInfo("[Loader] Log level set to " .. level)
+            else
+                log:ForceError("[Loader] Invalid log level: " .. tostring(level))
+            end
+        end,
+        onLogToFile = function(sender)
+            config.Logger.LogToFile = not config.Logger.LogToFile
+            log.LogToFile = config.Logger.LogToFile
+            sender.Checked = log.LogToFile
+            self:SaveConfig()
+            log:Info("[Loader] Log to File " .. (log.LogToFile and "enabled" or "disabled"))
+        end,
+        onViewLog = function()
+            local logPath = log.LogFileName or "Manifold-TemplateLoader-Log.txt"
+            if file:Exists(logPath) then
+                shellExecute(logPath)
+            else
+                messageDialog("Log File does not exist:\n" .. logPath, mtWarning, mbOK)
+            end
+        end,
+        onOpenFolder = function()
+            local templateFolderPath = manager:GetTemplateFolder()
+            if file:FolderExists(templateFolderPath) then
+                shellExecute(templateFolderPath)
+            else
+                log:Error("[Loader] Template Folder does not seem to exist!")
+            end
+        end,
+        onSetLineCount = function()
+            local val = inputQuery("Set Injection Info Line Count", "Enter line count (number > 0):", tostring(config.InjectionInfo.LineCount or ""))
+            local num = tonumber(val)
+            if num and num > 0 then
+                config.InjectionInfo.LineCount = num
+                memory:SetInjInfoLineCount(num)
+                self:SaveConfig()
+            end
+        end,
+        onSetAppend = function()
+            local val = inputQuery("Set Append To Hook Name", "Enter value for AppendToHookName (string):", tostring(config.InjectionInfo.AppendToHookName or ""))
+            if val ~= nil then
+                config.InjectionInfo.AppendToHookName = val
+                if memory.AppendToHookName then
+                    memory:SetAppendToHookName(val)
+                end
+                self:SaveConfig()
+            end
+        end,
+        onToggle = function(optKey, setter)
+            return function(sender)
+                local newVal = not config.InjectionInfo[optKey]
+                config.InjectionInfo[optKey] = newVal
+                setter(newVal)
+                self:SaveConfig()
+                sender.Checked = newVal
+            end
+        end,
+        onReloadDependencies = function()
+            self:ReloadDependencies()
+        end,
+        onReloadTemplates = function()
+            self:ReloadTemplates()
+        end,
+        onResetConfig = function()
+            if messageDialog("Are you sure you want to reset the configuration to defaults?", mtConfirmation, mbYes, mbNo) == mrYes then
+                self:ResetConfig()
             end
         end
-    end
-    local categoryNames = {}
-    for subName in pairs(itemsPerCategory) do
-        table.insert(categoryNames, subName)
-    end
-    table.sort(categoryNames, function(a, b) return a:lower() < b:lower() end)
-    for _, subName in ipairs(categoryNames) do
-        local items = itemsPerCategory[subName]
-        table.sort(items, function(a, b) return a.Caption:lower() < b.Caption:lower() end)
-        local subMenu = categories[subName]
-        if not subMenu then
-            subMenu = createMenuItem(template1)
-            subMenu:setCaption(subName)
-            subMenu.ImageIndex = indices.Inject
-            template1:add(subMenu)
-            categories[subName] = subMenu
-        end
-        for _, item in ipairs(items) do
-            item.ImageIndex = indices.Template
-            subMenu:add(item)
-            log:Info(string.format("[Loader] Template '%s' moved under '%s'", item.Caption, subName))
-        end
-    end
+    }
 end
 
 function Loader:SetupMenu(form)
     log:Debug("[Loader] Initializing menu...")
-    local template1 = self:FindMenuItem(form, "emplate1")
+    local template1 = ui:FindMenuItem(form, "emplate1")
     if template1 then
-        if addSeparatorAfter(template1, "CheatTablecompliantcodee1") then
+        if ui:AddSeparatorAfter(template1, "CheatTablecompliantcodee1") then
             log:Info("[Loader] Separator after 'Cheat Table Framework Code' added.")
         else
             log:Warning("[Loader] Target menu item not found inside emplate1!")
@@ -747,24 +595,27 @@ function Loader:SetupMenu(form)
     else
         log:Warning("[Loader] emplate1 not found!")
     end
+    local indices = self.Indices
     local aaImageList = form.aaImageList
-    local memoryViewForm = getMemoryViewForm()
-    local indices = {
-        Eye = aaImageList.add(memoryViewForm.Watchmemoryallocations1.Bitmap),
-        Template = aaImageList.add(memoryViewForm.AutoInject1.Bitmap),
-        Toggle = aaImageList.add(memoryViewForm.CreateThread1.Bitmap),
-        Log = aaImageList.add(memoryViewForm.miDebugSetAddress.Bitmap),
-        Inject = aaImageList.add(memoryViewForm.InjectDLL1.Bitmap),
-        Level = aaImageList.add(memoryViewForm.MenuItem14.Bitmap),
+    local mvForm = getMemoryViewForm()
+    indices = {
+        Eye = aaImageList.add(mvForm.Watchmemoryallocations1.Bitmap),
+        Template = aaImageList.add(mvForm.AutoInject1.Bitmap),
+        Toggle = aaImageList.add(mvForm.CreateThread1.Bitmap),
+        Log = aaImageList.add(mvForm.miDebugSetAddress.Bitmap),
+        Inject = aaImageList.add(mvForm.InjectDLL1.Bitmap),
+        Level = aaImageList.add(mvForm.MenuItem14.Bitmap),
     }
-    local menuTree = getMainMenuTree(self, indices)
-    buildMenuTree(form.MainMenu1, menuTree)
-     self:CategorizeExistingMenuItems(form, template1, indices)
+    self.Indices = indices
+    local menuTree = ui:GetMainMenuTree(self.Config, indices, self:BuildUICallbacks())
+    ui:BuildTree(form.MainMenu1, menuTree)
+    ui:CategorizeMenuItems(self, template1, indices)
 end
 
 function Loader:AttachMenuToForm()
     local function onFormCreate(form)
         if form.ClassName == "TfrmAutoInject" then
+            table.insert(self.AutoInjectForms, form)
             self.AutoInjectForm = form
             createTimer(50, function() self:SetupMenu(form) end)
         end
