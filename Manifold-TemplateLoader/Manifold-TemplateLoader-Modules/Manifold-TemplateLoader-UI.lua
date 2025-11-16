@@ -6,7 +6,7 @@
     VERSION : 1.0.0
     LICENSE : MIT
     CREATED : 2025-11-15
-    UPDATED : ____-__-__
+    UPDATED : 2025-11-16
     
     MIT License:
         Copyright (c) 2025 Leunsel
@@ -221,13 +221,22 @@ function UI:FindMenuItem(form, name)
 end
 
 function UI:AddSeparatorAfter(parentMenu, itemName)
-    if not parentMenu or parentMenu.Count == 0 then return false end
+    if not parentMenu or parentMenu.Count == 0 then
+        return false
+    end
     for i = 0, parentMenu.Count - 1 do
         local item = parentMenu:getItem(i)
         if item.Name == itemName then
+            local nextIndex = i + 1
+            if nextIndex < parentMenu.Count then
+                local nextItem = parentMenu:getItem(nextIndex)
+                if nextItem.Caption == "-" then
+                    return false
+                end
+            end
             local sep = createMenuItem(parentMenu)
             sep:setCaption("-")
-            parentMenu:insert(i + 1, sep)
+            parentMenu:insert(nextIndex, sep)
             return true
         end
     end
@@ -235,16 +244,24 @@ function UI:AddSeparatorAfter(parentMenu, itemName)
 end
 
 function UI:CategorizeMenuItems(loader, menu, indices)
+    log:ForceInfo("[UI] Starting menu categorization...")
     local template1 = menu
     if not template1 then
-        log:Error("[UI] Can't categorize: menu not found!")
+        log:Error("[UI] Cannot categorize: menu reference is nil!")
         return
     end
+    if not loader or not loader.RegisteredTemplates then
+        log:Error("[UI] Cannot categorize: loader or templates missing!")
+        return
+    end
+    log:Info(string.format("[UI] Loaded %d registered templates to categorize.",
+        #loader.RegisteredTemplates))
     local lookup = {}
     for _, t in ipairs(loader.RegisteredTemplates) do
         local caption = (t.settings and t.settings.Caption) or t.fileName
         local sub = (t.settings and t.settings.SubMenuName) or "Templates"
         lookup[caption] = { template = t, sub = sub }
+        log:Debug(string.format("[UI] Registered template '%s' → category '%s'", caption, sub))
     end
     local itemsPerCategory = {}
     for i = template1.Count - 1, 0, -1 do
@@ -252,20 +269,24 @@ function UI:CategorizeMenuItems(loader, menu, indices)
         if item and item.ClassName == "TMenuItem" then
             local info = lookup[item.Caption]
             if info then
-                local sub = info.sub
-                itemsPerCategory[sub] = itemsPerCategory[sub] or {}
-                table.insert(itemsPerCategory[sub], item)
+                itemsPerCategory[info.sub] = itemsPerCategory[info.sub] or {}
+                table.insert(itemsPerCategory[info.sub], item)
                 template1:delete(i)
+                log:Info(string.format("[UI] Removed '%s' from root menu (will categorize under '%s').",
+                    item.Caption, info.sub))
             end
         end
     end
     local names = {}
     for n in pairs(itemsPerCategory) do table.insert(names, n) end
-    table.sort(names, function(a,b) return a:lower() < b:lower() end)
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    log:Info(string.format("[UI] Found %d category group(s).", #names))
     local categories = {}
     for _, sub in ipairs(names) do
         local items = itemsPerCategory[sub]
-        table.sort(items, function(a,b) return a.Caption:lower() < b.Caption:lower() end)
+        log:ForceInfo(string.format("[UI] Creating submenu for category '%s' with %d item(s).",
+            sub, #items))
+        table.sort(items, function(a, b) return a.Caption:lower() < b.Caption:lower() end)
         local subMenu = categories[sub]
         if not subMenu then
             subMenu = createMenuItem(template1)
@@ -273,13 +294,16 @@ function UI:CategorizeMenuItems(loader, menu, indices)
             subMenu.ImageIndex = indices.Inject
             template1:add(subMenu)
             categories[sub] = subMenu
+            log:Info(string.format("[UI] Submenu '%s' created.", sub))
         end
         for _, item in ipairs(items) do
             item.ImageIndex = indices.Template
             subMenu:add(item)
-            log:Info(string.format("[UI] Template '%s' moved under '%s'", item.Caption, sub))
+            log:Info(string.format("[UI] Placed template '%s' → '%s'", item.Caption, sub))
         end
+        log:Info(string.format("[UI] Finished category '%s'.", sub))
     end
+    log:ForceInfo("[UI] Menu categorization completed.")
 end
 
 return UI
