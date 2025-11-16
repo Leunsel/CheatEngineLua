@@ -6,7 +6,7 @@
     VERSION : 2.0.1
     LICENSE : MIT
     CREATED : 2025-06-21
-    UPDATED : 2025-11-15
+    UPDATED : 2025-11-16
     
     MIT License:
         Copyright (c) 2025 Leunsel
@@ -401,12 +401,14 @@ function Loader:UnloadTemplates()
     log:ForceInfo("[Loader] All templates unloaded.")
 end
 
-function Loader:RebuildMenu(form)
-    local template1 = ui:FindMenuItem(form, "emplate1")
-    if not template1 then return end
+function Loader:RemoveOldMenuEntries(template1)
+    if not template1 then
+        log:Warning("[Loader] RemoveOldMenuEntries aborted: template1 menu item not found.")
+        return
+    end
     local myCaptions = {}
     local mySubMenus = {}
-    for _, template in ipairs(self.RegisteredTemplates) do
+    for _, template in ipairs(self.RegisteredTemplates or {}) do
         local settings = template.settings or {}
         local cap = settings.Caption or template.fileName
         local sub = settings.SubMenuName or "Templates"
@@ -425,43 +427,90 @@ function Loader:RebuildMenu(form)
             template1:delete(i)
         end
     end
+end
+
+function Loader:BuildMenu(template1)
+    if not template1 then
+        log:Warning("[Loader] BuildMenu aborted: template1 menu item not found.")
+        return
+    end
+    log:Info(string.format(
+        "[Loader] Building template menu with %d template(s)...",
+        #(self.RegisteredTemplates or {})))
     self:LoadTemplates()
     ui:CategorizeMenuItems(self, template1, self.Indices)
+    log:Info("[Loader] Menu successfully rebuilt.")
 end
 
 function Loader:ReloadTemplates()
-    log:ForceInfo("[Loader] Reloading templates...")
+    log:ForceInfo("[Loader] Starting template reload...")
     if #self.AutoInjectForms == 0 then
-        log:Warning("[Loader] No TfrmAutoInject found (maybe not opened yet).")
+        log:ForceWarning("[Loader] Reload aborted: No TfrmAutoInject instances available.")
         return
     end
     local latestForm = self.AutoInjectForms[#self.AutoInjectForms]
     local oldForms = { table.unpack(self.AutoInjectForms, 1, #self.AutoInjectForms - 1) }
+    log:Info(string.format("[Loader] Active forms: latest=%s, old=%d",
+        latestForm and (latestForm.Name or "<unnamed>") or "<nil>",
+        #oldForms))
     if #oldForms > 0 then
-        local result = messageDialog(
-            "There are old AutoInject windows open. Do you want to close them now?\n" ..
-            "Make sure to save your scripts to prevent data loss.",
-            mtConfirmation,
-            mbYes, mbNo)
+        log:ForceWarning(string.format(
+            "[Loader] Detected %d additional AutoInject window(s) that must be closed for safe reload.",
+            #oldForms))
+        local messageText = string.format(
+            "There are %d other AutoInject window(s) currently open.\n\n" ..
+            "Each AutoInject window runs as an independent instance. Keeping old windows open can lead to:\n" ..
+            "  • Conflicting template states\n" ..
+            "  • Stale or dangling references\n" ..
+            "  • Inconsistent or outdated UI elements\n\n" ..
+            "To ensure a clean reload of templates, the old windows need to be closed.\n\n" ..
+            "IMPORTANT\n" ..
+            "Closing these windows will discard any unsaved scripts.\n" ..
+            "Please make sure you have saved all your work before continuing.\n\n" ..
+            "Do you want to close all old AutoInject windows now?",
+            #oldForms)
+        local result = messageDialog(messageText, "Reload Templates", mtConfirmation, mbYes, mbNo)
         if result ~= mrYes then
-            log:Info("[Loader] User canceled closing old AutoInject windows.")
+            log:ForceInfo("[Loader] User canceled reload: Old windows remain open.")
             self.AutoInjectForm = latestForm
             return
         end
+        log:Info("[Loader] User confirmed closing old windows.")
     end
+    local template1 = ui:FindMenuItem(latestForm, "emplate1")
+    if not template1 then
+        log:ForceWarning("[Loader] Warning: Menu entry 'emplate1' not found. Menu rebuild will be skipped.")
+    else
+        log:Info("[Loader] Located template menu entry 'emplate1'.")
+        self:RemoveOldMenuEntries(template1)
+        log:Info("[Loader] Removed old template menu entries.")
+    end
+    log:Info("[Loader] Unloading previously loaded templates...")
     self:UnloadTemplates()
     self.RegisteredTemplates = manager:DiscoverTemplates()
-    log:ForceInfo("[Loader] Discovered templates: " .. tostring(#self.RegisteredTemplates))
+    log:ForceInfo(string.format("[Loader] Template discovery complete: %d template(s) found.",
+        #self.RegisteredTemplates))
+    log:Info("[Loader] Loading templates into environment...")
     self:LoadTemplates()
     for _, oldForm in ipairs(oldForms) do
         if oldForm and oldForm.ClassName == "TfrmAutoInject" and oldForm.Handle then
-            log:Info(string.format("[Loader] Closing old AutoInject form: %s", oldForm.Name or "<unnamed>"))
+            log:Info(string.format("[Loader] Closing old AutoInject form: %s",
+                oldForm.Name or "<unnamed>"))
             oldForm:Close()
+        else
+            log:Warning("[Loader] Skipping invalid or already closed form reference.")
         end
     end
     self.AutoInjectForms = { latestForm }
     self.AutoInjectForm = latestForm
-    self:RebuildMenu(latestForm)
+    if template1 then
+        log:Info("[Loader] Rebuilding template menu UI...")
+        self:BuildMenu(template1)
+        log:ForceInfo("[Loader] Template menu successfully rebuilt.")
+    else
+        log:ForceWarning("[Loader] Menu rebuild skipped: 'emplate1' menu item missing.")
+    end
+    log:ForceInfo("[Loader] Template reload complete.")
 end
 
 function Loader:ReloadDependencies()
@@ -498,7 +547,7 @@ end
 
 function Loader:BuildUICallbacks(indices)
     local config = self.Config
-    local memory = memory  -- dein globales Modul
+    local memory = memory
     local log = log
     local manager = manager
     return {
