@@ -244,7 +244,7 @@ function UI:AddSeparatorAfter(parentMenu, itemName)
 end
 
 function UI:CategorizeMenuItems(loader, menu, indices)
-    log:ForceInfo("[UI] Starting menu categorization...")
+    log:Info("[UI] Starting menu categorization...")
     local template1 = menu
     if not template1 then
         log:Error("[UI] Cannot categorize: menu reference is nil!")
@@ -284,7 +284,7 @@ function UI:CategorizeMenuItems(loader, menu, indices)
     local categories = {}
     for _, sub in ipairs(names) do
         local items = itemsPerCategory[sub]
-        log:ForceInfo(string.format("[UI] Creating submenu for category '%s' with %d item(s).",
+        log:Info(string.format("[UI] Creating submenu for category '%s' with %d item(s).",
             sub, #items))
         table.sort(items, function(a, b) return a.Caption:lower() < b.Caption:lower() end)
         local subMenu = categories[sub]
@@ -303,7 +303,7 @@ function UI:CategorizeMenuItems(loader, menu, indices)
         end
         log:Info(string.format("[UI] Finished category '%s'.", sub))
     end
-    log:ForceInfo("[UI] Menu categorization completed.")
+    log:Info("[UI] Menu categorization completed.")
 end
 
 return UI
