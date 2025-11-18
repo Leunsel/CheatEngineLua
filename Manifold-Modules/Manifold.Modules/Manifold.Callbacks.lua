@@ -234,26 +234,25 @@ registerLuaFunctionHighlight('onMemRecPostExecute')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnDescriptionChange = function(addresslist, memrec)
-    local ok, err = pcall(function()
+    local ok, result = pcall(function()
         logger:InfoF(
             "[Callbacks] [OnDescriptionChange]\n" ..
             "\tDescription : %s\n" ..
             "\tAddress     : 0x%X",
             memrec.Description,
-            memrec.CurrentAddress or 0
-        )
+            memrec.CurrentAddress or 0)
         if callbacks.DisableDescriptionChange then
             logger:Warning("[Callbacks] Description changes are disabled. Change prevented.")
-            return true -- Prevent the change
-        else
-            logger:Info("[Callbacks] Description change allowed.")
-            return false
+            return true  -- prevent
         end
+        logger:Info("[Callbacks] Description change allowed.")
+        return false  -- allow
     end)
     if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnDescriptionChange: " .. tostring(err))
-        return false
+        logger:Error("[Callbacks] Error in OnDescriptionChange: " .. tostring(result))
+        return false -- on error allow change (safe behavior)
     end
+    return result -- true = block, false = allow
 end
 registerLuaFunctionHighlight('AddressList.OnDescriptionChange')
 
@@ -265,7 +264,7 @@ registerLuaFunctionHighlight('AddressList.OnDescriptionChange')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnAddressChange = function(addresslist, memrec)
-    local ok, err = pcall(function()
+    local ok, result = pcall(function()
         logger:InfoF(
             "[Callbacks] [OnAddressChange]\n" ..
             "\tDescription : %s\n" ..
@@ -276,15 +275,15 @@ AddressList.OnAddressChange = function(addresslist, memrec)
         if callbacks.DisableAddressChange then
             logger:Warning("[Callbacks] Address changes are disabled. Change prevented.")
             return true -- Prevent the change
-        else
-            logger:Info("[Callbacks] Address change allowed.")
-            return false
         end
+        logger:Info("[Callbacks] Address change allowed.")
+        return false -- Allow
     end)
     if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnAddressChange: " .. tostring(err))
+        logger:Error("[Callbacks] Error in OnAddressChange: " .. tostring(result))
         return false
     end
+    return result -- true = block, false = allow
 end
 registerLuaFunctionHighlight('AddressList.OnAddressChange')
 
@@ -296,7 +295,7 @@ registerLuaFunctionHighlight('AddressList.OnAddressChange')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnTypeChange = function(addresslist, memrec)
-    local ok, err = pcall(function()
+    local ok, result = pcall(function()
         logger:InfoF(
             "[Callbacks] [OnTypeChange]\n" ..
             "\tDescription : %s\n" ..
@@ -304,20 +303,19 @@ AddressList.OnTypeChange = function(addresslist, memrec)
             "\tOld Type    : %s",
             memrec.Description,
             memrec.CurrentAddress or 0,
-            memrec.VarType or "N/A"
-        )
+            memrec.VarType or "N/A")
         if callbacks.DisableTypeChange then
             logger:Warning("[Callbacks] Type changes are disabled. Change prevented.")
             return true -- Prevent the change
-        else
-            logger:Info("[Callbacks] Type change allowed.")
-            return false
         end
+        logger:Info("[Callbacks] Type change allowed.")
+        return false -- Allow
     end)
     if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnTypeChange: " .. tostring(err))
+        logger:Error("[Callbacks] Error in OnTypeChange: " .. tostring(result))
         return false
     end
+    return result -- true = block, false = allow
 end
 registerLuaFunctionHighlight('AddressList.OnTypeChange')
 
@@ -329,7 +327,7 @@ registerLuaFunctionHighlight('AddressList.OnTypeChange')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnValueChange = function(addresslist, memrec)
-    local ok, err = pcall(function()
+    local ok, result = pcall(function()
         local value = memrec.Value
         if value == nil or value == "" then value = "N/A" end
         logger:InfoF(
@@ -339,20 +337,19 @@ AddressList.OnValueChange = function(addresslist, memrec)
             "\tOld Value   : %s",
             memrec.Description,
             memrec.CurrentAddress or 0,
-            tostring(value)
-        )
+            tostring(value))
         if callbacks.DisableValueChange then
             logger:Warning("[Callbacks] Value changes are disabled. Change prevented.")
-            return true -- Prevent the change
-        else
-            logger:Info("[Callbacks] Value change allowed.")
-            return false
+            return true -- Prevent
         end
+        logger:Info("[Callbacks] Value change allowed.")
+        return false -- Allow
     end)
     if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnValueChange: " .. tostring(err))
+        logger:Error("[Callbacks] Error in OnValueChange: " .. tostring(result))
         return false
     end
+    return result -- true = block, false = allow
 end
 registerLuaFunctionHighlight('AddressList.OnValueChange')
 
