@@ -185,8 +185,7 @@ function onMemRecPreExecute(memoryrecord, newstate)
             tostring(newstate), stateStr,
             memoryrecord.CurrentAddress or 0,
             memoryrecord.VarType or "N/A",
-            tostring(value)
-        )
+            tostring(value))
     end)
     if not ok and logger and logger.Error then
         logger:Error("[Callbacks] Error in onMemRecPreExecute: " .. tostring(err))
@@ -217,8 +216,7 @@ function onMemRecPostExecute(memoryrecord, newstate, succeeded)
             "\tSucceeded   : %s",
             memoryrecord.Description,
             tostring(newstate), stateStr,
-            tostring(succeeded)
-        )
+            tostring(succeeded))
     end)
     if not ok and logger and logger.Error then
         logger:Error("[Callbacks] Error in onMemRecPostExecute: " .. tostring(err))
@@ -270,8 +268,7 @@ AddressList.OnAddressChange = function(addresslist, memrec)
             "\tDescription : %s\n" ..
             "\tOld Address : 0x%X",
             memrec.Description,
-            memrec.CurrentAddress or 0
-        )
+            memrec.CurrentAddress or 0)
         if callbacks.DisableAddressChange then
             logger:Warning("[Callbacks] Address changes are disabled. Change prevented.")
             return true -- Prevent the change
@@ -362,31 +359,33 @@ registerLuaFunctionHighlight('AddressList.OnValueChange')
 --
 local o_AddressList_OnAutoAssemblerEdit = AddressList.OnAutoAssemblerEdit
 AddressList.OnAutoAssemblerEdit = function(addresslist, memrec)
-    local ok, err = pcall(function()
+    local ok, result = pcall(function()
         logger:InfoF(
             "[Callbacks] [OnAutoAssemblerEdit]\n" ..
             "\tDescription : %s\n" ..
             "\tAddress     : 0x%X",
             memrec.Description,
-            memrec.CurrentAddress or 0
-        )
+            memrec.CurrentAddress or 0)
         if callbacks.DisableAutoAssemblerEdits then
             logger:Warning("[Callbacks] Auto Assembler edits are disabled. Edit prevented.")
-            return -- Prevent the edit
-        else
-            logger:Info("[Callbacks] Auto Assembler edit allowed.")
-            if o_AddressList_OnAutoAssemblerEdit then
-                local ok2, err2 = pcall(o_AddressList_OnAutoAssemblerEdit, addresslist, memrec)
-                if not ok2 and logger and logger.Error then
-                    logger:Error("[Callbacks] Error in original OnAutoAssemblerEdit: " .. tostring(err2))
-                end
+            return true -- Prevent edit
+        end
+        logger:Info("[Callbacks] Auto Assembler edit allowed.")
+        if o_AddressList_OnAutoAssemblerEdit then
+            local ok2, err2 = pcall(o_AddressList_OnAutoAssemblerEdit, addresslist, memrec)
+            if not ok2 then
+                logger:Error("[Callbacks] Error in original OnAutoAssemblerEdit: " .. tostring(err2))
             end
         end
+        return false -- Allow edit
     end)
-    if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnAutoAssemblerEdit: " .. tostring(err))
+    if not ok then
+        logger:Error("[Callbacks] Error in OnAutoAssemblerEdit: " .. tostring(result))
+        return false -- safe fallback: allow edit
     end
+    return result -- true = block, false = allow
 end
+
 registerLuaFunctionHighlight('AddressList.OnAutoAssemblerEdit')
 
 --
