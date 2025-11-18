@@ -6,6 +6,10 @@ local DESCRIPTION = "Manifold Framework Callbacks"
 --[[
     ∂ v1.0.0 (2025-07-06)
         Started the development of the Callbacks module
+
+    ∂ v1.0.1 (2025-11-18)
+        Fixed a variety of bugs within the callback overrides.
+        - Missing Return-Values
 ]]--
 
 Callbacks = {
