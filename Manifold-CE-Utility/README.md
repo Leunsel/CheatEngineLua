@@ -16,6 +16,8 @@ If you are using a portable CE build or installed Cheat Engine in a different di
 ### Find your correct autorun folder
 
 If you don't know where your `autorun` directory is located, you can reveal it directly inside the Cheat Engine Lua Console:
+
 `return getAutorunPath()`
+
 The console will print the full path to your `autorun` directory.  
-Place the script in that folder — Cheat Engine will automatically load it the next time it starts.
+Place the script in that folder, Cheat Engine will automatically load it the next time it starts.
