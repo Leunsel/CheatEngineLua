@@ -41,8 +41,8 @@ local Config = {
     FontSize = 9,
     -- Menu entry & animation
     MenuCaption       = "Manifold",
-    Prefix            = "[—» ",
-    Suffix            = " «—]",
+    Prefix            = "[— ",
+    Suffix            = " —]",
     AnimatedCaption   = true,
     AnimationInterval = 200,
     -- indices placeholder (filled at runtime)
