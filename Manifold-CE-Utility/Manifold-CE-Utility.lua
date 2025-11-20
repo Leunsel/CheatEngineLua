@@ -5,8 +5,8 @@
     AUTHOR  : Leunsel, LeFiXER
     VERSION : 1.0.0
     LICENSE : MIT
-    CREATED : 2025-06-21
-    UPDATED : ____-__-__
+    CREATED : 2025-11-17
+    UPDATED : 2025-11-20
     
     MIT License:
         Copyright (c) 2025 Leunsel
@@ -80,6 +80,13 @@ local ENABLE_FORMAT = false
 ----------------------------------------
 -- LOGGING (only Fail-Logs)
 ----------------------------------------
+
+--
+--- ∑ Prints a formatted fail log message to the Cheat Engine console.
+--- @param tag string # Category or context of the failure.
+--- @param msg string # The error message to print.
+--- @return nil # No return value.
+--
 local function FailLog(tag, msg)
     if not tag then tag = "Unknown" end
     if not msg then msg = "<empty>" end
@@ -90,6 +97,12 @@ end
 ----------------------------------------
 -- THREAD / SYNCHRONIZATION
 ----------------------------------------
+
+--
+--- ∑ Executes a function in the main thread (or synchronizes to it).
+--- @param func function # The function to call.
+--- @return nil # No return value.
+--
 local function RunInMainThread(func)
     if type(func) ~= "function" then
         FailLog("RunInMainThread", "Invalid parameter; expected function.")
@@ -107,6 +120,11 @@ end
 ----------------------------------------
 -- UTILS
 ----------------------------------------
+
+--
+--- ∑ Retrieves (and lazily initializes) the ImageList reference.
+--- @return table|nil # The ImageList or nil if unavailable.
+--
 local function safeGetImageList()
     -- lazy init, return existing otherwise
     if il then return il end
@@ -124,11 +142,21 @@ local function safeGetImageList()
     return nil
 end
 
+--
+--- ∑ Trims surrounding whitespace from a string.
+--- @param s string # The string to trim.
+--- @return string # The trimmed string.
+--
 local function trim(s)
     if not s then return "" end
     return s:gsub("^%s*", ""):gsub("%s*$", "")
 end
 
+--
+--- ∑ Extracts inner text from a `[Caption]`, otherwise returns cleaned caption.
+--- @param caption string # The original caption string.
+--- @return string # The extracted label text.
+--
 local function extractInnerTextFromCaption(caption)
     -- Try to match content inside square brackets first, otherwise attempt a word extraction
     if not caption or caption == "" then return "" end
@@ -144,6 +172,16 @@ end
 ----------------------------------------
 local RecordFactory = {}
 
+--
+--- ∑ Creates a MemoryRecord entry with the given metadata.
+--- @param parent table|nil # Parent record or nil to create a root record.
+--- @param desc string # Display name / description of the record.
+--- @param addr string # Address or offset string.
+--- @param vartype integer # CE vartype.
+--- @param color integer # Display color.
+--- @param isHeader boolean # Whether the entry is a group header.
+--- @return table|nil # The created MemoryRecord, or nil on failure.
+--
 function RecordFactory.Create(parent, desc, addr, vartype, color, isHeader)
     if not desc or not addr then
         FailLog("RecordFactory", "Missing description or address.")
@@ -177,6 +215,11 @@ function RecordFactory.Create(parent, desc, addr, vartype, color, isHeader)
     return r
 end
 
+--
+--- ∑ Formats names for structure records (pretty display).
+--- @param n string # Original name from structure dissect.
+--- @return string # Formatted display name.
+--
 local function FormatDisplayName(n)
     if not n or n == "" then return "<empty>" end
     local s = n
@@ -191,6 +234,10 @@ local function FormatDisplayName(n)
     return text
 end
 
+--
+--- ∑ Opens a selection dialog allowing the user to choose a structure.
+--- @return table|nil # The selected structure or nil on cancel.
+--
 local function SelectStructure()
     local count = getStructureCount()
     if count <= 0 then
@@ -216,6 +263,11 @@ local function SelectStructure()
     return getStructure(idx)
 end
 
+--
+--- ∑ Builds MemoryRecords for each element in a structure.
+--- @param struct table # The structure object returned by CE.
+--- @return nil # No return value.
+--
 local function BuildStructureRecords(struct)
     if not struct then
         FailLog("StructureBuilder", "No structure provided.")
@@ -249,6 +301,10 @@ local function BuildStructureRecords(struct)
     end
 end
 
+--
+--- ∑ Generates MemoryRecords based on user-selected structure.
+--- @return nil # No return value.
+--
 local function GenerateStructure()
     local struct = SelectStructure()
     if not struct then
@@ -261,6 +317,11 @@ end
 ----------------------------------------
 -- STRUCTURE MANAGEMENT
 ----------------------------------------
+
+--
+--- ∑ Removes all global structures from Cheat Engine.
+--- @return nil # No return value.
+--
 local function DeleteAllStructures()
     local count = getStructureCount()
     if not count or count < 1 then
@@ -280,6 +341,11 @@ end
 ----------------------------------------
 -- MISC UTILITIES (Process folders, autorun)
 ----------------------------------------
+
+--
+--- ∑ Opens the Windows file explorer in the target process folder.
+--- @return nil # No return value.
+--
 local function OpenProcessFolder()
     local modules = enumModules()
     if not modules or #modules == 0 then
@@ -299,6 +365,10 @@ local function OpenProcessFolder()
     end
 end
 
+--
+--- ∑ Opens the Cheat Engine autorun folder in Windows.
+--- @return nil # No return value.
+--
 local function OpenAutorunFolder()
     local folder = getAutorunPath()
     if folder and folder ~= "" then
@@ -311,6 +381,11 @@ end
 ----------------------------------------
 -- DEACTIVATE / TOGGLE UTILITIES
 ----------------------------------------
+
+--
+--- ∑ Deactivates all AutoAssembler scripts in the address list.
+--- @return nil # No return value.
+--
 local function DeactivateActiveScripts()
     if not al then
         FailLog("DeactivateActiveScripts", "AddressList handle unavailable.")
@@ -324,6 +399,10 @@ local function DeactivateActiveScripts()
     if mf and mf.repaint then mf.repaint() end
 end
 
+--
+--- ∑ Deactivates every active entry in the address list.
+--- @return nil # No return value.
+--
 local function DeactivateEverything()
     if not al then
         FailLog("DeactivateEverything", "AddressList handle unavailable.")
@@ -341,6 +420,11 @@ end
 -- UI CONTROL TOGGLE & COMPACT MODE
 ----------------------------------------
 
+--
+--- ∑ Toggles visibility of a UI control on MainForm.
+--- @param controlName string # The component name to toggle.
+--- @return nil # No return value.
+--
 local function ToggleControlVisibility(controlName)
     if MainForm and MainForm[controlName] then
         local ok, err = pcall(function() MainForm[controlName].Visible = not MainForm[controlName].Visible end)
@@ -352,6 +436,10 @@ end
 
 --- Reference:
 -- https://github.com/Leunsel/CheatEngineLua/blob/main/Manifold-Modules/Manifold.Modules/Manifold.UI.lua#L939
+--
+--- ∑ Toggles Cheat Engine compact mode UI.
+--- @return nil # No return value.
+--
 local function ToggleCompactMode()
     RunInMainThread(function()
         ToggleControlVisibility("Panel5")
@@ -362,16 +450,30 @@ end
 ----------------------------------------
 -- CAPTION ANIMATION
 ----------------------------------------
+
+--
+--- ∑ Prepares the text buffer for caption rotation.
+--- @param inner string # The caption text to animate.
+--- @return nil # No return value.
+--
 local function PrepareTicker(inner)
     tickerBuffer = " " .. (tostring(inner) or "") .. " "
 end
 
+--
+--- ∑ Rotates the ticker/caption text by one position.
+--- @return string # The rotated caption.
+--
 local function RotateTicker()
     if not tickerBuffer or #tickerBuffer < 2 then return "" end
     tickerBuffer = tickerBuffer:sub(2) .. tickerBuffer:sub(1,1)
     return tickerBuffer
 end
 
+--
+--- ∑ Starts animated caption rotation for the top-menu entry.
+--- @return nil # No return value.
+--
 local function StartCaptionAnimation()
     if rotationTimer then
         rotationTimer.Enabled = false
@@ -405,6 +507,10 @@ local function StartCaptionAnimation()
     end
 end
 
+--
+--- ∑ Stops animated caption rotation.
+--- @return nil # No return value.
+--
 local function StopCaptionAnimation()
     if rotationTimer then
         rotationTimer.Enabled = false
@@ -419,6 +525,10 @@ end
 
 --- Reference:
 -- https://github.com/Leunsel/CheatEngineLua/blob/main/Manifold-TemplateLoader/Manifold-TemplateLoader-Modules/Manifold-TemplateLoader-Loader.lua#L693
+--
+--- ∑ Adds all menu icon bitmaps to the ImageList and stores indices.
+--- @return nil # No return value.
+--
 local function GetImageListAndIndices()
     local images = safeGetImageList()
     if not images then return end
@@ -439,6 +549,10 @@ local function GetImageListAndIndices()
     Config.Indices.Folder           = tryAdd(mf and mf.miOpenFile and mf.miOpenFile.Bitmap)
 end
 
+--
+--- ∑ Adds the root menu item (the top-level menu entry).
+--- @return nil # No return value.
+--
 local function AddTopMenuEntry()
     if not mainMenu then
         FailLog("Menu", "Main menu not available.")
@@ -453,6 +567,14 @@ local function AddTopMenuEntry()
     end
 end
 
+--
+--- ∑ Adds a child menu entry under the main Tools entry.
+--- @param caption string # Text to display on the item.
+--- @param onclick function # Function to execute on click.
+--- @param imageIndex number|nil # Optional icon index for ImageList.
+--- @param shortcut string|nil # Optional keyboard shortcut.
+--- @return table|nil # The created item or nil on failure.
+--
 local function AddSubItem(caption, onclick, imageIndex, shortcut)
     if not toolsMenuItem then
         FailLog("Menu :: AddSubItem", "toolsMenuItem is nil.")
@@ -471,6 +593,10 @@ local function AddSubItem(caption, onclick, imageIndex, shortcut)
     return item
 end
 
+--
+--- ∑ Add a separator menu item to the Cheat Engine main menu.
+--- @return table|nil # The separator item or nil on failure.
+--
 local function AddSeparator()
     if not toolsMenuItem then return end
     local sep = createMenuItem(toolsMenuItem)
@@ -479,6 +605,10 @@ local function AddSeparator()
     return sep
 end
 
+--
+--- ∑ Creates all submenu entries under the Manifold utilities menu.
+--- @return nil # No return value.
+--
 local function CreateUtilityEntries()
     AddSubItem("Open Lua Engine",            function() RunInMainThread(function() if le then le.Show() end end) end,           Config.Indices.LuaEngine,   "Ctrl+L")
     AddSubItem("Open Memory Viewer",         function() RunInMainThread(function() if mv then mv.Show() end end) end,           Config.Indices.Open)
@@ -499,6 +629,11 @@ end
 ----------------------------------------
 -- ENTRYPOINT
 ----------------------------------------
+
+--
+--- ∑ Initializes menu icons, creates menu and registers all utility entries.
+--- @return nil # No return value.
+--
 local function Main()
     GetImageListAndIndices()
     AddTopMenuEntry()
