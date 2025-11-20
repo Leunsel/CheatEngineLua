@@ -5,8 +5,6 @@ Once installed, the file is loaded automatically every time Cheat Engine starts.
 
 ![Preview](https://i.imgur.com/34oPdGt.png)
 
----
-
 ## Installation
 
 1. Download **`Manifold-CE-Utility.lua`**.
