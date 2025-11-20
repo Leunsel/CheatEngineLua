@@ -3,6 +3,8 @@
 `Manifold-CE-Utility.lua` is an extension for Cheat Engine that provides quality-of-life helpers, wrapper functions, and utility routines for the Cheat Engine Lua API.  
 Once installed, the file is loaded automatically every time Cheat Engine starts.
 
+![Preview](https://i.imgur.com/34oPdGt.png)
+
 ---
 
 ## Installation
