@@ -11,8 +11,11 @@ local DESCRIPTION = "Manifold Framework CustomIO"
         Improved error handling, reduced 'string.format' usage.
         Added CSV read/write support and safe file deletion.
 
-    ∂ v1.0.2 (2025-04-11)
-        Minor comment adjustments.
+    ∂ v1.0.2 (2025-12-05)
+        Fixed JSON encoding issues in Table File read/write functions.
+            - (CustomIO:WriteToTableFileAsJson)
+        Adjusted the write procedure to correctly handle byte streams.
+            - (CustomIO:WriteToTableFile and CustomIO:WriteToTableFileAsJson)
 ]]--
 
 CustomIO = {}
@@ -387,6 +390,7 @@ function CustomIO:WriteToTableFile(fileName, text)
         return false
     end
     logger:Info("[CustomIO] Writing data to file '" .. fileName .. "'!")
+    -- logger:Info("[CustomIO] Data:\n" .. text)
     local tableFile = findTableFile(fileName) or createTableFile(fileName)
     if not tableFile then
         logger:Error("[CustomIO] Failed to create/find table file '" .. fileName .. "'!")
@@ -394,9 +398,8 @@ function CustomIO:WriteToTableFile(fileName, text)
     end
     local success, err = pcall(function()
         local stream = tableFile.getData()
-        stream.Position = 0
-        stream.Size = 0
-        stream.write(text)
+        local bytes = { string.byte(text, 1, -1) }
+        stream.write(bytes)
     end)
     if not success then
         logger:Error("[CustomIO] Failed to write data to file '" .. fileName .. "'! Error: " .. err)
@@ -405,7 +408,6 @@ function CustomIO:WriteToTableFile(fileName, text)
     logger:Info("[CustomIO] Successfully wrote data to file '" .. fileName .. "'!")
     return true
 end
-
 registerLuaFunctionHighlight('WriteToTableFile')
 
 --
@@ -442,7 +444,7 @@ function CustomIO:WriteToTableFileAsJson(fileName, data)
         logger:Error("[CustomIO] Invalid parameters: fileName is missing or data is not a table!")
         return false
     end
-    local jsonText = json:encode(content)
+    local jsonText = json:encode(data)
     if not jsonText then
         logger:Error("[CustomIO] Failed to encode table data as JSON!")
         return false
