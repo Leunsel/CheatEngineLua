@@ -1,6 +1,6 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.4"
+local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
@@ -20,15 +20,19 @@ local DESCRIPTION = "Manifold Framework Teleporter"
 
     ∂ v1.0.4 (2025-06-27)
         Added a Theme to the Teleporter UI.
+
+    ∂ v1.0.5 (2025-12-04)
+        Updated the Teleporter to support different Value Types
+        for position read and write operations. (Thank you, Hitman 2!)
 ]]--
 
 Teleporter = {
-    Transform = { Symbol = "TransformPtr", Offsets = { 0x30, 0x34, 0x38 } },
-    Waypoint = { Symbol = "WaypointPtr", Offsets = { 0x00, 0x04, 0x08 } },
-    Additional = { Symbol = nil, Offsets = nil },
-    Symbols = { Saved = "SavedPositionFlt", Backup = "BackupPositionFlt" },
-    Settings = { ValueType = vtSingle },
-    Saves = {},
+    Transform =  { Symbol = "TransformPtr", Offsets = { 0x30, 0x34, 0x38 }, ValueType = vtSingle },
+    Waypoint =   { Symbol = "WaypointPtr",  Offsets = { 0x00, 0x04, 0x08 } },
+    Additional = { Symbol = nil,            Offsets = nil,                  ValueType = vtSingle },
+    Symbols =    { Saved = "SavedPositionFlt", Backup = "BackupPositionFlt" },
+    Settings =   { ValueType = vtSingle },
+    Saves =      {},
     SaveFileName = "Teleporter.%s.Saves.txt",
     SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"
 }
@@ -158,7 +162,7 @@ registerLuaFunctionHighlight('SetValueType')
 --- @param isPointerRead boolean # Whether the address is a pointer.
 --- @return table|nil # A table containing the position values or nil on failure.
 --
-function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead)
+function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead, valueType)
     if type(symbol) ~= "string" or symbol == "" then
         logger:Error("[Teleporter] Invalid symbol for position read.")
         return nil
@@ -172,9 +176,9 @@ function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead)
         logger:Warning(string.format("[Teleporter] Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerRead)))
         return nil
     end
-    local readFunc = readFunctions[self.Settings.ValueType]
+    local readFunc = readFunctions[valueType]
     if not readFunc then
-        logger:Error(string.format("[Teleporter] Unsupported value type '%s'", tostring(self.Settings.ValueType)))
+        logger:Error(string.format("[Teleporter] Unsupported value type '%s'", tostring(valueType)))
         return nil
     end
     local position = {}
@@ -198,7 +202,7 @@ registerLuaFunctionHighlight('ReadPositionFromMemory')
 --- @param isPointerWrite boolean # Whether the address is a pointer.
 --- @return boolean # Returns true if successful, false otherwise.
 --
-function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWrite)
+function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWrite, valueType)
     if type(symbol) ~= "string" or symbol == "" then
         logger:Error("[Teleporter] Invalid symbol for position write.")
         return false
@@ -216,9 +220,9 @@ function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWr
         logger:WarningF("[Teleporter] Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerWrite))
         return false
     end
-    local writeFunc = writeFunctions[self.Settings.ValueType]
+    local writeFunc = writeFunctions[valueType]
     if not writeFunc then
-        logger:ErrorF("[Teleporter] Unsupported value type '%s'", tostring(self.Settings.ValueType))
+        logger:ErrorF("[Teleporter] Unsupported value type '%s'", tostring(valueType))
         return false
     end
     for i, offset in ipairs(offsets) do
@@ -237,7 +241,7 @@ registerLuaFunctionHighlight('WritePositionToMemory')
 --- @returns # the current coordinates as a table (x, y, z).
 --
 function Teleporter:GetCurrentPosition()
-    return self:ReadPositionFromMemory(self.Transform.Symbol, self.Transform.Offsets, true)
+    return self:ReadPositionFromMemory(self.Transform.Symbol, self.Transform.Offsets, true, self.Transform.ValueType)
 end
 registerLuaFunctionHighlight('GetCurrentPosition')
 
@@ -246,7 +250,7 @@ registerLuaFunctionHighlight('GetCurrentPosition')
 --- @returns # the current saved coordinates as a table (x, y, z).
 --
 function Teleporter:GetSavedPosition()
-    return self:ReadPositionFromMemory(self.Symbols.Saved, self:CalculateSymbolOffsets(), false)
+    return self:ReadPositionFromMemory(self.Symbols.Saved, self:CalculateSymbolOffsets(), false, self.Settings.ValueType)
 end
 registerLuaFunctionHighlight('GetSavedPosition')
 
@@ -255,7 +259,7 @@ registerLuaFunctionHighlight('GetSavedPosition')
 --- @returns # the current backup coordinates as a table (x, y, z).
 --
 function Teleporter:GetBackupPosition()
-    return self:ReadPositionFromMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), false)
+    return self:ReadPositionFromMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), false, self.Settings.ValueType)
 end
 registerLuaFunctionHighlight('GetBackupPosition')
 
@@ -287,7 +291,7 @@ function Teleporter:SaveCurrentPosition()
         logger:Error("[Teleporter] Failed to read current position for saving. Is it populated?")
         return false
     end
-    local success = self:WritePositionToMemory(self.Symbols.Saved, self:CalculateSymbolOffsets(), currentPosition, false)
+    local success = self:WritePositionToMemory(self.Symbols.Saved, self:CalculateSymbolOffsets(), currentPosition, false, self.Transform.ValueType)
     if success then
         logger:InfoF("[Teleporter] Saved position -> {%s}", table.concat(currentPosition, ", "))
     end
@@ -306,15 +310,16 @@ function Teleporter:LoadSavedPosition()
         logger:Error("[Teleporter] No saved position found. Is it populated?")
         return false
     end
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, savedPosition, true)
+    savedPosition[3] = savedPosition[3] + 0.000
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, savedPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, savedPosition, true)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, savedPosition, true, self.Additional.ValueType)
     end
     if success then
         logger:InfoF("[Teleporter] Loaded saved position -> {%s}", table.concat(savedPosition, ", "))
         self:LogDistanceTraveled(currentPosition, savedPosition)
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false)
+            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
             logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
         end
@@ -336,15 +341,16 @@ function Teleporter:LoadBackupPosition()
         logger:Error("[Teleporter] No backup position found. Is it populated?")
         return false
     end
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, backupPosition, true)
+    backupPosition[3] = backupPosition[3] + 0.000
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, backupPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, backupPosition, true)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, backupPosition, true, self.Additional.ValueType)
     end
     if success then
         logger:InfoF("[Teleporter] Loaded backup position -> {%s}", table.concat(backupPosition, ", "))
         self:LogDistanceTraveled(currentPosition, backupPosition)
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false)
+            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
             logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
         end
@@ -370,15 +376,15 @@ function Teleporter:TeleportToCoordinates(position)
         logger:Error("[Teleporter] Unable to retrieve current position.")
         return false
     end
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, position, true)
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, position, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, position, true)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, position, true, self.Additional.ValueType)
     end
     if success then
         logger:InfoF("[Teleporter] Teleported to coordinates -> {%s}", table.concat(position, ", "))
         self:LogDistanceTraveled(currentPosition, position)
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false)
+            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
             logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
         end
@@ -395,20 +401,20 @@ registerLuaFunctionHighlight('TeleportToCoordinates')
 --
 function Teleporter:TeleportToWaypoint()
     local currentPosition = self:GetCurrentPosition()
-    local waypointPosition = self:ReadPositionFromMemory(self.Waypoint.Symbol, self.Waypoint.Offsets, true)
+    local waypointPosition = self:ReadPositionFromMemory(self.Waypoint.Symbol, self.Waypoint.Offsets, true, self.Settings.ValueType)
     if not waypointPosition then
         logger:Error("[Teleporter] No waypoint position found.")
         return false
     end
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, waypointPosition, true)
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, waypointPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, waypointPosition, true)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, waypointPosition, true, self.Additional.ValueType)
     end
     if success then
         logger:InfoF("[Teleporter] Teleported to waypoint -> {%s}", table.concat(waypointPosition, ", "))
         self:LogDistanceTraveled(currentPosition, waypointPosition)
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false)
+            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
             logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
         end
@@ -536,7 +542,7 @@ function Teleporter:TeleportToSave(name)
         logger:ErrorF("[Teleporter] Save Not Found or invalid format: '%s'", name)
         return false
     end
-    local success = self:TeleportToCoordinates({ savePosition.X, savePosition.Y, savePosition.Z })
+    local success = self:TeleportToCoordinates({ savePosition.X, savePosition.Y, savePosition.Z --[[+ 10.000 ]] })
     if success then
         logger:InfoF("[Teleporter] Teleported to Save: '%s'", name)
     end
