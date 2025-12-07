@@ -1,6 +1,6 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.5"
+local VERSION = "1.0.6"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
@@ -24,12 +24,15 @@ local DESCRIPTION = "Manifold Framework Teleporter"
     ∂ v1.0.5 (2025-12-04)
         Updated the Teleporter to support different Value Types
         for position read and write operations. (Thank you, Hitman 2!)
+
+    ∂ v1.0.6 (2025-12-07)
+        Added Waypoint Specific Value Type support.
 ]]--
 
 Teleporter = {
     Transform =  { Symbol = "TransformPtr", Offsets = { 0x30, 0x34, 0x38 }, ValueType = vtSingle },
-    Waypoint =   { Symbol = "WaypointPtr",  Offsets = { 0x00, 0x04, 0x08 } },
-    Additional = { Symbol = nil,            Offsets = nil,                  ValueType = vtSingle },
+    Waypoint =   { Symbol = "WaypointPtr",  Offsets = { 0x00, 0x04, 0x08 }, ValueType = vtSingle },
+    Additional = { Symbol = nil,            Offsets = { 0x00, 0x04, 0x08 }, ValueType = vtSingle },
     Symbols =    { Saved = "SavedPositionFlt", Backup = "BackupPositionFlt" },
     Settings =   { ValueType = vtSingle },
     Saves =      {},
@@ -401,7 +404,7 @@ registerLuaFunctionHighlight('TeleportToCoordinates')
 --
 function Teleporter:TeleportToWaypoint()
     local currentPosition = self:GetCurrentPosition()
-    local waypointPosition = self:ReadPositionFromMemory(self.Waypoint.Symbol, self.Waypoint.Offsets, true, self.Settings.ValueType)
+    local waypointPosition = self:ReadPositionFromMemory(self.Waypoint.Symbol, self.Waypoint.Offsets, true, self.Waypoint.ValueType)
     if not waypointPosition then
         logger:Error("[Teleporter] No waypoint position found.")
         return false
