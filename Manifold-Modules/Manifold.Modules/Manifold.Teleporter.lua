@@ -1,6 +1,6 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.6"
+local VERSION = "1.0.7"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
@@ -27,15 +27,43 @@ local DESCRIPTION = "Manifold Framework Teleporter"
 
     ∂ v1.0.6 (2025-12-07)
         Added Waypoint Specific Value Type support.
+
+    ∂ v1.0.7 (2025-12-08)
+        Added Pause Flag support to Teleporter functions, pausing
+        the process while teleporting if set.
 ]]--
 
 Teleporter = {
-    Transform =  { Symbol = "TransformPtr", Offsets = { 0x30, 0x34, 0x38 }, ValueType = vtSingle },
-    Waypoint =   { Symbol = "WaypointPtr",  Offsets = { 0x00, 0x04, 0x08 }, ValueType = vtSingle },
-    Additional = { Symbol = nil,            Offsets = { 0x00, 0x04, 0x08 }, ValueType = vtSingle },
-    Symbols =    { Saved = "SavedPositionFlt", Backup = "BackupPositionFlt" },
-    Settings =   { ValueType = vtSingle },
-    Saves =      {},
+    Transform = {
+        Symbol    = "TransformPtr",
+        Offsets   = { 0x30, 0x34, 0x38 },
+        ValueType = vtSingle
+    },
+
+    Waypoint = {
+        Symbol    = "WaypointPtr",
+        Offsets   = { 0x00, 0x04, 0x08 },
+        ValueType = vtSingle
+    },
+
+    Additional = {
+        Symbol    = nil,
+        Offsets   = { 0x00, 0x04, 0x08 },
+        ValueType = vtSingle
+    },
+
+    Symbols = {
+        Saved  = "SavedPositionFlt",
+        Backup = "BackupPositionFlt"
+    },
+
+    Settings = {
+        ValueType = vtSingle,
+        PauseWhileTeleporting = true
+    },
+
+    Saves = {},
+
     SaveFileName = "Teleporter.%s.Saves.txt",
     SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"
 }
@@ -120,6 +148,30 @@ function Teleporter:CalculateSymbolOffsets()
         table.insert(offsets, i * size)
     end
     return offsets
+end
+
+--
+--- ∑ Pauses the game if the setting is enabled during teleportation.
+--
+function Teleporter:PauseGame()
+    if not self.Settings.PauseWhileTeleporting then
+        logger:Debug("[Teleporter] PauseWhileTeleporting is disabled; skipping pause.")
+        return
+    end
+    logger:Debug("[Teleporter] Pausing game for teleportation...")
+    pause()
+end
+
+--
+--- ∑ Unpauses the game if it was paused during teleportation.
+--
+function Teleporter:ResumeGame()
+    if not self.Settings.PauseWhileTeleporting then
+        logger:Debug("[Teleporter] PauseWhileTeleporting is disabled; skipping resume.")
+        return
+    end
+    logger:Debug("[Teleporter] Resuming game after teleportation...")
+    unpause()
 end
 
 --
@@ -313,7 +365,7 @@ function Teleporter:LoadSavedPosition()
         logger:Error("[Teleporter] No saved position found. Is it populated?")
         return false
     end
-    savedPosition[3] = savedPosition[3] + 0.000
+    -- savedPosition[3] = savedPosition[3] + 0.000
     local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, savedPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
         success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, savedPosition, true, self.Additional.ValueType)
@@ -344,11 +396,13 @@ function Teleporter:LoadBackupPosition()
         logger:Error("[Teleporter] No backup position found. Is it populated?")
         return false
     end
-    backupPosition[3] = backupPosition[3] + 0.000
+    -- backupPosition[3] = backupPosition[3] + 0.000
+    self:PauseGame()
     local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, backupPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
         success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, backupPosition, true, self.Additional.ValueType)
     end
+    self:ResumeGame()
     if success then
         logger:InfoF("[Teleporter] Loaded backup position -> {%s}", table.concat(backupPosition, ", "))
         self:LogDistanceTraveled(currentPosition, backupPosition)
@@ -379,10 +433,12 @@ function Teleporter:TeleportToCoordinates(position)
         logger:Error("[Teleporter] Unable to retrieve current position.")
         return false
     end
+    self:PauseGame()
     local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, position, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
         success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, position, true, self.Additional.ValueType)
     end
+    self:ResumeGame()
     if success then
         logger:InfoF("[Teleporter] Teleported to coordinates -> {%s}", table.concat(position, ", "))
         self:LogDistanceTraveled(currentPosition, position)
@@ -409,10 +465,12 @@ function Teleporter:TeleportToWaypoint()
         logger:Error("[Teleporter] No waypoint position found.")
         return false
     end
+    self:PauseGame()
     local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, waypointPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
         success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, waypointPosition, true, self.Additional.ValueType)
     end
+    self:ResumeGame()
     if success then
         logger:InfoF("[Teleporter] Teleported to waypoint -> {%s}", table.concat(waypointPosition, ", "))
         self:LogDistanceTraveled(currentPosition, waypointPosition)

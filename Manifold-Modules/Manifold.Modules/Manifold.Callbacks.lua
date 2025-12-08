@@ -10,6 +10,10 @@ local DESCRIPTION = "Manifold Framework Callbacks"
     ∂ v1.0.1 (2025-11-18)
         Fixed a variety of bugs within the callback overrides.
         - Missing Return-Values
+    
+    ∂ v1.0.2 (2025-12-08)
+        Adjusted logging levels from Info to Debug for allowed
+        changes/edits to reduce log noise.    
 ]]--
 
 Callbacks = {
@@ -178,7 +182,7 @@ function onMemRecPreExecute(memoryrecord, newstate)
         end
         local value = memoryrecord.Value
         if value == nil or value == "" then value = "N/A" end
-        logger:InfoF(
+        logger:DebugF(
             "[Callbacks] [PreExecute]\n" ..
             "\tDescription : %s\n" ..
             "\tState       : %s (%s)\n" ..
@@ -213,7 +217,7 @@ function onMemRecPostExecute(memoryrecord, newstate, succeeded)
         elseif ns == "false" then
             stateStr = "Deactivated"
         end
-        logger:InfoF(
+        logger:DebugF(
             "[Callbacks] [PostExecute]\n" ..
             "\tDescription : %s\n" ..
             "\tState       : %s (%s)\n" ..
@@ -247,7 +251,7 @@ AddressList.OnDescriptionChange = function(addresslist, memrec)
             logger:Warning("[Callbacks] Description changes are disabled. Change prevented.")
             return true  -- prevent
         end
-        logger:Info("[Callbacks] Description change allowed.")
+        logger:Debug("[Callbacks] Description change allowed.")
         return false  -- allow
     end)
     if not ok and logger and logger.Error then
@@ -267,7 +271,7 @@ registerLuaFunctionHighlight('AddressList.OnDescriptionChange')
 --
 AddressList.OnAddressChange = function(addresslist, memrec)
     local ok, result = pcall(function()
-        logger:InfoF(
+        logger:DebugF(
             "[Callbacks] [OnAddressChange]\n" ..
             "\tDescription : %s\n" ..
             "\tOld Address : 0x%X",
@@ -277,7 +281,7 @@ AddressList.OnAddressChange = function(addresslist, memrec)
             logger:Warning("[Callbacks] Address changes are disabled. Change prevented.")
             return true -- Prevent the change
         end
-        logger:Info("[Callbacks] Address change allowed.")
+        logger:Debug("[Callbacks] Address change allowed.")
         return false -- Allow
     end)
     if not ok and logger and logger.Error then
@@ -297,7 +301,7 @@ registerLuaFunctionHighlight('AddressList.OnAddressChange')
 --
 AddressList.OnTypeChange = function(addresslist, memrec)
     local ok, result = pcall(function()
-        logger:InfoF(
+        logger:DebugF(
             "[Callbacks] [OnTypeChange]\n" ..
             "\tDescription : %s\n" ..
             "\tAddress     : 0x%X\n" ..
@@ -309,7 +313,7 @@ AddressList.OnTypeChange = function(addresslist, memrec)
             logger:Warning("[Callbacks] Type changes are disabled. Change prevented.")
             return true -- Prevent the change
         end
-        logger:Info("[Callbacks] Type change allowed.")
+        logger:Debug("[Callbacks] Type change allowed.")
         return false -- Allow
     end)
     if not ok and logger and logger.Error then
@@ -331,7 +335,7 @@ AddressList.OnValueChange = function(addresslist, memrec)
     local ok, result = pcall(function()
         local value = memrec.Value
         if value == nil or value == "" then value = "N/A" end
-        logger:InfoF(
+        logger:DebugF(
             "[Callbacks] [OnValueChange]\n" ..
             "\tDescription : %s\n" ..
             "\tAddress     : 0x%X\n" ..
@@ -343,7 +347,7 @@ AddressList.OnValueChange = function(addresslist, memrec)
             logger:Warning("[Callbacks] Value changes are disabled. Change prevented.")
             return true -- Prevent
         end
-        logger:Info("[Callbacks] Value change allowed.")
+        logger:Debug("[Callbacks] Value change allowed.")
         return false -- Allow
     end)
     if not ok and logger and logger.Error then
@@ -364,7 +368,7 @@ registerLuaFunctionHighlight('AddressList.OnValueChange')
 local o_AddressList_OnAutoAssemblerEdit = AddressList.OnAutoAssemblerEdit
 AddressList.OnAutoAssemblerEdit = function(addresslist, memrec)
     local ok, result = pcall(function()
-        logger:InfoF(
+        logger:DebugF(
             "[Callbacks] [OnAutoAssemblerEdit]\n" ..
             "\tDescription : %s\n" ..
             "\tAddress     : 0x%X",
@@ -374,7 +378,7 @@ AddressList.OnAutoAssemblerEdit = function(addresslist, memrec)
             logger:Warning("[Callbacks] Auto Assembler edits are disabled. Edit prevented.")
             return true -- Prevent edit
         end
-        logger:Info("[Callbacks] Auto Assembler edit allowed.")
+        logger:Debug("[Callbacks] Auto Assembler edit allowed.")
         if o_AddressList_OnAutoAssemblerEdit then
             local ok2, err2 = pcall(o_AddressList_OnAutoAssemblerEdit, addresslist, memrec)
             if not ok2 then
