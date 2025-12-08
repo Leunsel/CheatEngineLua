@@ -93,6 +93,23 @@ function Teleporter:GetModuleInfo()
 end
 registerLuaFunctionHighlight('GetModuleInfo')
 
+--
+--- ∑ Prints module details in a readable formatted block.
+--
+function Teleporter:PrintModuleInfo()
+    local info = self:GetModuleInfo()
+    if not info then
+        logger:Info("[Teleporter] Failed to retrieve module info.")
+        return
+    end
+    logger:InfoF("Module Info : %s", tostring(info.name))
+    logger:Info("\tVersion:     " .. tostring(info.version))
+    logger:Info("\tAuthor:      " .. tostring(info.author))
+    logger:Info("\tDescription: " .. tostring(info.description))
+    logger:Info("------------------------")
+end
+registerLuaFunctionHighlight('PrintModuleInfo')
+
 --------------------------------------------------------
 --                  Module Start                      --
 --------------------------------------------------------
@@ -538,6 +555,8 @@ function Teleporter:AddSave()
     end
     self.Saves[name] = { X = position[1], Y = position[2], Z = position[3], Author = self:GetCurrentAuthor(), Description = "" }
     logger:InfoF("[Teleporter] Added Save: '%s' at position (%.4f, %.4f, %.4f).", name, position[1], position[2], position[3])
+    -- TODO:
+    -- Update Teleporter Saves UI here...
 end
 registerLuaFunctionHighlight('AddSave')
 
