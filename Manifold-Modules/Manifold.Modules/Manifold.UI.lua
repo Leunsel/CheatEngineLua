@@ -49,6 +49,23 @@ function UI:GetModuleInfo()
 end
 registerLuaFunctionHighlight("GetModuleInfo")
 
+--
+--- ∑ Prints module details in a readable formatted block.
+--
+function UI:PrintModuleInfo()
+    local info = self:GetModuleInfo()
+    if not info then
+        logger:Info("[UI] Failed to retrieve module info.")
+        return
+    end
+    logger:InfoF("Module Info : %s", tostring(info.name))
+    logger:Info("\tVersion:     " .. tostring(info.version))
+    logger:Info("\tAuthor:      " .. tostring(info.author))
+    logger:Info("\tDescription: " .. tostring(info.description))
+    logger:Info("------------------------")
+end
+registerLuaFunctionHighlight('PrintModuleInfo')
+
 --------------------------------------------------------
 --                  Module Start                      --
 --------------------------------------------------------
