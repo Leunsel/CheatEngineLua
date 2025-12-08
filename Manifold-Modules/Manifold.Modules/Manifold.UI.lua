@@ -63,8 +63,7 @@ function UI:PrintModuleInfo()
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
     local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
     logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description)
-    logger:Info("")
+    logger:Info("\tDescription: " .. description .. "\n")
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
