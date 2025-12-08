@@ -60,11 +60,13 @@ function Callbacks:PrintModuleInfo()
         logger:Info("[Callbacks] Failed to retrieve module info.")
         return
     end
-    logger:InfoF("Module Info : %s", tostring(info.name))
+    logger:Info("Module Info : "  .. tostring(info.name))
     logger:Info("\tVersion:     " .. tostring(info.version))
-    logger:Info("\tAuthor:      " .. tostring(info.author))
-    logger:Info("\tDescription: " .. tostring(info.description))
-    logger:Info("------------------------")
+    local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
+    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
+    logger:Info("\tAuthor:      " .. author)
+    logger:Info("\tDescription: " .. description)
+    logger:Info("")
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 

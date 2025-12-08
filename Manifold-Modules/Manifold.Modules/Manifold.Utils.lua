@@ -56,6 +56,25 @@ function Utils:GetModuleInfo()
 end
 registerLuaFunctionHighlight('GetModuleInfo')
 
+--
+--- ∑ Prints module details in a readable formatted block.
+--
+function Utils:PrintModuleInfo()
+    local info = self:GetModuleInfo()
+    if not info then
+        logger:Info("[Utils] Failed to retrieve module info.")
+        return
+    end
+    logger:Info("Module Info : "  .. tostring(info.name))
+    logger:Info("\tVersion:     " .. tostring(info.version))
+    local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
+    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
+    logger:Info("\tAuthor:      " .. author)
+    logger:Info("\tDescription: " .. description)
+    logger:Info("")
+end
+registerLuaFunctionHighlight('PrintModuleInfo')
+
 --------------------------------------------------------
 --                  Module Start                      --
 --------------------------------------------------------
