@@ -1,6 +1,6 @@
 local NAME = "Manifold.Callbacks.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Callbacks"
 
 --[[
