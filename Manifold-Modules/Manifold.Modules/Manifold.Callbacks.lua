@@ -13,7 +13,7 @@ local DESCRIPTION = "Manifold Framework Callbacks"
     
     ∂ v1.0.2 (2025-12-08)
         Adjusted logging levels from Info to Debug for allowed
-        changes/edits to reduce log noise.    
+        changes/edits to reduce log noise.
 ]]--
 
 Callbacks = {
@@ -241,7 +241,7 @@ registerLuaFunctionHighlight('onMemRecPostExecute')
 --
 AddressList.OnDescriptionChange = function(addresslist, memrec)
     local ok, result = pcall(function()
-        logger:InfoF(
+        logger:DebugF(
             "[Callbacks] [OnDescriptionChange]\n" ..
             "\tDescription : %s\n" ..
             "\tAddress     : 0x%X",
