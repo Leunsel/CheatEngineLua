@@ -252,11 +252,13 @@ registerLuaFunctionHighlight('ShowError')
 --- @return # true if the user selects "Yes", false otherwise.
 --
 function Utils:ShowConfirmation(message)
+    message = message or "Are you sure?"
     if not inMainThread() then
+        local result
         synchronize(function()
-            self:ShowConfirmation(message)
+            result = self:ShowConfirmation(message)
         end)
-        return
+        return result
     end
     local result = messageDialog(message, mtConfirmation, mbYes, mbNo)
     return result == mrYes
