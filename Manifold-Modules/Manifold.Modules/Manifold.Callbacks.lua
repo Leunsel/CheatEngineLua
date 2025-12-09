@@ -1,6 +1,6 @@
 local NAME = "Manifold.Callbacks.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework Callbacks"
 
 --[[
@@ -14,6 +14,11 @@ local DESCRIPTION = "Manifold Framework Callbacks"
     ∂ v1.0.2 (2025-12-08)
         Adjusted logging levels from Info to Debug for allowed
         changes/edits to reduce log noise.
+    
+    ∂ v1.0.3 (2025-12-08)
+        Prepared MainForm OnClose override for proper deactivation
+        of active Auto Assembler scripts before closing.
+        TODO: Implement the deactivation logic.
 ]]--
 
 Callbacks = {
@@ -442,6 +447,22 @@ LuaEngine.OnShow = function(...)
         elseif not ok and logger and logger.Error then
             logger:Error("[Callbacks] Error getting active theme data: " .. tostring(themeData))
         end
+    end
+end
+
+--
+--- ∑ Main Form OnClose Callback Override.
+--- This function is called when the main form is being closed.
+--- It ensures that all scripts are properly deactivated before closing.
+--- @param ... any # Additional parameters passed to the original OnClose function
+--
+local mainForm = getMainForm()
+local o_MainForm_OnClose = mainForm and mainForm.OnClose
+mainForm.OnClose = function(sender)
+    -- TODO: Properly deactivate all active scripts before closing...
+    -- Important: Can't freeze when disabling async scripts here...
+    if o_MainForm_OnClose then
+        o_MainForm_OnClose(sender)
     end
 end
 
