@@ -416,7 +416,6 @@ AddressList.OnAutoAssemblerEdit = function(addresslist, memrec)
     end
     return result -- true = block, false = allow
 end
-
 registerLuaFunctionHighlight('AddressList.OnAutoAssemblerEdit')
 
 --
@@ -456,13 +455,33 @@ end
 --- It ensures that all scripts are properly deactivated before closing.
 --- @param ... any # Additional parameters passed to the original OnClose function
 --
-local mainForm = getMainForm()
-local o_MainForm_OnClose = mainForm and mainForm.OnClose
-mainForm.OnClose = function(sender)
-    -- TODO: Properly deactivate all active scripts before closing...
-    -- Important: Can't freeze when disabling async scripts here...
+local o_MainForm_OnClose = MainForm and MainForm.OnClose
+MainForm.OnClose = function(sender)
+    for i = 0, AddressList.Count - 1 do
+        local mr = AddressList.getMemoryRecord(i)
+        if mr.Type == vtAutoAssembler then
+            mr.Async = false
+            logger:Debug("[Callbacks] Disabling Async State for Auto Assembler Script: " .. mr.Description)
+        end
+        if (i % math.max(1, math.floor(AddressList.Count / 10))) == 0 then
+            logger:Debug("[Callbacks] Disabling Async State Progress... " .. tostring(math.floor((i / AddressList.Count) * 100)) .. "%")
+        end
+    end
+    for i = AddressList.Count - 1, 0, -1 do
+        local mr = AddressList.getMemoryRecord(i)
+        if mr.Type == vtAutoAssembler then
+            if mr.Active then
+                logger:DebugF("[Callbacks] Deactivating Auto Assembler Script: %s", mr.Description)
+                mr.Active = false
+            end
+        end
+        if (i % math.max(1, math.floor(AddressList.Count / 10))) == 0 then
+            logger:Debug("[Callbacks] Deactivating Scripts Progress... " .. tostring(math.floor(((AddressList.Count - i) / AddressList.Count) * 100)) .. "%")
+        end
+    end
+    logger:Debug("[Callbacks] Cheat Table is ready to close. All Auto Assembler scripts deactivated.")
     if o_MainForm_OnClose then
-        o_MainForm_OnClose(sender)
+        return o_MainForm_OnClose(sender)
     end
 end
 
