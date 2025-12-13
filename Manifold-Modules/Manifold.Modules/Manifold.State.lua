@@ -193,7 +193,7 @@ function State:GetProcessName()
         logger:Error("[State] Process is nil!")
         return nil
     end
-    logger:Info("[State] Process: " .. process)
+    logger:Debug("[State] Process: " .. process)
     return process
 end
 
@@ -349,7 +349,7 @@ function State:RestoreState(stateData)
             local targetState = rec and rec.active or false
             if mr.Active == targetState then
                 stats.unchangedCount = stats.unchangedCount + 1
-                logger:Info(string.format("[State] Unchanged Memory Record ID=%s (Description='%s').",
+                logger:Debug(string.format("[State] Unchanged Memory Record ID=%s (Description='%s').",
                     tostring(mr.ID), tostring(mr.Description)))
             else
                 if self:SetMemoryRecordState(mr, targetState) then
@@ -373,7 +373,7 @@ function State:RestoreState(stateData)
                     mr.Hotkey[hotkeyIndex].destroy()
                 end
                 for _, hotkeyData in ipairs(rec.hotkeys) do
-                    logger:Info("[State] " .. logger:Stringify(rec.hotkeys))
+                    logger:Debug("[State] " .. logger:Stringify(rec.hotkeys))
                     local hk = mr.createHotkey(hotkeyData.keys, hotkeyData.action, hotkeyData.value, hotkeyData.description)
                 end
                 logger:Info(string.format("[State] Restored %d hotkeys for Memory Record ID=%s (Description='%s').",
@@ -446,15 +446,12 @@ function State:RestoreOriginalState()
                 end
             else
                 stats.unchangedCount = stats.unchangedCount + 1
-                logger:Info(string.format("[State] Memory Record ID=%s was already deactivated.",
+                logger:Debug(string.format("[State] Memory Record ID=%s was already deactivated.",
                     tostring(mr.ID)))
             end
         end
     end
-    logger:Info(string.format(
-        "[State] RestoreOriginalState completed. Deactivated: %d, Unchanged: %d, Failed: %d",
-        stats.deactivatedCount, stats.unchangedCount, stats.failedCount
-    ))
+    logger:Info(string.format("[State] RestoreOriginalState completed. Deactivated: %d, Unchanged: %d, Failed: %d", stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
     return stats
 end
 registerLuaFunctionHighlight('RestoreOriginalState')
