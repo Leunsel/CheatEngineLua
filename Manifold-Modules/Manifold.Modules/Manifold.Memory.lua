@@ -1,6 +1,6 @@
 local NAME = "Manifold.Memory.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Memory"
 
 --[[
@@ -9,6 +9,9 @@ local DESCRIPTION = "Manifold Framework Memory"
 
     ∂ v1.0.1 (2025-04-11)
         Minor comment adjustments.
+
+    ∂ v1.0.2 (2025-12-27)
+        Minor log formatting adjustments.
 ]]--
 
 Memory = {}
@@ -82,10 +85,10 @@ registerLuaFunctionHighlight('SafeGetAddress')
 function Memory:SafeReadByte(address)
     local value = readByte(address)
     if value == nil then
-        logger:Error("[Memory] Unable to read byte value at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to read byte value at address '0x%08X'", self:SafeGetAddress(address))
         return nil
     end
-    logger:Info("[Memory] Successfully read byte value from address " .. self:SafeGetAddress(address) .. ": " .. value)
+    logger:InfoF("[Memory] Successfully read byte value from address '0x%08X' : %d", self:SafeGetAddress(address), value)
     return value
 end
 registerLuaFunctionHighlight('SafeReadByte')
@@ -101,10 +104,10 @@ registerLuaFunctionHighlight('SafeReadByte')
 function Memory:SafeWriteByte(address, value)
     local success = writeByte(address, value)
     if not success then
-        logger:Error("[Memory] Unable to write byte value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write byte value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully wrote byte value " .. tostring(value) .. " to address " .. self:SafeGetAddress(address))
+    logger:InfoF("[Memory] Successfully wrote byte value " .. tostring(value) .. " to address '0x%08X'", self:SafeGetAddress(address))
     return true
 end
 registerLuaFunctionHighlight('SafeWriteByte')
@@ -120,16 +123,16 @@ registerLuaFunctionHighlight('SafeWriteByte')
 function Memory:SafeAddByte(address, value)
     local currentValue = self:SafeReadByte(address)
     if currentValue == nil then
-        logger:Error("[Memory] Unable to add byte value due to read failure at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to add byte value due to read failure at address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
     local newValue = currentValue + value
     local success = self:SafeWriteByte(address, newValue)
     if not success then
-        logger:Error("[Memory] Unable to write new byte value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write new byte value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully added " .. tostring(value) .. " to byte value at address " .. self:SafeGetAddress(address) .. ". New value: " .. newValue)
+    logger:InfoF("[Memory] Successfully added " .. tostring(value) .. " to byte value at address '0x%08X'. New value: %d", self:SafeGetAddress(address), newValue)
     return true
 end
 registerLuaFunctionHighlight('SafeAddByte')
@@ -144,10 +147,10 @@ registerLuaFunctionHighlight('SafeAddByte')
 function Memory:SafeReadWord(address)
     local value = readSmallInteger(address)
     if value == nil then
-        logger:Error("[Memory] Unable to read word value at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to read word value at address '0x%08X'", self:SafeGetAddress(address))
         return nil
     end
-    logger:Info("[Memory] Successfully read word value from address " .. self:SafeGetAddress(address) .. ": " .. value)
+    logger:InfoF("[Memory] Successfully read word value from address '0x%08X': %d", self:SafeGetAddress(address), value)
     return value
 end
 registerLuaFunctionHighlight('SafeReadWord')
@@ -163,10 +166,10 @@ registerLuaFunctionHighlight('SafeReadWord')
 function Memory:SafeWriteWord(address, value)
     local success = writeSmallInteger(address, value)
     if not success then
-        logger:Error("[Memory] Unable to write word value " .. tostring(value) .. " to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write word value %d to address '0x%08X'", value, self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully wrote word value " .. tostring(value) .. " to address " .. self:SafeGetAddress(address))
+    logger:InfoF("[Memory] Successfully wrote word value %d to address '0x%08X'", value, self:SafeGetAddress(address))
     return true
 end
 registerLuaFunctionHighlight('SafeWriteWord')
@@ -182,16 +185,16 @@ registerLuaFunctionHighlight('SafeWriteWord')
 function Memory:SafeAddWord(address, value)
     local currentValue = self:SafeReadWord(address)
     if currentValue == nil then
-        logger:Error("[Memory] Unable to add word value due to read failure at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to add word value due to read failure at address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
     local newValue = currentValue + value
     local success = self:SafeWriteWord(address, newValue)
     if not success then
-        logger:Error("[Memory] Unable to write new word value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write new word value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully added " .. tostring(value) .. " to word value at address " .. self:SafeGetAddress(address) .. ". New value: " .. newValue)
+    logger:InfoF("[Memory] Successfully added " .. tostring(value) .. " to word value at address '0x%08X'. New value: %d", self:SafeGetAddress(address), newValue)
     return true
 end
 registerLuaFunctionHighlight('SafeAddWord')
@@ -206,10 +209,10 @@ registerLuaFunctionHighlight('SafeAddWord')
 function Memory:SafeReadInteger(address)
     local value = readInteger(address)
     if value == nil then
-        logger:Error("[Memory] Unable to read integer value at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to read integer value at address '0x%08X'", self:SafeGetAddress(address))
         return nil
     end
-    logger:Info("[Memory] Successfully read integer value from address " .. self:SafeGetAddress(address) .. ": " .. value)
+    logger:InfoF("[Memory] Successfully read integer value from address '0x%08X': %d", self:SafeGetAddress(address), value)
     return value
 end
 registerLuaFunctionHighlight('SafeReadInteger')
@@ -225,7 +228,7 @@ registerLuaFunctionHighlight('SafeReadInteger')
 function Memory:SafeWriteInteger(address, value)
     local success = writeInteger(address, value)
     if not success then
-        logger:Error("[Memory] Unable to write integer value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write integer value %d to address '0x%08X'", value, self:SafeGetAddress(address))
         return false
     end
     return true
@@ -244,16 +247,16 @@ registerLuaFunctionHighlight('SafeWriteInteger')
 function Memory:SafeAddInteger(address, value)
     local currentValue = self:SafeReadInteger(address)
     if currentValue == nil then
-        logger:Error("[Memory] Unable to add integer value due to read failure at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to add integer value due to read failure at address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
     local newValue = currentValue + value
     local success = self:SafeWriteInteger(address, newValue)
     if not success then
-        logger:Error("[Memory] Unable to write new integer value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write new integer value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully added " .. tostring(value) .. " to integer value at address " .. self:SafeGetAddress(address) .. ". New value: " .. newValue)
+    logger:InfoF("[Memory] Successfully added %d to integer value at address '0x%08X'. New value: %d", value, self:SafeGetAddress(address), newValue)
     return true
 end
 registerLuaFunctionHighlight('SafeAddInteger')
@@ -268,10 +271,10 @@ registerLuaFunctionHighlight('SafeAddInteger')
 function Memory:SafeReadQWord(address)
     local value = readQword(address)
     if value == nil then
-        logger:Error("[Memory] Unable to read QWord from address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to read QWord from address '0x%08X'", self:SafeGetAddress(address))
         return nil
     end
-    logger:Info("[Memory] Successfully read QWord value " .. tostring(value) .. " from address " .. self:SafeGetAddress(address))
+    logger:InfoF("[Memory] Successfully read QWord value %d from address '0x%08X'", value, self:SafeGetAddress(address))
     return value
 end
 registerLuaFunctionHighlight('SafeReadQWord')
@@ -287,10 +290,10 @@ registerLuaFunctionHighlight('SafeReadQWord')
 function Memory:SafeWriteQWord(address, value)
     local success = writeQword(address, value)  -- Assuming writeBytes can handle 8-byte writes for QWords
     if not success then
-        logger:Error("[Memory] Unable to write QWord value " .. tostring(value) .. " to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write QWord value %d to address '0x%08X'", value, self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully wrote QWord value " .. tostring(value) .. " to address " .. self:SafeGetAddress(address))
+    logger:InfoF("[Memory] Successfully wrote QWord value %d to address '0x%08X'", value, self:SafeGetAddress(address))
     return true
 end
 registerLuaFunctionHighlight('SafeWriteQWord')
@@ -306,16 +309,16 @@ registerLuaFunctionHighlight('SafeWriteQWord')
 function Memory:SafeAddQWord(address, value)
     local currentValue = self:SafeReadQWord(address)
     if currentValue == nil then
-        logger:Error("[Memory] Unable to add QWord value due to read failure at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to add QWord value due to read failure at address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
     local newValue = currentValue + value
     local success = self:SafeWriteQWord(address, newValue)
     if not success then
-        logger:Error("[Memory] Unable to write new QWord value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write new QWord value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully added " .. tostring(value) .. " to QWord value at address " .. self:SafeGetAddress(address) .. ". New value: " .. newValue)
+    logger:InfoF("[Memory] Successfully added %d to QWord value at address '0x%08X'. New value: %d", value, self:SafeGetAddress(address), newValue)
     return true
 end
 registerLuaFunctionHighlight('SafeAddQWord')
@@ -330,10 +333,10 @@ registerLuaFunctionHighlight('SafeAddQWord')
 function Memory:SafeReadFloat(address)
     local value = readFloat(address)
     if value == nil then
-        logger:Error("[Memory] Unable to read float value at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to read float value at address '0x%08X'", self:SafeGetAddress(address))
         return nil
     end
-    logger:Info("[Memory] Successfully read float value from address " .. self:SafeGetAddress(address) .. ": " .. value)
+    logger:InfoF("[Memory] Successfully read float value from address '0x%08X': %f", self:SafeGetAddress(address), value)
     return value
 end
 registerLuaFunctionHighlight('SafeReadFloat')
@@ -349,10 +352,10 @@ registerLuaFunctionHighlight('SafeReadFloat')
 function Memory:SafeWriteFloat(address, value)
     local success = writeFloat(address, value)
     if not success then
-        logger:Error("[Memory] Unable to write float value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write float value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully wrote float value " .. tostring(value) .. " to address " .. self:SafeGetAddress(address))
+    logger:InfoF("[Memory] Successfully wrote float value %f to address '0x%08X'", value, self:SafeGetAddress(address))
     return true
 end
 registerLuaFunctionHighlight('SafeWriteFloat')
@@ -368,16 +371,16 @@ registerLuaFunctionHighlight('SafeWriteFloat')
 function Memory:SafeAddFloat(address, value)
     local currentValue = self:SafeReadFloat(address)
     if currentValue == nil then
-        logger:Error("[Memory] Unable to add float value due to read failure at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to add float value due to read failure at address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
     local newValue = currentValue + value
     local success = self:SafeWriteFloat(address, newValue)
     if not success then
-        logger:Error("[Memory] Unable to write new float value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write new float value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully added " .. tostring(value) .. " to float value at address " .. self:SafeGetAddress(address) .. ". New value: " .. newValue)
+    logger:InfoF("[Memory] Successfully added %f to float value at address '0x%08X'. New value: %f", value, self:SafeGetAddress(address), newValue)
     return true
 end
 registerLuaFunctionHighlight('SafeAddFloat')
@@ -392,10 +395,10 @@ registerLuaFunctionHighlight('SafeAddFloat')
 function Memory:SafeReadDouble(address)
     local value = readDouble(address)
     if value == nil then
-        logger:Error("[Memory] Unable to read double value at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to read double value at address '0x%08X'", self:SafeGetAddress(address))
         return nil
     end
-    logger:Info("[Memory] Successfully read double value from address " .. self:SafeGetAddress(address) .. ": " .. value)
+    logger:InfoF("[Memory] Successfully read double value from address '0x%08X': %f", self:SafeGetAddress(address), value)
     return value
 end
 registerLuaFunctionHighlight('SafeReadDouble')
@@ -411,10 +414,10 @@ registerLuaFunctionHighlight('SafeReadDouble')
 function Memory:SafeWriteDouble(address, value)
     local success = writeDouble(address, value)
     if not success then
-        logger:Error("[Memory] Unable to write double value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write double value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info("[Memory] Successfully wrote double value " .. tostring(value) .. " to address " .. self:SafeGetAddress(address))
+    logger:InfoF("[Memory] Successfully wrote double value %f to address '0x%08X'", value, self:SafeGetAddress(address))
     return true
 end
 registerLuaFunctionHighlight('SafeWriteDouble')
@@ -430,16 +433,16 @@ registerLuaFunctionHighlight('SafeWriteDouble')
 function Memory:SafeAddDouble(address, value)
     local currentValue = self:SafeReadDouble(address)
     if currentValue == nil then
-        logger:Error("[Memory] Unable to add double value due to read failure at address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to add double value due to read failure at address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
     local newValue = currentValue + value
     local success = self:SafeWriteDouble(address, newValue)
     if not success then
-        logger:Error("[Memory] Unable to write new double value to address " .. self:SafeGetAddress(address))
+        logger:ErrorF("[Memory] Unable to write new double value to address '0x%08X'", self:SafeGetAddress(address))
         return false
     end
-    logger:Info(string.format("[Memory] Successfully added %.2f to address %s. Original value: %.2f, New value: %.2f", value, self:SafeGetAddress(address), currentValue, newValue))
+    logger:InfoF("[Memory] Successfully added %.2f to address '0x%08X'. Original value: %.2f, New value: %.2f", value, self:SafeGetAddress(address), currentValue, newValue)
     return true
 end
 registerLuaFunctionHighlight('SafeAddDouble')
