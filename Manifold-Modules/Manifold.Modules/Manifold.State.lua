@@ -1,6 +1,6 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
@@ -9,6 +9,9 @@ local DESCRIPTION = "Manifold Framework State"
 
     ∂ v1.0.1 (2025-04-16)
         Minor comment adjustments.
+
+    ∂ v1.0.2 (2025-12-27)
+        Some minor adjustments to state restoration logic. - LeFiXER
 ]]--
 
 State = {
@@ -104,9 +107,9 @@ function State:CheckDependencies()
 end
 
 --
---- ∑ Ensures that the Theme Directory exists within the Data Directory.
---- @return string|nil  The full path to the Theme Directory, or nil if creation failed.
---- @note First verifies that the DataDir exists. Then checks for the Theme Directory (DataDir\Themes) and creates it if necessary.
+--- ∑ Ensures that the State Directory exists within the Data Directory.
+--- @return string|nil  The full path to the State Directory, or nil if creation failed.
+--- @note First verifies that the DataDir exists. Then checks for the State Directory (DataDir\State) and creates it if necessary.
 --
 function State:EnsureStateDirectory()
     if not customIO:EnsureDataDirectory() then
@@ -299,6 +302,84 @@ function State:CreateLookupTables()
     return indexedList, idMap, descMap
 end
 
+State._applyQueue = {
+    jobs = {},
+    timer = nil,
+    running = false,
+    -- Adjust this to change how quickly the queue executes each iteration.
+    --25ms is stable so far, haven't pushed further
+    intervalMs = 25
+}
+
+-- Internal queue for asynchronous state changes
+local function _queueKey(mr)
+    -- MemoryRecord ID is stable enough for de-duping within a queue run
+    return mr and mr.ID or nil
+end
+
+--
+--- ∑ Ensures that the apply timer for the state change queue is running.
+--- @return void
+--
+function State:_EnsureApplyTimer()
+    local q = State._applyQueue
+    if q.timer then return end
+    q.timer = createTimer(nil)
+    q.timer.Interval = q.intervalMs
+    q.timer.OnTimer = function(timer)
+        if q.running then return end
+        q.running = true
+        if #q.jobs == 0 then
+            q.running = false
+            timer.destroy()
+            q.timer = nil
+            logger:Debug("[State] [QUEUE] Completed.")
+            return
+        end
+        local job = table.remove(q.jobs, 1)
+        local mr = job.mr
+        local targetState = job.state
+        -- Record may be gone / invalid
+        if mr then
+            -- Apply request (we simply skip waiting for async to finish instead)
+            mr.Active = targetState
+            -- Force CE to process messages (important for stability)
+            processMessages()
+            logger:Debug(string.format(
+                "[State] [QUEUE] Requested %s for Memory Record ID=%s (Description='%s').",
+                targetState and "activation" or "deactivation",
+                tostring(mr.ID),
+                tostring(mr.Description)
+            ))
+        end
+        q.running = false
+    end
+end
+
+--
+--- ∑ Enqueues a memory record state change for asynchronous processing.
+--- @param mr MemoryRecord The memory record to modify.
+--- @param state boolean The desired active state (true to activate, false to deactivate).
+--- @return boolean # Returns true if the memory record was successfully enqueued, false otherwise.
+--
+function State:_EnqueueMemoryRecordState(mr, state)
+    if not mr then return false end
+    local q = State._applyQueue
+    local key = _queueKey(mr)
+    if not key then return false end
+    -- De-dupe: if already queued, update desired state
+    for _, job in ipairs(q.jobs) do
+        if job.key == key then
+            job.state = state
+            job.mr = mr
+            return true
+        end
+    end
+    table.insert(q.jobs, { key = key, mr = mr, state = state })
+    self:_EnsureApplyTimer()
+    return true
+end
+
 --
 --- ∑ Sets the active state of a memory record and waits for any asynchronous processing.
 --- @param mr MemoryRecord The memory record to modify.
@@ -309,12 +390,34 @@ function State:SetMemoryRecordState(mr, state)
     if mr.Active == state then
         return true -- No need to change state
     end
+    -- [QUEUE]
+    -- Apply synchronously for NON-async records (preserves existing stats/log semantics).
+    -- Queue ONLY for async records.
+    if mr.Async then
+        -- Queue request (do not block, do not wait)
+        local queued = self:_EnqueueMemoryRecordState(mr, state)
+        if queued then
+            -- We can't guarantee completion here (CE async), but we can guarantee the request is scheduled.
+            logger:Debug(string.format("[State] [QUEUE] Enqueued %s for Memory Record ID=%s (Description='%s').",
+                state and "activation" or "deactivation",
+                tostring(mr.ID), tostring(mr.Description)))
+            return true
+        else
+            logger:Warning(string.format("[State] [QUEUE] Failed to enqueue state change for Memory Record ID=%s (Description='%s').",
+                tostring(mr.ID), tostring(mr.Description)))
+            return false
+        end
+    end
+    -- Non-async: apply immediately (no waiting)
     mr.Active = state
+    --[[
+    -- OLD (blocking) async wait loop - disabled intentionally.
     MainForm.repaint()
     while mr.Async and mr.AsyncProcessing do
         MainForm.repaint()
         sleep(5)
     end
+    ]]
     if mr.Active == state then
         logger:Info(string.format("[State] Memory Record ID=%s successfully %s.",
             tostring(mr.ID), state and "activated" or "deactivated"))

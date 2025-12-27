@@ -138,7 +138,7 @@ function Teleporter:CheckDependencies()
         else
             logger:Debug("[Teleporter] Dependency '" .. depName .. "' is already loaded")
         end
-    end  
+    end
 end
 
 local readFunctions = {
@@ -262,7 +262,7 @@ function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead, value
             return nil
         end
     end
-    logger:Debug(string.format("[Teleporter] Read position from '%s' -> {%s}", symbol, table.concat(position, ", ")))
+    logger:Debug(string.format("[Teleporter] Read position from '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3]))
     return position
 end
 registerLuaFunctionHighlight('ReadPositionFromMemory')
@@ -304,7 +304,7 @@ function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWr
             return false
         end
     end
-    logger:InfoF("[Teleporter] Wrote position to '%s' -> {%s}", symbol, table.concat(position, ", "))
+    logger:InfoF("[Teleporter] Wrote position to '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
     return true
 end
 registerLuaFunctionHighlight('WritePositionToMemory')
@@ -351,7 +351,7 @@ function Teleporter:LogDistanceTraveled(oldPosition, newPosition)
         return math.sqrt(dx * dx + dy * dy + dz * dz)
     end
     local distance = calculateDistance(oldPosition, newPosition)
-    logger:Info("[Teleporter] Distance traveled: " .. distance .. " units")
+    logger:InfoF("[Teleporter] Distance traveled: %.3f Units", distance)
 end
 
 --
@@ -366,7 +366,7 @@ function Teleporter:SaveCurrentPosition()
     end
     local success = self:WritePositionToMemory(self.Symbols.Saved, self:CalculateSymbolOffsets(), currentPosition, false, self.Transform.ValueType)
     if success then
-        logger:InfoF("[Teleporter] Saved position -> {%s}", table.concat(currentPosition, ", "))
+        logger:InfoF("[Teleporter] Saved position -> {%.3f, %.3f, %.3f}", currentPosition[1], currentPosition[2], currentPosition[3])
     end
     return success
 end
@@ -389,7 +389,7 @@ function Teleporter:LoadSavedPosition()
         success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, savedPosition, true, self.Additional.ValueType)
     end
     if success then
-        logger:InfoF("[Teleporter] Loaded saved position -> {%s}", table.concat(savedPosition, ", "))
+        logger:InfoF("[Teleporter] Loaded saved position -> {%.3f, %.3f, %.3f}", savedPosition[1], savedPosition[2], savedPosition[3])
         self:LogDistanceTraveled(currentPosition, savedPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
@@ -422,7 +422,7 @@ function Teleporter:LoadBackupPosition()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Loaded backup position -> {%s}", table.concat(backupPosition, ", "))
+        logger:InfoF("[Teleporter] Loaded backup position -> {%.3f, %.3f, %.3f}", backupPosition[1], backupPosition[2], backupPosition[3])
         self:LogDistanceTraveled(currentPosition, backupPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
@@ -458,7 +458,7 @@ function Teleporter:TeleportToCoordinates(position)
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Teleported to coordinates -> {%s}", table.concat(position, ", "))
+        logger:InfoF("[Teleporter] Teleported to coordinates -> {%.3f, %.3f, %.3f}", position[1], position[2], position[3])
         self:LogDistanceTraveled(currentPosition, position)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
@@ -490,7 +490,7 @@ function Teleporter:TeleportToWaypoint()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Teleported to waypoint -> {%s}", table.concat(waypointPosition, ", "))
+        logger:InfoF("[Teleporter] Teleported to waypoint -> {%.3f, %.3f, %.3f}", waypointPosition[1], waypointPosition[2], waypointPosition[3])
         self:LogDistanceTraveled(currentPosition, waypointPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
