@@ -1,6 +1,6 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
@@ -11,6 +11,9 @@ local DESCRIPTION = "Manifold Framework UI"
     ∂ v1.0.1 (2025-07-12)
         Added support for theming the Lua Engine.
         Uses Manifold.Callbacks > OnShow
+
+    ∂ v1.0.2 (2025-12-27)
+        Adjusted Theme Selector AA script generation.
 ]] 
 
 UI = {
@@ -853,14 +856,19 @@ function UI:UpdateThemeSelector()
     for themeName, _ in pairs(self.ThemeList) do
         local mr = addressList.createMemoryRecord()
         mr.Type = vtAutoAssembler
-        mr.Script =
-            [[{$lua}
+        mr.Script = string.format([=[{$lua}
 [ENABLE]
 if syntaxcheck then return end
+-- .................................................................
 ui:ApplyTheme(memrec.Description)
 utils:AutoDisable(memrec.ID)
+-- .................................................................
 [DISABLE]
-]]
+
+--- Script generated using %s
+---- Version: %s
+---- Source: https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Modules
+]=], NAME, VERSION)
         mr.Description = themeName
         mr.Color = 0xFFFFF0
         mr.Parent = root
