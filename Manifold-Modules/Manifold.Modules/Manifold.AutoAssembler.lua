@@ -257,9 +257,10 @@ function AutoAssembler:LoadFile(fileName)
         logger:Error("[Auto-Assembler] Unable to resolve file path for '" .. fileName .. "'.")
         return nil, "Invalid file path"
     end
+    local trimmedPath = filePath:match("[\\/](Manifold[\\/].*)") or filePath
     local fileContent, err = customIO:ReadFromFile(filePath)
     if fileContent then
-        logger:Info("[Auto-Assembler] Successfully loaded file '" .. fileName .. "' from '" .. filePath .. "'.")
+        logger:Info("[Auto-Assembler] Successfully loaded file '" .. fileName .. "' from '...\\" .. trimmedPath .. "'.")
         return fileContent
     end
     logger:Warning("[Auto-Assembler] Could not load local file '" .. fileName .. "'. Falling back to TableFiles.")
