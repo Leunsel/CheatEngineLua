@@ -442,12 +442,13 @@ function UI:LoadJsonThemesFromDataDir(jsonThemes)
                 if file:match("%.json$") and file ~= "." and file ~= ".." then
                     local filePath = dataDir .. "\\" .. file
                     local themeData, readErr = customIO:ReadFromFileAsJson(filePath)
+                    local trimmedPath = filePath:match("[\\/](Manifold[\\/].*)") or filePath
                     if themeData then
                         table.insert(jsonThemes, {file = filePath, source = "external"})
-                        logger:Info("[UI] Found external JSON theme in Data Directory: '" .. filePath .. "'")
+                        logger:Info("[UI] Found external JSON theme in Data Directory: '...\\" .. trimmedPath .. "'")
                         foundFiles = true
                     else
-                        logger:Warning("[UI] Skipped invalid JSON file '" .. filePath .. "': " .. tostring(readErr))
+                        logger:Warning("[UI] Skipped invalid JSON file '" .. trimmedPath .. "': " .. tostring(readErr))
                     end
                 end
             end

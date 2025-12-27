@@ -822,6 +822,7 @@ function Teleporter:CreateTeleporterSaves()
 {$lua}
 [ENABLE]
 if syntaxcheck then return end
+-- .................................................................
 --- Save: %s
 --- Author: %s
 ---- X: %.4f
@@ -829,8 +830,13 @@ if syntaxcheck then return end
 ---- Z: %.4f
 teleporter:TeleportToSave("%s")
 utils:AutoDisable(memrec.ID)
+-- .................................................................
 [DISABLE]
-]], saveName, author, position.X, position.Y, position.Z, saveName)
+
+--- Script generated using %s
+---- Version: %s
+---- Source: https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Modules
+]], saveName, author, position.X, position.Y, position.Z, saveName, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
                 local mr = addressList.createMemoryRecord()
                 mr.Type = vtAutoAssembler
                 mr.Description = "Teleport To: '" .. saveName .. "' ()->"
