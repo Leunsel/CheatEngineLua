@@ -300,7 +300,7 @@ function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWr
     end
     for i, offset in ipairs(offsets) do
         if not writeFunc(baseAddress + offset, position[i]) then
-            logger:Error(string.format("[Teleporter] Failed to write value at offset '%d'", offset))
+            logger:Error(string.format("[Teleporter] Failed to write value at offset '0x%08X'", offset))
             return false
         end
     end
