@@ -415,9 +415,12 @@ function CustomIO:WriteToTableFile(fileName, text)
         return false
     end
     local success, err = pcall(function()
-        local stream = tableFile.getData()
+        local stream = tableFile.Stream
+        stream.Position = 0
+        stream.Size = 0
         local bytes = { string.byte(text, 1, -1) }
         stream.write(bytes)
+        stream.Position = 0
     end)
     if not success then
         logger:Error("[CustomIO] Failed to write data to file '" .. fileName .. "'! Error: " .. err)
