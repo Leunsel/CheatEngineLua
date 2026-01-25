@@ -1,6 +1,6 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
