@@ -12,6 +12,9 @@ local DESCRIPTION = "Manifold Framework State"
 
     ∂ v1.0.2 (2025-12-27)
         Some minor adjustments to state restoration logic. - LeFiXER
+    
+    ∂ v1.0.3 (2024-06-12)
+        Improved async memory record handling during state restoration. - Leunsel
 ]]--
 
 State = {
@@ -302,131 +305,111 @@ function State:CreateLookupTables()
     return indexedList, idMap, descMap
 end
 
-State._applyQueue = {
-    jobs = {},
-    timer = nil,
-    running = false,
-    -- Adjust this to change how quickly the queue executes each iteration.
-    --25ms is stable so far, haven't pushed further
-    intervalMs = 25
-}
+--
+--- ∑ Runs a function on CE's main thread (GUI thread) to safely touch MemoryRecords/Hotkeys.
+--- @param fn function
+--
+function State:_RunOnMainThread(fn)
+    if type(fn) ~= "function" then return end
 
--- Internal queue for asynchronous state changes
-local function _queueKey(mr)
-    -- MemoryRecord ID is stable enough for de-duping within a queue run
-    return mr and mr.ID or nil
-end
-
---
---- ∑ Ensures that the apply timer for the state change queue is running.
---- @return void
---
-function State:_EnsureApplyTimer()
-    local q = State._applyQueue
-    if q.timer then return end
-    q.timer = createTimer(nil)
-    q.timer.Interval = q.intervalMs
-    q.timer.OnTimer = function(timer)
-        if q.running then return end
-        q.running = true
-        if #q.jobs == 0 then
-            q.running = false
-            timer.destroy()
-            q.timer = nil
-            logger:Debug("[State] [QUEUE] Completed.")
-            return
-        end
-        local job = table.remove(q.jobs, 1)
-        local mr = job.mr
-        local targetState = job.state
-        -- Record may be gone / invalid
-        if mr then
-            -- Apply request (we simply skip waiting for async to finish instead)
-            mr.Active = targetState
-            -- Force CE to process messages (important for stability)
-            processMessages()
-            logger:Debug(string.format(
-                "[State] [QUEUE] Requested %s for Memory Record ID=%s (Description='%s').",
-                targetState and "activation" or "deactivation",
-                tostring(mr.ID),
-                tostring(mr.Description)
-            ))
-        end
-        q.running = false
-    end
-end
-
---
---- ∑ Enqueues a memory record state change for asynchronous processing.
---- @param mr MemoryRecord The memory record to modify.
---- @param state boolean The desired active state (true to activate, false to deactivate).
---- @return boolean # Returns true if the memory record was successfully enqueued, false otherwise.
---
-function State:_EnqueueMemoryRecordState(mr, state)
-    if not mr then return false end
-    local q = State._applyQueue
-    local key = _queueKey(mr)
-    if not key then return false end
-    -- De-dupe: if already queued, update desired state
-    for _, job in ipairs(q.jobs) do
-        if job.key == key then
-            job.state = state
-            job.mr = mr
-            return true
-        end
-    end
-    table.insert(q.jobs, { key = key, mr = mr, state = state })
-    self:_EnsureApplyTimer()
-    return true
-end
-
---
---- ∑ Sets the active state of a memory record and waits for any asynchronous processing.
---- @param mr MemoryRecord The memory record to modify.
---- @param state boolean The desired active state (true to activate, false to deactivate).
---- @return boolean # Returns true if the state change succeeded or was already correct, false otherwise.
---
-function State:SetMemoryRecordState(mr, state)
-    if mr.Active == state then
-        return true -- No need to change state
-    end
-    -- [QUEUE]
-    -- Apply synchronously for NON-async records (preserves existing stats/log semantics).
-    -- Queue ONLY for async records.
-    if mr.Async then
-        -- Queue request (do not block, do not wait)
-        local queued = self:_EnqueueMemoryRecordState(mr, state)
-        if queued then
-            -- We can't guarantee completion here (CE async), but we can guarantee the request is scheduled.
-            logger:Debug(string.format("[State] [QUEUE] Enqueued %s for Memory Record ID=%s (Description='%s').",
-                state and "activation" or "deactivation",
-                tostring(mr.ID), tostring(mr.Description)))
-            return true
-        else
-            logger:Warning(string.format("[State] [QUEUE] Failed to enqueue state change for Memory Record ID=%s (Description='%s').",
-                tostring(mr.ID), tostring(mr.Description)))
-            return false
-        end
-    end
-    -- Non-async: apply immediately (no waiting)
-    mr.Active = state
-    --[[
-    -- OLD (blocking) async wait loop - disabled intentionally.
-    MainForm.repaint()
-    while mr.Async and mr.AsyncProcessing do
-        MainForm.repaint()
-        sleep(5)
-    end
-    ]]
-    if mr.Active == state then
-        logger:Info(string.format("[State] Memory Record ID=%s successfully %s.",
-            tostring(mr.ID), state and "activated" or "deactivated"))
-        return true
+    -- Cheat Engine provides 'synchronize' to execute code on the main thread.
+    if type(synchronize) == "function" then
+        synchronize(fn)
     else
-        logger:Warning(string.format("[State] Memory Record ID=%s failed to %s.",
-            tostring(mr.ID), state and "activate" or "deactivate"))
+        -- Fallback: if not available, execute directly.
+        -- (In standard CE Lua, synchronize exists.)
+        fn()
+    end
+end
+
+--
+--- ∑ Sets the active state of a memory record (direct) on the main thread.
+--- If the record is async, waits for completion up to timeoutMs (no infinite wait).
+--- @param mr MemoryRecord The memory record to modify.
+--- @param state boolean The desired active state (true to activate, false to deactivate).
+--- @param timeoutMs number|nil Max wait time for async processing in milliseconds (default: 2000).
+--- @return boolean # Returns true if the state was set, false otherwise.
+--
+function State:SetMemoryRecordState(mr, state, timeoutMs)
+    if not mr then
+        logger:Warning("[State] SetMemoryRecordState called with nil mr.")
         return false
     end
+    if mr.Active == state then
+        logger:Debug(string.format("[State] Memory Record ID=%s already %s (Description='%s').",
+            tostring(mr.ID), state and "active" or "inactive", tostring(mr.Description)))
+        return true
+    end
+    timeoutMs = tonumber(timeoutMs) or 10000
+    local didTimeout = false
+    local waitedMs = 0
+    local asyncWasProcessing = false
+    local id = tostring(mr.ID)
+    local desc = tostring(mr.Description)
+    self:_RunOnMainThread(function()
+        -- Apply state immediately
+        mr.Active = state
+        if type(processMessages) == "function" then processMessages() end
+        if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
+        -- If async, wait (bounded) until processing finishes
+        if mr.Async then
+            asyncWasProcessing = true
+            -- Start timestamp
+            local startMs = (type(getTickCount) == "function")
+                and getTickCount()
+                or math.floor(os.clock() * 1000)
+            -- Optional: debug line once (not spam)
+            logger:Debug(string.format(
+                "[State] Waiting for async %s of Memory Record ID=%s (Description='%s') up to %dms...",
+                state and "activation" or "deactivation", id, desc, timeoutMs))
+            -- Optional: heartbeat every N ms (debug only)
+            local heartbeatEveryMs = 250
+            local nextHeartbeatMs = startMs + heartbeatEveryMs
+            while mr.AsyncProcessing do
+                if type(processMessages) == "function" then processMessages() end
+                if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
+                if type(sleep) == "function" then sleep(10) end
+                local nowMs = (type(getTickCount) == "function")
+                    and getTickCount()
+                    or math.floor(os.clock() * 1000)
+                waitedMs = nowMs - startMs
+                -- Heartbeat (debug). If you don't want it, set heartbeatEveryMs = nil or 0.
+                if heartbeatEveryMs and heartbeatEveryMs > 0 and nowMs >= nextHeartbeatMs then
+                    logger:Debug(string.format(
+                        "[State] Async still processing ID=%s after %dms (Description='%s').",
+                        id, waitedMs, desc
+                    ))
+                    nextHeartbeatMs = nowMs + heartbeatEveryMs
+                end
+                if waitedMs >= timeoutMs then
+                    didTimeout = true
+                    break
+                end
+            end
+            -- Final waitedMs if loop exited quickly
+            if waitedMs == 0 then
+                local endMs = (type(getTickCount) == "function")
+                    and getTickCount()
+                    or math.floor(os.clock() * 1000)
+                waitedMs = endMs - startMs
+            end
+        end
+    end)
+    -- Post-check (outside main thread OK: read-only)
+    if mr.Active ~= state then
+        logger:Warning(string.format("[State] Failed to %s Memory Record ID=%s (Description='%s'). Active=%s Async=%s AsyncProcessing=%s", id, desc, tostring(mr.Active), tostring(mr.Async), tostring(mr.AsyncProcessing)))
+        return false
+    end
+    if asyncWasProcessing then
+        if didTimeout then
+            logger:Warning(string.format("[State] %s requested for Memory Record ID=%s (Description='%s') but async processing timed out after %dms. AsyncProcessing=%s", id, desc, waitedMs, tostring(mr.AsyncProcessing)))
+        else
+            logger:Info(string.format("[State] Memory Record ID=%s (Description='%s') %s. Async completed in %dms.", id, desc, state and "activated" or "deactivated", waitedMs))
+        end
+    else
+        logger:Info(string.format("[State] Memory Record ID=%s (Description='%s') %s (non-async).", id, desc, state and "activated" or "deactivated"))
+    end
+    return true
 end
 
 --
@@ -472,13 +455,20 @@ function State:RestoreState(stateData)
                 end
             end
             if rec and rec.hotkeys and #rec.hotkeys > 0 then
-                for hotkeyIndex = mr.HotkeyCount - 1, 0, -1 do
-                    mr.Hotkey[hotkeyIndex].destroy()
-                end
-                for _, hotkeyData in ipairs(rec.hotkeys) do
-                    logger:Debug("[State] " .. logger:Stringify(rec.hotkeys))
-                    local hk = mr.createHotkey(hotkeyData.keys, hotkeyData.action, hotkeyData.value, hotkeyData.description)
-                end
+                self:_RunOnMainThread(function()
+                    for hotkeyIndex = mr.HotkeyCount - 1, 0, -1 do
+                        mr.Hotkey[hotkeyIndex].destroy()
+                    end
+                    for _, hotkeyData in ipairs(rec.hotkeys) do
+                        local hk = mr.createHotkey(
+                            hotkeyData.keys,
+                            hotkeyData.action,
+                            hotkeyData.value,
+                            hotkeyData.description)
+                    end
+                    if type(processMessages) == "function" then processMessages() end
+                    if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
+                end)
                 logger:Info(string.format("[State] Restored %d hotkeys for Memory Record ID=%s (Description='%s').",
                     #rec.hotkeys, tostring(mr.ID), tostring(mr.Description)))
             end
