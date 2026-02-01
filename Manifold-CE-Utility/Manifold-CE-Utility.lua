@@ -3,10 +3,10 @@
     --------------------------------
 
     AUTHOR  : Leunsel, LeFiXER
-    VERSION : 1.0.0
+    VERSION : 1.0.1
     LICENSE : MIT
     CREATED : 2025-11-17
-    UPDATED : 2025-11-20
+    UPDATED : 2026-02-01
     
     MIT License:
         Copyright (c) 2025 Leunsel
@@ -416,6 +416,101 @@ local function DeactivateEverything()
     if mf and mf.repaint then mf.repaint() end
 end
 
+local NORMALIZE_TMP_BASE = 1000000000
+
+--
+--- ∑ ...
+--- @param rec table # MemoryRecord
+--- @param out table # array
+--
+local function CollectRecordsRecursive(rec, out)
+    if not rec then return end
+    out[#out + 1] = rec
+    local childCount = 0
+    local okCount, cnt = pcall(function() return rec.Count end)
+    if okCount and type(cnt) == "number" then childCount = cnt end
+    for i = 0, childCount - 1 do
+        local child = nil
+        local okChild = pcall(function()
+            if rec.Child then
+                child = rec.Child[i]
+            else
+                child = rec[i]
+            end
+        end)
+        if okChild and child then
+            CollectRecordsRecursive(child, out)
+        end
+    end
+end
+
+--
+--- ∑ ...
+--- @return table # array of MemoryRecords
+--
+local function GetAllAddressListRecords()
+    local records = {}
+    if not al then
+        FailLog("NormalizeIDs", "AddressList handle unavailable.")
+        return records
+    end
+    for i = 0, al.Count - 1 do
+        local r = al[i]
+        if r then
+            CollectRecordsRecursive(r, records)
+        end
+    end
+    return records
+end
+
+--
+--- ∑ ...
+--- @return nil
+--
+local function NormalizeCheatTableIDs()
+    if not al then
+        FailLog("NormalizeIDs", "AddressList handle unavailable.")
+        return
+    end
+    local records = GetAllAddressListRecords()
+    if #records == 0 then
+        FailLog("NormalizeIDs", "No records found to normalize.")
+        return
+    end
+    local tmpBase = NORMALIZE_TMP_BASE
+    for idx = 1, #records do
+        local r = records[idx]
+        local ok, err = pcall(function()
+            if r.setID then
+                r.setID(tmpBase + idx)
+            else
+                r.ID = tmpBase + idx
+            end
+        end)
+        if not ok then
+            FailLog("NormalizeIDs", "Temp-ID set failed on record #" .. idx .. ": " .. tostring(err))
+        end
+    end
+    for idx = 1, #records do
+        local r = records[idx]
+        local ok, err = pcall(function()
+            if r.setID then
+                r.setID(idx)
+            else
+                r.ID = idx
+            end
+        end)
+        if not ok then
+            FailLog("NormalizeIDs", "Final-ID set failed on record #" .. idx .. ": " .. tostring(err))
+        end
+    end
+    if mf and mf.repaint then
+        local ok, err = pcall(function() mf.repaint() end)
+        if not ok then FailLog("NormalizeIDs", "mf.repaint failed: " .. tostring(err)) end
+    end
+    print("[OK]")
+end
+
 ----------------------------------------
 -- UI CONTROL TOGGLE & COMPACT MODE
 ----------------------------------------
@@ -619,6 +714,7 @@ local function CreateUtilityEntries()
     AddSeparator()
     AddSubItem("Deactivate Scripts",         function() DeactivateActiveScripts() end,                                          Config.Indices.Toggle,      "Ctrl+D")
     AddSubItem("Deactivate Everything",      function() DeactivateEverything() end,                                             Config.Indices.Toggle,      "Ctrl+F")
+    AddSubItem("Normalize Cheat Table IDs",  function() NormalizeCheatTableIDs() end,                                           Config.Indices.Toggle)
     AddSeparator()
     AddSubItem("Toggle Compact Mode",        function() ToggleCompactMode() end,                                                Config.Indices.Open,        "Ctrl+Shift+F")
     AddSeparator()
