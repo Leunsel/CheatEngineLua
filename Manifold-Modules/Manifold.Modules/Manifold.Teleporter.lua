@@ -384,10 +384,12 @@ function Teleporter:LoadSavedPosition()
         return false
     end
     -- savedPosition[3] = savedPosition[3] + 0.000
+    self:PauseGame()
     local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, savedPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
         success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, savedPosition, true, self.Additional.ValueType)
     end
+    self:ResumeGame()
     if success then
         logger:InfoF("[Teleporter] Loaded saved position -> {%.3f, %.3f, %.3f}", savedPosition[1], savedPosition[2], savedPosition[3])
         self:LogDistanceTraveled(currentPosition, savedPosition)
