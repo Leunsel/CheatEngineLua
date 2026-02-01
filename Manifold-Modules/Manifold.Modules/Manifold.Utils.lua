@@ -18,6 +18,9 @@ local DESCRIPTION = "Manifold Framework Utils"
     ∂ v1.0.3 (2025-07-06)
         Synchronized some functions to ensure they run in the main thread.
         This is required for CE 7.6 to execute the functions properly.
+
+    ∂ v1.0.4 (2026-01-09)
+        Added missing property "IsRelease" to Utils class.
 ]]--
 
 Utils = {
@@ -29,7 +32,8 @@ Utils = {
     Version    = "",
     VerifyMD5  = true,
     MD5Hash    = "",
-    AutoDisableTimerInterval = 100,    
+    AutoDisableTimerInterval = 100,  
+    IsRelease = false,      
 }
 Utils.__index = Utils
 
