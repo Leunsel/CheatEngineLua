@@ -1,14 +1,19 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
     ∂ v1.0.0 (2026-01-31)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2026-02-01)
+        Minor changes to logging logic.
 ]]--
 
 AssemblerCommands = {
+    LOG_SIG_MAX_INFO  = 32, -- max chars shown in INFO for signatures
+    LOG_SIG_MAX_DEBUG = 64  -- max chars shown in DEBUG for signatures
 }
 AssemblerCommands.__index = AssemblerCommands
 
@@ -191,6 +196,21 @@ function AssemblerCommands:_sigId(sig)
 end
 
 --
+--- ∑ Creates a compact signature summary for logs (id + len + preview).
+--- @param sig any # Signature string.
+--- @param maxLen number|nil # Preview max length.
+--- @return string
+--
+function AssemblerCommands:_sigSummary(sig, maxLen)
+    sig = self:_stripQuotes(sig or "")
+    local id  = self:_sigId(sig)
+    local len = #sig
+    maxLen = maxLen or self.LOG_SIG_MAX_INFO or 64
+    local preview = self:_shorten(sig, maxLen)
+    return string.format("%s (len=%d) %s", id, len, preview)
+end
+
+--
 --- ∑ Formats a debug dump of parsed arguments for logging and diagnostics.
 --- @param args table # Parsed argument array.
 --- @param maxSigLen number|nil # Max signature length to display (default: 140).
@@ -225,14 +245,14 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     local rawSig    = signature
     moduleName = self:_stripQuotes(moduleName)
     signature  = self:_stripQuotes(signature)
-    local sigShort = self:_shorten(signature, 140)
-    local sigId    = self:_sigId(signature)
+    local sigId = self:_sigId(signature)
+    logger:Info("[AssemblerCommands] Scan")
+    logger:InfoF("[AssemblerCommands]   Module: %s", tostring(moduleName))
+    logger:InfoF("[AssemblerCommands]   Signature: %s", self:_sigSummary(signature, self.LOG_SIG_MAX_INFO))
     logger:Debug("[AssemblerCommands] Scan Request")
     logger:DebugF("[AssemblerCommands]   Module (Raw): %s", tostring(rawModule))
-    logger:DebugF("[AssemblerCommands]   Module: %s", tostring(moduleName))
+    logger:DebugF("[AssemblerCommands]   Signature (Raw): %s", self:_shorten(rawSig, self.LOG_SIG_MAX_DEBUG or 180))
     logger:DebugF("[AssemblerCommands]   Signature ID: %s", tostring(sigId))
-    logger:DebugF("[AssemblerCommands]   Signature (Raw): %s", self:_shorten(rawSig, 140))
-    logger:DebugF("[AssemblerCommands]   Signature: %s", sigShort)
     logger:DebugF("[AssemblerCommands]   Protection: %s", tostring(protectionFlags))
     logger:DebugF("[AssemblerCommands]   Alignment Type : %s", tostring(alignmentType))
     logger:DebugF("[AssemblerCommands]   Alignment Param: %s", tostring(alignmentParam))
@@ -268,7 +288,6 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
         logger:Warning("[AssemblerCommands]   Status: Not Found / Not Unique")
         logger:WarningF("[AssemblerCommands]   Signature ID: %s", sigId)
         logger:WarningF("[AssemblerCommands]   Module: %s", tostring(moduleName))
-        logger:DebugF("[AssemblerCommands]   Signature: %s", sigShort)
         return nil, "AOB not found or not unique"
     end
     logger:Info("[AssemblerCommands] Scan Result")
@@ -292,22 +311,15 @@ function AssemblerCommands:_cmd_aobScanModule()
         local alignType  = self:_parseNumber(args[5])
         local alignParam = self:_parseNumber(args[6])
         local phase = (syntaxcheck and "SYNTAXCHECK" or "EXECUTE")
-        if syntaxcheck then
-            logger:Info("[AssemblerCommands] ManifoldScanModule")
-            logger:InfoF("[AssemblerCommands]   Phase: %s", phase)
-            logger:InfoF("[AssemblerCommands]   Parameters: %s", tostring(parameters))
-        else
-            logger:Info("[AssemblerCommands] ManifoldScanModule")
-            logger:InfoF("[AssemblerCommands]   Phase: %s", phase)
-            logger:InfoF("[AssemblerCommands]   Parameters: %s", tostring(parameters))
-        end
-        logger:Info("[AssemblerCommands] Parsed Arguments")
+        logger:Info("[AssemblerCommands] ManifoldScanModule")
+        logger:InfoF("[AssemblerCommands]   Phase: %s", phase)
         logger:InfoF("[AssemblerCommands]   Symbol: %s", tostring(symbol))
         logger:InfoF("[AssemblerCommands]   Module: %s", tostring(moduleName))
-        logger:InfoF("[AssemblerCommands]   Signature: %s", self:_shorten(signature, 140))
-        logger:InfoF("[AssemblerCommands]   Protection: %s", tostring(args[4]))
-        logger:InfoF("[AssemblerCommands]   Align Type: %s", tostring(args[5]))
-        logger:InfoF("[AssemblerCommands]   Align Param: %s", tostring(args[6]))
+        logger:InfoF("[AssemblerCommands]   Signature: %s", self:_sigSummary(signature, self.LOG_SIG_MAX_INFO))
+        logger:DebugF("[AssemblerCommands]   Parameters: %s", tostring(parameters))
+        logger:DebugF("[AssemblerCommands]   Protection: %s", tostring(args[4]))
+        logger:DebugF("[AssemblerCommands]   Align Type: %s", tostring(args[5]))
+        logger:DebugF("[AssemblerCommands]   Align Param: %s", tostring(args[6]))
         if not symbol or symbol == "" then
             logger:Error("[AssemblerCommands] ManifoldScanModule Error")
             logger:Error("[AssemblerCommands]   Reason: Missing symbol (Argument 1)")
@@ -327,14 +339,14 @@ function AssemblerCommands:_cmd_aobScanModule()
         local moduleN = self:_stripQuotes(moduleName)
         local sigN    = self:_stripQuotes(signature)
         local sigId   = self:_sigId(sigN)
-        logger:Info("[AssemblerCommands] Normalized Values")
-        logger:InfoF("[AssemblerCommands]   Symbol: %s", symbolN)
-        logger:InfoF("[AssemblerCommands]   Module: %s", moduleN)
-        logger:InfoF("[AssemblerCommands]   Signature ID: %s", sigId)
-        logger:InfoF("[AssemblerCommands]   Signature: %s", self:_shorten(sigN, 140))
-        logger:InfoF("[AssemblerCommands]   Protection: %s", tostring(prot))
-        logger:InfoF("[AssemblerCommands]   Align Type: %s", tostring(alignType))
-        logger:InfoF("[AssemblerCommands]   Align Param: %s", tostring(alignParam))
+        logger:Debug("[AssemblerCommands] Normalized Values")
+        logger:DebugF("[AssemblerCommands]   Symbol: %s", symbolN)
+        logger:DebugF("[AssemblerCommands]   Module: %s", moduleN)
+        logger:DebugF("[AssemblerCommands]   Signature ID: %s", sigId)
+        logger:DebugF("[AssemblerCommands]   Signature: %s", self:_shorten(sigN, self.LOG_SIG_MAX_DEBUG or 180))
+        logger:DebugF("[AssemblerCommands]   Protection: %s", tostring(prot))
+        logger:DebugF("[AssemblerCommands]   Align Type: %s", tostring(alignType))
+        logger:DebugF("[AssemblerCommands]   Align Param: %s", tostring(alignParam))
         if syntaxcheck then
             logger:Info("[AssemblerCommands] Result")
             logger:Info("[AssemblerCommands]   Action: Returning define(symbol, 0)")
@@ -343,7 +355,6 @@ function AssemblerCommands:_cmd_aobScanModule()
         end
         logger:Info("[AssemblerCommands] Resolve")
         logger:InfoF("[AssemblerCommands]   Symbol: %s", symbolN)
-        logger:InfoF("[AssemblerCommands]   Module: %s", moduleN)
         logger:InfoF("[AssemblerCommands]   Signature ID: %s", sigId)
         local addr, err = self:_aobScanModuleUnique(moduleN, sigN, prot, alignType, alignParam)
         if not addr then
@@ -358,8 +369,8 @@ function AssemblerCommands:_cmd_aobScanModule()
         logger:Info("[AssemblerCommands] Resolve OK")
         logger:InfoF("[AssemblerCommands]   Symbol: %s", symbolN)
         logger:InfoF("[AssemblerCommands]   Address: %016X", addr)
-        logger:InfoF("[AssemblerCommands]   Signature ID: %s", sigId)
         logger:InfoF("[AssemblerCommands]   Replace Line: %s", replace)
+
         return replace
     end
 end
