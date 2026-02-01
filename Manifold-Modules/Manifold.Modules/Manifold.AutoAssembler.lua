@@ -8,8 +8,7 @@ local DESCRIPTION = "Manifold Framework Auto-Assembler"
         Initial release with core functions.
     
     ∂ v1.0.1 (2025-07-06)
-        Fixed a typo in the MainForm.OnProcessOpened Override which
-        prevented the States from being reset correctly.
+        Fixed a typo in the MainForm.OnProcessOpened Override which prevented the States from being reset correctly.
 ]]--
 
 AutoAssembler = {
