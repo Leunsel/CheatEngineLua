@@ -1,6 +1,6 @@
 local NAME = "Manifold.Callbacks.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.3"
+local VERSION = "1.0.4"
 local DESCRIPTION = "Manifold Framework Callbacks"
 
 --[[
@@ -19,6 +19,11 @@ local DESCRIPTION = "Manifold Framework Callbacks"
         Prepared MainForm OnClose override for proper deactivation
         of active Auto Assembler scripts before closing.
         TODO: Implement the deactivation logic.
+        
+    ∂ v1.0.4 (2025-12-30)
+        Removed the MainForm OnClose override temporarily due to issues
+        with Cheat Engine's closing process. Will revisit later.
+        (Error: Cheat Engine does not close properly when this override is active.)
 ]]--
 
 Callbacks = {
@@ -455,7 +460,8 @@ end
 --- It ensures that all scripts are properly deactivated before closing.
 --- @param ... any # Additional parameters passed to the original OnClose function
 --
-local o_MainForm_OnClose = MainForm and MainForm.OnClose
+--[[
+o_MainForm_OnClose = MainForm and MainForm.OnClose
 MainForm.OnClose = function(sender)
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
@@ -480,10 +486,17 @@ MainForm.OnClose = function(sender)
         end
     end
     logger:Debug("[Callbacks] Cheat Table is ready to close. All Auto Assembler scripts deactivated.")
+    -- Call original handler, but IGNORE its return value
     if o_MainForm_OnClose then
-        return o_MainForm_OnClose(sender)
+        pcall(o_MainForm_OnClose, sender)
+    else
+        logger:Debug("[Callbacks] No original MainForm.OnClose handler to call. What the- *panic*")
     end
+    logger:Info("[Callbacks] Alright, last  chance, buddy! Closing Cheat Table using pure force now! (caFree)")
+    -- ALWAYS allow close
+    return caFree
 end
+]]
 
 --------------------------------------------------------
 --                   Module End                       --
