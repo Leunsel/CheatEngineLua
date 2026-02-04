@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -9,6 +9,9 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
 
     ∂ v1.0.1 (2026-02-01)
         Minor changes to logging logic.
+
+    ∂ v1.0.2 (2026-02-02)
+        Added custom Manifold Assert Logic.
 ]]--
 
 AssemblerCommands = {
@@ -231,6 +234,90 @@ function AssemblerCommands:_fmtArgDump(args, maxSigLen)
 end
 
 --
+--- ∑ ...
+--
+function AssemblerCommands:_parseBytesPattern(pattern)
+    pattern = self:_stripQuotes(pattern or "")
+    pattern = self:_trim(pattern)
+    if pattern == "" then return nil, "empty bytes pattern" end
+    local out = {}
+    for tok in pattern:gmatch("%S+") do
+        tok = tok:upper()
+        if tok == "??" or tok == "**" or tok == "?*" or tok == "*?" then
+            out[#out+1] = nil -- wildcard
+        elseif tok:match("^[0-9A-F][0-9A-F]$") then
+            out[#out+1] = tonumber(tok, 16)
+        else
+            return nil, "invalid byte token: " .. tok
+        end
+    end
+    if #out == 0 then return nil, "empty bytes pattern" end
+    return out, nil
+end
+
+--
+--- ∑ ...
+--
+function AssemblerCommands:_readBytes(addr, count)
+    local rb = rawget(_G, "readBytes")
+    if type(rb) ~= "function" then
+        return nil, "readBytes not available"
+    end
+    -- readBytes(addr, count, true) -> table {b1,b2,...}
+    local ok, t = pcall(function() return rb(addr, count, true) end)
+    if not ok then
+        return nil, tostring(t)
+    end
+    if type(t) ~= "table" then
+        return nil, "readBytes returned non-table"
+    end
+    return t, nil
+end
+
+--
+--- ∑ ...
+--
+function AssemblerCommands:_resolveAddress(expr)
+    expr = self:_stripQuotes(expr or "")
+    expr = self:_trim(expr)
+    if expr == "" then return nil, "empty address expr" end
+    -- getAddressSafe gets priority
+    local gas = rawget(_G, "getAddressSafe")
+    if type(gas) == "function" then
+        local ok, a = pcall(function() return gas(expr) end)
+        if ok and a then return a, nil end
+    end
+    -- fallback: getAddress
+    local ga = rawget(_G, "getAddress")
+    if type(ga) == "function" then
+        local ok, a = pcall(function() return ga(expr) end)
+        if ok and a then return a, nil end
+        if not ok then return nil, tostring(a) end
+    end
+    -- fallback: number parse (0x / $ / dec)
+    local n = self:_parseNumber(expr)
+    if n then return n, nil end
+
+    return nil, "could not resolve address: " .. expr
+end
+
+--
+--- ∑ ...
+--
+function AssemblerCommands:_fmtBytes(t)
+    local parts = {}
+    for i = 1, #t do
+        local v = t[i]
+        if v == nil then
+            parts[#parts+1] = "??"
+        else
+            parts[#parts+1] = string.format("%02X", v)
+        end
+    end
+    return table.concat(parts, " ")
+end
+
+--
 --- ∑ Performs a unique AOB scan within a module and returns the resolved address (or an error).
 --- @param moduleName string # Target module name (quotes allowed).
 --- @param signature string # AOB signature/pattern (quotes allowed).
@@ -293,7 +380,7 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     logger:Info("[AssemblerCommands] Scan Result")
     logger:Info("[AssemblerCommands]   Status: OK")
     logger:InfoF("[AssemblerCommands]   Signature ID: %s", sigId)
-    logger:InfoF("[AssemblerCommands]   Address: %016X", addrOrErr)
+    logger:InfoF("[AssemblerCommands]   Address: %s", getNameFromAddress(addrOrErr))
     return addrOrErr, nil
 end
 
@@ -303,6 +390,15 @@ end
 --
 function AssemblerCommands:_cmd_aobScanModule()
     return function(parameters, syntaxcheck)
+        local phase = (syntaxcheck and "SYNTAXCHECK" or "EXECUTE")
+        logger:Info("[AssemblerCommands] ManifoldScanModule")
+        logger:InfoF("[AssemblerCommands]   Phase: %s", phase)
+        if syntaxcheck then
+            local args = self:_splitArgsComma(parameters)
+            local symbol = args[1]
+            local symbolN = self:_stripQuotes(symbol or "ManifoldScanModule_Symbol")
+            return string.format("define(%s, %016X)", symbolN, 0)
+        end
         local args = self:_splitArgsComma(parameters)
         local symbol     = args[1]
         local moduleName = args[2]
@@ -310,9 +406,6 @@ function AssemblerCommands:_cmd_aobScanModule()
         local prot       = self:_parseNumber(args[4])
         local alignType  = self:_parseNumber(args[5])
         local alignParam = self:_parseNumber(args[6])
-        local phase = (syntaxcheck and "SYNTAXCHECK" or "EXECUTE")
-        logger:Info("[AssemblerCommands] ManifoldScanModule")
-        logger:InfoF("[AssemblerCommands]   Phase: %s", phase)
         logger:InfoF("[AssemblerCommands]   Symbol: %s", tostring(symbol))
         logger:InfoF("[AssemblerCommands]   Module: %s", tostring(moduleName))
         logger:InfoF("[AssemblerCommands]   Signature: %s", self:_sigSummary(signature, self.LOG_SIG_MAX_INFO))
@@ -347,12 +440,6 @@ function AssemblerCommands:_cmd_aobScanModule()
         logger:DebugF("[AssemblerCommands]   Protection: %s", tostring(prot))
         logger:DebugF("[AssemblerCommands]   Align Type: %s", tostring(alignType))
         logger:DebugF("[AssemblerCommands]   Align Param: %s", tostring(alignParam))
-        if syntaxcheck then
-            logger:Info("[AssemblerCommands] Result")
-            logger:Info("[AssemblerCommands]   Action: Returning define(symbol, 0)")
-            logger:InfoF("[AssemblerCommands]   Symbol: %s", symbolN)
-            return string.format("define(%s, %016X)", symbolN, 0)
-        end
         logger:Info("[AssemblerCommands] Resolve")
         logger:InfoF("[AssemblerCommands]   Symbol: %s", symbolN)
         logger:InfoF("[AssemblerCommands]   Signature ID: %s", sigId)
@@ -365,13 +452,82 @@ function AssemblerCommands:_cmd_aobScanModule()
             logger:ErrorF("[AssemblerCommands]   Error: %s", tostring(err))
             return nil, err
         end
-        local replace = string.format("define(%s, %016X)", symbolN, addr)
+        local replace = string.format("define(%s, %s)", symbolN, getNameFromAddress(addr))
         logger:Info("[AssemblerCommands] Resolve OK")
         logger:InfoF("[AssemblerCommands]   Symbol: %s", symbolN)
-        logger:InfoF("[AssemblerCommands]   Address: %016X", addr)
+        logger:InfoF("[AssemblerCommands]   Address: %s", getNameFromAddress(addr))
         logger:InfoF("[AssemblerCommands]   Replace Line: %s", replace)
 
         return replace
+    end
+end
+
+--
+--- ∑ ...
+--
+function AssemblerCommands:_cmd_manifoldAssert()
+    return function(parameters, syntaxcheck)
+        local phase = (syntaxcheck and "SYNTAXCHECK" or "EXECUTE")
+        logger:Info("[AssemblerCommands] ManifoldAssert")
+        logger:InfoF("[AssemblerCommands]   Phase: %s", phase)
+        if syntaxcheck then
+            return ""
+        end
+        local args = self:_splitArgsComma(parameters)
+        local addrExpr = args[1]
+        local bytesPat = args[2]
+        logger:DebugF("[AssemblerCommands]   Parameters: %s", tostring(parameters))
+        if not addrExpr or self:_trim(addrExpr) == "" then
+            logger:Warning("[AssemblerCommands] ManifoldAssert: missing address (arg1)")
+            return ""
+        end
+        if not bytesPat or self:_trim(bytesPat) == "" then
+            logger:Warning("[AssemblerCommands] ManifoldAssert: missing bytes (arg2)")
+            return ""
+        end
+        local addr, addrErr = self:_resolveAddress(addrExpr)
+        if not addr then
+            logger:WarningF("[AssemblerCommands] ManifoldAssert: cannot resolve address '%s': %s",
+                tostring(addrExpr), tostring(addrErr))
+            return ""
+        end
+        local expected, patErr = self:_parseBytesPattern(bytesPat)
+        if not expected then
+            logger:WarningF("[AssemblerCommands] ManifoldAssert: invalid bytes pattern: %s", tostring(patErr))
+            return ""
+        end
+        local actual, readErr = self:_readBytes(addr, #expected)
+        if not actual then
+            logger:WarningF("[AssemblerCommands] ManifoldAssert: readBytes failed at %s: %s", getNameFromAddress(addr), tostring(readErr))
+            return ""
+        end
+        -- Compare (ignore wildcards)
+        local mismatchAt = nil
+        for i = 1, #expected do
+            local e = expected[i]
+            if e ~= nil then
+                local a = actual[i]
+                if a ~= e then
+                    mismatchAt = i
+                    break
+                end
+            end
+        end
+        if mismatchAt then
+            logger:ForceWarning("[AssemblerCommands] ManifoldAssert mismatch")
+            logger:ForceWarningF("[AssemblerCommands]   Address: %s", getNameFromAddress(addr))
+            logger:ForceWarningF("[AssemblerCommands]   Expected: %s", self:_fmtBytes(expected))
+            local actualFmt = {}
+            for i = 1, #expected do actualFmt[i] = actual[i] end
+            logger:ForceWarningF("[AssemblerCommands]   Actual  : %s", self:_fmtBytes(actualFmt))
+            logger:ForceWarningF("[AssemblerCommands]   First mismatch at +%X (index %d)", mismatchAt - 1, mismatchAt)
+            logger:ForceWarning("[AssemblerCommands]   Note: This is not necessarily a bad thing, but it indicates the code does differ.")
+            return ""
+        end
+        logger:Info("[AssemblerCommands] ManifoldAssert OK")
+        logger:InfoF("[AssemblerCommands]   Address: %s", getNameFromAddress(addr))
+        logger:InfoF("[AssemblerCommands]   Bytes   : %s", self:_fmtBytes(expected))
+        return ""
     end
 end
 
@@ -387,6 +543,8 @@ function AssemblerCommands:RegisterCoreCommands()
     end
     reg("ManifoldScanModule", self:_cmd_aobScanModule())
     logger:InfoF("[AssemblerCommands] Registered Assembler Command: %s", "ManifoldScanModule")
+    reg("ManifoldAssert", self:_cmd_manifoldAssert())
+    logger:InfoF("[AssemblerCommands] Registered Assembler Command: %s", "ManifoldAssert")
     return true
 end
 registerLuaFunctionHighlight('RegisterCoreCommands')
