@@ -1,6 +1,6 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "2.0.0"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
@@ -9,161 +9,229 @@ local DESCRIPTION = "Manifold Framework Auto-Assembler"
     
     ∂ v1.0.1 (2025-07-06)
         Fixed a typo in the MainForm.OnProcessOpened Override which prevented the States from being reset correctly.
+
+    ∂ v2.0.0 (2026-02-12)
+        Refactored the entire module to improve maintainability and extensibility.
+        Added detailed logging for better debugging and user feedback.
+        Implemented a transactional system to allow rolling back changes if a script fails.
+        Improved error handling to provide clearer messages and prevent partial application of scripts.
 ]]--
 
 AutoAssembler = {
     States = {},
     RequiredProcess = "",
-    GameModuleIndex = "",
-    PrintErrors = true,
-    LocalFilesFolder = 'CEA',
-    FileExtension = '.CEA',
+    LocalFilesFolder = "CEA",
+    FileExtension = ".CEA",
     BreakOnError = true,
+    _instance = nil,
+    _lastKnownPid = nil,
+    _txDepth = 0,
+    _txStack = nil,
+    _processChangedMsg = nil,
 }
 AutoAssembler.__index = AutoAssembler
 
-function AutoAssembler:New()
-    local instance = setmetatable({}, self)
-    self:CheckDependencies()
-    instance.Name = NAME or "Unnamed Module"
-    return instance
-end
-registerLuaFunctionHighlight('New')
-
 --
---- ∑ Retrieves module metadata as a structured table.
---- @return table  {name, version, author, description}
---
-function AutoAssembler:GetModuleInfo()
-    return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
-end
-registerLuaFunctionHighlight('GetModuleInfo')
-
---
---- ∑ Prints module details in a readable formatted block.
---
-function AutoAssembler:PrintModuleInfo()
-    local info = self:GetModuleInfo()
-    if not info then
-        logger:Info("[AutoAssembler] Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
-    local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
-end
-registerLuaFunctionHighlight('PrintModuleInfo')
-
---------------------------------------------------------
---                  Module Start                      --
---------------------------------------------------------
-
---
---- ∑ ...
+--- ∑ Ensures all required modules are loaded and ready to use.
+---   This function tries to load missing dependencies via CETrequire and initializes them if needed.
+--- @return nil
 --
 function AutoAssembler:CheckDependencies()
     local dependencies = {
-        { name = "json", path = "Manifold.Json",  init = function() json = JSON:new() end },
-        { name = "logger", path = "Manifold.Logger",  init = function() logger = Logger:New() end },
+        { name = "json", path = "Manifold.Json", init = function() json = JSON:new() end },
+        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end },
         { name = "customIO", path = "Manifold.CustomIO", init = function() customIO = CustomIO:New() end },
         { name = "processHandler", path = "Manifold.ProcessHandler", init = function() processHandler = ProcessHandler:New() end },
     }
     for _, dep in ipairs(dependencies) do
         local depName = dep.name
         if _G[depName] == nil then
-            logger:Warning("[Auto-Assembler] '" .. depName .. "' dependency not found. Attempting to load...")
-            local success, result = pcall(CETrequire, dep.path)
-            if success then
-                logger:Info("[Auto-Assembler] Loaded dependency '" .. depName .. "'.")
-                if dep.init then dep.init() end
+            if _G.logger then
+                logger:Warning("[Auto-Assembler] Missing dependency '" .. depName .. "'. Trying to load it now...")
+            end
+            local ok, err = pcall(CETrequire, dep.path)
+            if ok then
+                if _G.logger then
+                    logger:Info("[Auto-Assembler] Dependency '" .. depName .. "' loaded successfully.")
+                end
+                if dep.init then
+                    dep.init()
+                end
             else
-                logger:Error("[Auto-Assembler] Failed to load dependency '" .. depName .. "': " .. result)
+                if _G.logger then
+                    logger:Error("[Auto-Assembler] Could not load '" .. depName .. "'. Reason: " .. tostring(err))
+                end
             end
         else
-            logger:Debug("[Auto-Assembler] Dependency '" .. depName .. "' is already loaded")
+            if _G.logger then
+                logger:Debug("[Auto-Assembler] Dependency '" .. depName .. "' is already available.")
+            end
         end
     end
 end
 
-function callableObject(properties, baseClass)
-    local obj = properties or {}
-    if baseClass then
-        setmetatable(obj, { __index = baseClass })
-    end
-    setmetatable(obj, {
-        __call = function(self, ...)
-            return self
-        end
-    })
-    return obj
-end
-
-local State = callableObject({
-    Name = nil,
-    DisableInfo = nil,
-    memrec = nil,
-    Active = false,
-    TargetSelf = false,
-}, Object)
-
 --
---- ∑ Retrieves the state key associated with the given file name.
----   If the file name ends with the expected file extension, it strips the extension and returns the base name.
----   If the file name does not match the expected pattern, it returns the original file name.
---- @param name string # The file name for which to derive the state key.
---- @return string|nil # Returns the derived state key (base name) or the original name if no match is found.
+--- ∑ ...
 --
-function AutoAssembler:GetStateKey(name)
-    if type(name) ~= "string" then
-        logger:Error("[Auto-Assembler] Invalid file name type. Expected string, got '" .. type(name) .. "'.")
-        return nil
-    end
-    local fileExtensionPattern = self.FileExtension:lower()
-    local lowerName = name:lower()
-    if lowerName:find(fileExtensionPattern .. '$') then
-        local baseName = name:sub(1, #name - #fileExtensionPattern)
-        if baseName and baseName ~= "" then
-            logger:Info("[Auto-Assembler] Extracted base name (State Key) '" .. baseName .. "' from '" .. name .. "'.")
-            return baseName
-        else
-            logger:Warning("[Auto-Assembler] File name match failed for '" .. name .. "'. Returning the original name.")
-        end
-    end
-    return name
+function AutoAssembler:New()
+    local instance = setmetatable({}, self)
+    instance:CheckDependencies()
+    instance.Name = NAME or "Unnamed Module"
+    instance.States = {}
+    instance._txDepth = 0
+    instance._txStack = nil
+    instance._lastKnownPid = getOpenedProcessID()
+    return instance
 end
 
 --
---- ∑ Updates or creates a state for a given file.
----   This function checks if the state for a given file exists or not, then updates or creates it accordingly.
---- @param fileName string # The name of the file for which the state is being updated.
---- @param memrec table|nil # The memory record associated with the state (optional).
---- @param targetSelf boolean # A flag indicating whether the assembly is targeting the self process.
---- @return table|nil # Returns the updated state or 'nil' if an error occurs.
+--- ∑ Returns the singleton AutoAssembler instance.
+---   If the instance does not exist yet, it will be created.
+--- @return table # Returns the singleton AutoAssembler instance.
 --
-function AutoAssembler:UpdateState(fileName, memrec, targetSelf)
-    if type(fileName) ~= "string" then
-        logger:Error("[Auto-Assembler] Invalid file name type. Expected string, got %s.", type(fileName))
-        return nil
+function AutoAssembler:GetInstance()
+    if not self._instance then
+        self._instance = self:New()
     end
-    local stateKey = self:GetStateKey(fileName)
-    if not stateKey then
-        logger:Error("[Auto-Assembler] Failed to derive state key for '".. fileName .."'.")
-        return nil
+    return self._instance
+end
+
+function _isString(v) return type(v) == "string" end
+function _trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+--
+--- ∑ Returns module metadata.
+---   This includes name, version, author, and description.
+--- @return table # Returns a metadata table.
+--
+function AutoAssembler:GetModuleInfo()
+    return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
+end
+
+--
+--- ∑ Sets the expected process name for this table.
+---   If a different process is attached, the Auto-Assembler will refuse to run scripts.
+--- @param processName string # The expected process name.
+--- @return nil
+--
+function AutoAssembler:SetProcessName(processName)
+    if type(processName) ~= "string" then
+        logger:Error("[Auto-Assembler] Process name must be a text value.")
+        return
     end
-    local state = self.States[stateKey] or { name = fileName, Active = false, TargetSelf = false, memrec = nil, DisableInfo = nil }
-    state.memrec = memrec
-    state.TargetSelf = targetSelf
-    state.Active = (memrec and not memrec.Active) or not state.Active
-    if not state.Active then
-        state.DisableInfo = state.DisableInfo or "Disabled due to memory record inactivity"
-    else
-        state.DisableInfo = nil
+    self.RequiredProcess = processName
+    logger:Info("[Auto-Assembler] This table is configured for: " .. processName)
+end
+
+--
+--- ∑ Retrieves the currently opened process id from Cheat Engine.
+---   This is used to detect process changes.
+--- @return number|nil # Returns the process id or nil if it cannot be read.
+--
+function AutoAssembler:_currentPid()
+    local ok, pid = pcall(getOpenedProcessID)
+    if ok then
+        return pid
     end
-    self.States[stateKey] = state
-    return state
+    return nil
+end
+
+--
+--- ∑ Validates that a process is attached and matches the required process name.
+---   This function throws an error if the process is missing or wrong.
+--- @return nil
+--
+function AutoAssembler:_validateProcessOrThrow()
+    if not processHandler or not processHandler.IsProcessAttached then
+        error("[Auto-Assembler] Internal error: Process handler is not available.", 3)
+    end
+    if not processHandler:IsProcessAttached() then
+        error("[Auto-Assembler] No process is attached. Please attach to the game first.", 3)
+    end
+    local attachedProcess = processHandler:GetAttachedProcessName()
+    if self.RequiredProcess and self.RequiredProcess ~= "" and attachedProcess ~= self.RequiredProcess then
+        error("[Auto-Assembler] Wrong process attached. Expected: " ..
+            self.RequiredProcess ..
+            " | Current: " ..
+            tostring(attachedProcess), 3)
+    end
+end
+
+--
+--- ∑ Resets the Auto-Assembler state completely.
+---   This is used after a process change to ensure the Auto-Assembler starts fresh.
+--- @param reason string|nil # A human-friendly reason that will be logged.
+--- @return nil
+--
+function AutoAssembler:Reset(reason)
+    self.States = {}
+    self._txDepth = 0
+    self._txStack = nil
+    if reason and reason ~= "" then
+        logger:ForceInfo("[Auto-Assembler] Reset completed. Reason: " .. reason)
+    else 
+        logger:ForceInfo("[Auto-Assembler] Reset completed.")
+    end
+end
+
+--
+--- ∑ Disables all records without executing their [DISABLE] sections.
+---   This is used after a process change to avoid running old disable logic in a new process.
+--- @return boolean # Returns 'true' if the call succeeded, otherwise 'false'.
+--
+function AutoAssembler:DisableAllWithoutExecute()
+    if not AddressList or not AddressList.disableAllWithoutExecute then
+        logger:Warning("[Auto-Assembler] Could not disable records safely (AddressList.disableAllWithoutExecute is not available).")
+        return false
+    end
+    local ok, err = pcall(function()
+        AddressList.disableAllWithoutExecute()
+        deleteAllRegisteredSymbols()
+    end)
+    if ok then
+        logger:Info("[Auto-Assembler] All table records were disabled safely (without executing disable scripts).")
+        return true
+    end
+    logger:Error("[Auto-Assembler] Failed to disable records safely. Reason: " .. tostring(err))
+    return false
+end
+
+--
+--- ∑ Handles a detected process change and aborts execution.
+---   This function safely disables records without executing disable scripts, resets internal state, and throws an error.
+--- @param oldPid number # Previous process id.
+--- @param newPid number # Current process id.
+--- @return nil
+--
+function AutoAssembler:_markProcessChangedAndThrow(oldPid, newPid)
+    local msg = "[Auto-Assembler] The game session changed. To prevent broken hooks, everything was reset. Please run the script again."
+    self._processChangedMsg = msg
+    logger:ForceInfo("[Auto-Assembler] A new game session was detected. Resetting to keep everything safe...")
+    self:DisableAllWithoutExecute()
+    self:Reset("Game session changed")
+    -- error(msg, 3)
+end
+
+--
+--- ∑ Checks if the attached process id changed since the last run.
+---   If it changed, the Auto-Assembler will reset and abort.
+--- @return nil
+--
+function AutoAssembler:_checkProcessChangedOrThrow()
+    local pid = self:_currentPid()
+    if pid == nil then
+        logger:Warning("[Auto-Assembler] Could not read the current process id. Continuing anyway.")
+        return
+    end
+    if self._lastKnownPid == nil then
+        self._lastKnownPid = pid
+        return
+    end
+    if pid ~= self._lastKnownPid then
+        local oldPid = self._lastKnownPid
+        self._lastKnownPid = pid
+        self:_markProcessChangedAndThrow(oldPid, pid)
+    end
 end
 
 --
@@ -172,23 +240,27 @@ end
 --- @return boolean # Returns 'true' if all directories are successfully created, otherwise 'false'.
 --
 function AutoAssembler:EnsureDirectoriesExist()
+    if not customIO or not customIO.EnsureDataDirectory then
+        logger:Error("[Auto-Assembler] File system support is not available (customIO missing).")
+        return false
+    end
     if not customIO:EnsureDataDirectory() then
-        logger:Error("[Auto-Assembler] Failed to ensure base data directory.")
+        logger:Error("[Auto-Assembler] Could not prepare the base data folder.")
         return false
     end
     local ceaDir = string.format("%s/%s", customIO.DataDir, self.LocalFilesFolder)
     if not customIO:EnsureDirectoryExists(ceaDir) then
-        logger:Error("[Auto-Assembler] Failed to create/check directory: " .. ceaDir)
+        logger:Error("[Auto-Assembler] Could not prepare the CEA folder: " .. ceaDir)
         return false
     end
-    local processName = processHandler:GetAttachedProcessName()
+    local processName = processHandler and processHandler:GetAttachedProcessName() or nil
     if not processName then
-        logger:Error("[Auto-Assembler] No process attached. Cannot determine process-specific directory.")
+        logger:Error("[Auto-Assembler] No process attached. Cannot prepare process-specific CEA folder.")
         return false
     end
     local processDir = string.format("%s/%s", ceaDir, extractFileNameWithoutExt(processName))
     if not customIO:EnsureDirectoryExists(processDir) then
-        logger:Error("[Auto-Assembler] Failed to create/check process-specific directory: " .. processDir)
+        logger:Error("[Auto-Assembler] Could not prepare the process-specific folder: " .. processDir)
         return false
     end
     return true
@@ -215,195 +287,319 @@ end
 --
 function AutoAssembler:GetFilePath(fileName)
     if not self:EnsureDirectoriesExist() then
-        logger:Error("[Auto-Assembler] Directory check failed. Cannot get file path.")
+        logger:Error("[Auto-Assembler] Folder check failed. Cannot load side-loaded script files.")
         return nil
     end
     local processName = processHandler:GetAttachedProcessName()
     if not processName then
-        logger:Error("[Auto-Assembler] No process attached. Cannot generate file path.")
+        logger:Error("[Auto-Assembler] No process attached. Cannot build file path.")
         return nil
     end
-    return customIO.DataDir .. "\\" .. self.LocalFilesFolder .. "\\" .. extractFileNameWithoutExt(processName) .. "\\" .. self:FormatFileName(fileName)
+    return customIO.DataDir ..
+        "\\" ..
+        self.LocalFilesFolder ..
+        "\\" ..
+        extractFileNameWithoutExt(processName) ..
+        "\\" ..
+        self:FormatFileName(fileName)
 end
 
 --
---- ∑ Validates if the current process is valid.
----   This function checks if a process is attached and whether it matches the required process name.
---- @return boolean # Returns 'true' if the process is valid, otherwise 'false'.
+--- ∑ Loads an Auto-Assembler script from either raw text or from a side-loaded file.
+---   If the input contains line breaks, it is treated as raw script text.
+---   Otherwise it is treated as a file name and loaded from the process-specific side-loading folder.
+--- @param nameOrText string # A script text or a file name.
+--- @return string|nil, string # Returns the script text on success, otherwise nil plus a human-readable error.
 --
-function AutoAssembler:ValidateProcess()
-    if not processHandler:IsProcessAttached() then
-        logger:Error("[Auto-Assembler] Not attached to any process.")
-        return false
+function AutoAssembler:_loadScriptText(nameOrText)
+    if not _isString(nameOrText) then
+        return nil, "Script input must be text (file name or raw script)."
     end
-    local attachedProcess = processHandler:GetAttachedProcessName()
-    if self.RequiredProcess and attachedProcess ~= self.RequiredProcess then
-        logger:Error("[Auto-Assembler] Incorrect process. Expected '" .. self.RequiredProcess .. "', but found '" .. (attachedProcess or "None") .. "'.")
-        return false
+    local s = nameOrText
+    if s:find("\n") then
+        return s, "<raw>"
     end
-    return true
-end
-
---
---- ∑ Loads the content of a file, either from a local file or from a TableFile.
----   This function attempts to read the file from disk and falls back to the TableFiles if unsuccessful.
---- @param fileName string # The name of the file to load.
---- @return string|nil # Returns the file content as a string, or 'nil' if an error occurs.
---
-function AutoAssembler:LoadFile(fileName)
+    local fileName = _trim(s)
     local filePath = self:GetFilePath(fileName)
     if not filePath then
-        logger:Error("[Auto-Assembler] Unable to resolve file path for '" .. fileName .. "'.")
-        return nil, "Invalid file path"
+        return nil, "The side-loading folder could not be prepared. Please attach to the game and try again."
     end
-    local trimmedPath = filePath:match("[\\/](Manifold[\\/].*)") or filePath
-    local fileContent, err = customIO:ReadFromFile(filePath)
-    if fileContent then
-        logger:Info("[Auto-Assembler] Successfully loaded file '" .. fileName .. "' from '...\\" .. trimmedPath .. "'.")
-        return fileContent
+    local content, err = customIO:ReadFromFile(filePath)
+    if content then
+        logger:Info("[Auto-Assembler] Loaded script file: " .. fileName)
+        return content, fileName
     end
-    logger:Warning("[Auto-Assembler] Could not load local file '" .. fileName .. "'. Falling back to TableFiles.")
-    fileContent, err = customIO:ReadFromTableFile(fileName)
-    if not fileContent then
-        logger:Warning("[Auto-Assembler] Failed to load file '" .. fileName .. "' from TableFiles: " .. (err or "Unknown error"))
-        return nil, err
-    end
-    return fileContent
-end
-registerLuaFunctionHighlight('LoadFile')
-
---
---- ∑ Performs the auto-assembly process for a given file.
----   This function performs a series of assembly steps, checking the file and performing the assembly, while logging errors.
---- @param fileName string # The name of the file to assemble.
---- @param fileStr string # The content of the file to assemble.
---- @param targetSelf boolean # Flag indicating whether the assembly is targeting the self process.
---- @param disableInfo table|nil # Information on whether the process should be disabled.
---- @return boolean # Returns 'true' if the assembly was successful, 'false' otherwise.
---
-function AutoAssembler:PerformAutoAssemble(fileName, fileStr, targetSelf, disableInfo)
-    logger:Debug("[Auto-Assembler] Performing Assembly for file '" .. fileName .. "'.")
-    local assembled, err = autoAssembleCheck(fileStr, not disableInfo)
-    if not assembled then
-        local msg = "[Auto-Assembler] Assembly check failed for file '" .. fileName .. "': " .. (err or "Unknown Error")
-        logger:Error(msg)
-        if self.BreakOnError then
-            error(msg)
+    if customIO.ReadFromTableFile then
+        content, err = customIO:ReadFromTableFile(fileName)
+        if content then
+            logger:Info("[Auto-Assembler] Loaded script from table file: " .. fileName)
+            return content, fileName
         end
-        return false
     end
-    assembled, disableInfo = AutoAssemble(fileStr, targetSelf, disableInfo)
-    if not assembled then
-        -- logger:Error("[Auto-Assembler] Assembly failed for file '" .. fileName .. "'.")
-        return false
-    end
-    local stateKey = self:GetStateKey(fileName)
-    self.States[stateKey].DisableInfo = disableInfo
-    self.States[stateKey].Active = disableInfo and true or false
-    -- logger:Info("[Auto-Assembler] Assembly successful for file '" .. fileName .. "'.")
-    return true
+    return nil, "Could not find or read the script file: " .. fileName
 end
 
 --
---- ∑ Logs the symbols and allocations for a given state.
----   This function logs the symbols and their corresponding addresses, as well as the allocation details like size, preferred address, and actual address.
---- @param state table # The state containing the symbols and allocations to log.
+--- ∑ Creates a stable state key for a script.
+---   If a memrec is provided, a stable identifier (ID/Description) is used to avoid mismatches across executions.
+--- @param name string # The logical script name (usually the file name).
+--- @param memrec table|nil # Optional memory record reference.
+--- @return string # Returns the state key.
 --
-function AutoAssembler:LogSymbolsAndAllocations(state)
-    if state.DisableInfo then
-        if state.DisableInfo.symbols then
-            logger:Info("[Auto-Assembler] Symbols for: '" .. state.name .. "'")
-            for symbol, address in pairs(state.DisableInfo.symbols) do
-                logger:Info(string.format("[Auto-Assembler] [Symbol] %s -> [Address] 0x%X", symbol, address))
+function AutoAssembler:_stateKey(name, memrec)
+    local base = tostring(name or "<unknown>")
+    if memrec ~= nil then
+        local id = memrec.ID
+        if id ~= nil then
+            return base .. "#MRID:" .. tostring(id)
+        end
+        local desc = memrec.Description
+        if desc ~= nil and desc ~= "" then
+            return base .. "#MRDESC:" .. tostring(desc)
+        end
+        return base .. "#MR:" .. tostring(memrec)
+    end
+    return base
+end
+
+--
+--- ∑ Retrieves an existing state or creates a new one.
+---   States store disable information to allow clean toggling and rollback behavior.
+--- @param key string # The state key.
+--- @return table # Returns the state table.
+--
+function AutoAssembler:_getOrCreateState(key)
+    local st = self.States[key]
+    if not st then
+        st = {
+            Key = key,
+            Name = key,
+            DisableInfo = nil,
+            Active = false,
+            TargetSelf = false,
+            Memrec = nil,
+            LastScriptText = nil,
+            LastLogicalName = nil
+        }
+        self.States[key] = st
+        logger:Info("[Auto-Assembler] Tracking script state: " .. key)
+    end
+    return st
+end
+
+--
+--- ∑ Begins a transactional group for multiple AutoAssemble calls.
+---   This allows rolling back previously applied scripts if a later script fails.
+--- @return nil
+--
+function AutoAssembler:_txBegin()
+    self._txDepth = self._txDepth + 1
+    if self._txDepth == 1 then
+        self._txStack = {}
+        logger:Debug("[Auto-Assembler] Starting a grouped operation...")
+    end
+end
+
+--
+--- ∑ Commits the current transaction.
+---   On the top-level transaction, this clears the rollback stack.
+--- @return nil
+--
+function AutoAssembler:_txCommit()
+    if self._txDepth == 1 then
+        logger:Debug("[Auto-Assembler] Grouped operation completed.")
+        self._txStack = nil
+    end
+    self._txDepth = math.max(0, self._txDepth - 1)
+end
+
+--
+--- ∑ Records a successfully enabled script for potential rollback.
+---   Stored entries are used to disable applied scripts if a later failure happens.
+--- @param key string # The state key.
+--- @param scriptText string # The full script text.
+--- @param targetSelf boolean # True if assembling into Cheat Engine itself.
+--- @param disableInfo table # Disable information returned by autoAssemble.
+--- @param logicalName string # Human-friendly logical name.
+--- @return nil
+--
+function AutoAssembler:_txRememberEnable(key, scriptText, targetSelf, disableInfo, logicalName)
+    if self._txDepth <= 0 or not self._txStack then
+        return
+    end
+    table.insert(self._txStack, { key = key, scriptText = scriptText, targetSelf = targetSelf, disableInfo = disableInfo, logicalName = logicalName or key })
+end
+
+--
+--- ∑ Rolls back all scripts enabled in the current transaction.
+---   This disables applied scripts in reverse order to restore a safe state.
+--- @return nil
+--
+function AutoAssembler:_txRollback()
+    if not self._txStack or #self._txStack == 0 then
+        self._txDepth = 0
+        self._txStack = nil
+        return
+    end
+    logger:Error("[Auto-Assembler] The script failed. Rolling back previous changes to keep things safe...")
+    for i = #self._txStack, 1, -1 do
+        local e = self._txStack[i]
+        local st = self.States[e.key]
+        if st and e.disableInfo then
+            logger:ForceInfo("[Auto-Assembler] Rolling back: " .. tostring(e.logicalName))
+            local ok, err = pcall(function()
+                local success = autoAssemble(e.scriptText, e.targetSelf, e.disableInfo)
+                if not success then error("Disable failed during rollback.", 0) end
+            end)
+            if ok then
+                st.DisableInfo = nil
+                st.Active = false
+                logger:ForceInfo("[Auto-Assembler] Rollback successful: " .. tostring(e.logicalName))
+            else
+                logger:Error("[Auto-Assembler] Rollback could not disable: " .. tostring(e.logicalName) .. " | Reason: " .. tostring(err))
             end
-        else
-            logger:Warning("[Auto-Assembler] No symbols found in DisableInfo.")
         end
-        if state.DisableInfo.allocs then
-            logger:Info("[Auto-Assembler] Allocations for: '" .. state.name .. "'")
-            for allocName, allocDetails in pairs(state.DisableInfo.allocs) do
-                -- logger:Info(string.format("[Auto-Assembler] [Allocation] %s -> [Size] %d -> [Preferred Address] 0x%X -> [Actual Address] 0x%X", allocName, allocDetails.size, allocDetails.prefered, allocDetails.address))
-            end
-        else
-            logger:Warning("[Auto-Assembler] No allocations found in DisableInfo.")
-        end
-    else
-        logger:Warning("[Auto-Assembler] DisableInfo is missing in the current state.")
     end
+    self._txStack = nil
+    self._txDepth = 0
 end
 
 --
---- ∑ Performs the entire auto-assembly process for a given file.
----   This function coordinates the validation, state update, file loading, and assembly steps.
---- @param fileName string # The name of the file to auto-assemble.
---- @param memrecOrTargetSelf table|boolean # Either the memory record to associate with the file or a flag indicating whether the assembly is targeting the self process.
---- @param targetSelf boolean # Flag indicating whether the assembly is targeting the self process.
---- @return boolean # Returns 'true' if the auto-assembly was successful, 'false' otherwise.
+--- ∑ Runs an Auto-Assembler script by file name (side-loaded) or by raw script text.
+---   This function is process-aware, supports toggling via disableInfo, and supports rollback on failure.
+--- @param fileOrText string # The script file name or the raw script text.
+--- @param memrecOrTargetSelf table|boolean|nil # Optional memory record or a boolean for targetSelf.
+--- @param targetSelf boolean|nil # Optional targetSelf flag if memrecOrTargetSelf is a memrec.
+--- @return boolean # Returns true on success, otherwise false (or throws if BreakOnError is true).
 --
-function AutoAssembler:AutoAssemble(fileName, memrecOrTargetSelf, targetSelf)
-    local processName = processHandler:GetAttachedProcessName()
-    if not processName or processName == "Unknown Process" then
-        local msg = "[Auto-Assembler] No valid process attached. Auto-Assembly for '" .. fileName .. "' halted."
-        logger:Error(msg)
-        if self.BreakOnError then
-            error(msg)
+function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
+    local isTopLevel = (self._txDepth == 0)
+    self:_txBegin()
+    local ok, resultOrErr = pcall(function()
+        self:_validateProcessOrThrow()
+        self:_checkProcessChangedOrThrow()
+        local memrec = (type(memrecOrTargetSelf) == "boolean") and nil or memrecOrTargetSelf
+        local ts = (type(memrecOrTargetSelf) == "boolean") and memrecOrTargetSelf or targetSelf
+        ts = (ts == true)
+        local scriptText, logicalNameOrErr = self:_loadScriptText(fileOrText)
+        if not scriptText then
+            error("[Auto-Assembler] Cannot continue. " .. tostring(logicalNameOrErr), 0)
         end
-        return false
-    end
-    if not self:ValidateProcess() then return false end
-    logger:Info("[Auto-Assembler] Initiating Auto-Assembly for file '" .. fileName .. "'.")
-    local memrec = (type(memrecOrTargetSelf) == "boolean") and nil or memrecOrTargetSelf
-    targetSelf = (type(memrecOrTargetSelf) == "boolean") and memrecOrTargetSelf or targetSelf
-    local fileStr, err = self:LoadFile(fileName)
-    if not fileStr then
-        local msg = "[Auto-Assembler] Unable to load file '" .. fileName .. "': " .. err
-        logger:Error(msg)
-        if self.BreakOnError then error(msg) end
-        return false
-    end
-    local state = self:UpdateState(fileName, memrec, targetSelf)
-    logger:Info("[Auto-Assembler] State updated for file '" .. fileName .. "'. Enabled: '" .. tostring(state.Active) .. "'.")
-    if self:PerformAutoAssemble(fileName, fileStr, targetSelf, state.DisableInfo) then
-        self:LogSymbolsAndAllocations(state)
-        logger:Info("[Auto-Assembler] Auto-Assembly successfully completed for file '" .. fileName .. "'.")
+        local key = self:_stateKey(logicalNameOrErr, memrec)
+        local st = self:_getOrCreateState(key)
+        st.TargetSelf = ts
+        st.Memrec = memrec
+        st.LastScriptText = scriptText
+        st.LastLogicalName = logicalNameOrErr
+        local willEnable = (st.DisableInfo == nil)
+        if willEnable then
+            logger:Info("[Auto-Assembler] Turning ON: " .. tostring(logicalNameOrErr))
+        else
+            logger:Info("[Auto-Assembler] Turning OFF: " .. tostring(logicalNameOrErr))
+        end
+        local checkOk, checkErr = autoAssembleCheck(scriptText, willEnable, ts)
+        if not checkOk then
+            error("[Auto-Assembler] Script has a problem and cannot be used: " .. tostring(checkErr), 0)
+        end
+        local success, disableInfo = autoAssemble(scriptText, ts, st.DisableInfo)
+        if not success then
+            error("[Auto-Assembler] The script could not be applied. Please try again or report this script.", 0)
+        end
+        st.DisableInfo = disableInfo
+        st.Active = (disableInfo ~= nil)
+        if willEnable and disableInfo then
+            self:_txRememberEnable(key, scriptText, ts, disableInfo, logicalNameOrErr)
+        end
+        if st.Active then
+            logger:Info("[Auto-Assembler] Done: " .. tostring(logicalNameOrErr) .. " is now ON.")
+        else
+            logger:Info("[Auto-Assembler] Done: " .. tostring(logicalNameOrErr) .. " is now OFF.")
+        end
         return true
-    else
-        local msg = "[Auto-Assembler] Auto-Assembly failed for file '" .. fileName .. "'."
-        logger:Error(msg)
-        if self.BreakOnError then error(msg) end
-        return false
+    end)
+    if ok then
+        self:_txCommit()
+        return true
     end
-end
-registerLuaFunctionHighlight('AutoAssemble')
-
---
---- ∑ Sets the required process name for the auto-assembler.
---- This function allows the user to specify which process the auto-assembler should target.
---- @param processName string # The name of the required process.
---
-function AutoAssembler:SetProcessName(processName)
-    if type(processName) ~= "string" then
-        logger:Error("[Auto-Assembler] Invalid process name; expected a string, got '" .. type(processName) .. "'.")
+    if not isTopLevel then
+        self._txDepth = math.max(0, self._txDepth - 1)
+        error(resultOrErr, 0)
     end
-    logger:Info("[Auto-Assembler] Process name set to '" .. processName .. "'. Scripts will only be assembled if this process matches the target.")
-    self.RequiredProcess = processName
+    self:_txRollback()
+    if self.BreakOnError then
+        logger:Error(tostring(resultOrErr))
+        error(tostring(resultOrErr), 2)
+    end
+    return false
 end
-registerLuaFunctionHighlight('SetProcessName')
-
-local o_MainForm_OnProcessOpened = MainForm.OnProcessOpened
 
 --
---- ∑ OnProcessOpened Override
+--- ∑ Disables an active script state.
+---   If no arguments are provided, all active states will be disabled.
+--- @param fileOrKey string|nil # Optional state key or script name.
+--- @param memrec table|nil # Optional memory record to build a stable state key.
+--- @return boolean # Returns true on success, otherwise throws.
 --
+function AutoAssembler:Disable(fileOrKey, memrec)
+    self:_validateProcessOrThrow()
+    local function disableState(st)
+        if not st or not st.Active or not st.DisableInfo then
+            return true
+        end
+        local scriptText = st.LastScriptText
+        if not scriptText then
+            error("[Auto-Assembler] Cannot turn off a script because its text is missing.", 0)
+        end
+        logger:Info("[Auto-Assembler] Turning OFF: " .. tostring(st.LastLogicalName or st.Key))
+        local ok, err = pcall(function()
+            local success = autoAssemble(scriptText, st.TargetSelf, st.DisableInfo)
+            if not success then error("Disable failed.", 0) end
+        end)
+        if not ok then
+            error("[Auto-Assembler] Failed to turn off: " .. tostring(st.LastLogicalName or st.Key) .. " | Reason: " .. tostring(err), 0)
+        end
+        st.DisableInfo = nil
+        st.Active = false
+        logger:Info("[Auto-Assembler] Done: " .. tostring(st.LastLogicalName or st.Key) .. " is now OFF.")
+        return true
+    end
+    if fileOrKey == nil then
+        logger:Info("[Auto-Assembler] Turning OFF all active scripts...")
+        for _, st in pairs(self.States) do if st.Active then disableState(st) end end
+        return true
+    end
+    local key = tostring(fileOrKey)
+    if memrec ~= nil then
+        key = self:_stateKey(key, memrec)
+    end
+    local st = self.States[key]
+    if not st then
+        logger:Warning("[Auto-Assembler] Nothing to turn off (script was not active): " .. tostring(key))
+        return true
+    end
+    return disableState(st)
+end
+
+--
+--- ∑ Hook called by Cheat Engine when a new process is opened.
+---   If the process changed, the Auto-Assembler will safe-disable all records and reset its internal state.
+--- @return nil
+--
+local _o_MainForm_OnProcessOpened = MainForm.OnProcessOpened
 function MainForm.OnProcessOpened()
-    -- 
-    AutoAssembler.States = {}
-    ProcessID = getOpenedProcessID()
-	o_MainForm_OnProcessOpened()
+    local inst = AutoAssembler:GetInstance()
+    local newPid = getOpenedProcessID()
+    local oldPid = inst._lastKnownPid
+    inst._lastKnownPid = newPid
+    if oldPid ~= nil and newPid ~= nil and oldPid ~= newPid then
+        logger:Warning("[Auto-Assembler] A new game session was detected. Resetting to keep everything safe...")
+        inst:DisableAllWithoutExecute()
+        inst:Reset("New game session opened")
+        logger:ForceInfo("[Auto-Assembler] Everything was reset. Please run the script again.")
+    end
+    if _o_MainForm_OnProcessOpened then
+        _o_MainForm_OnProcessOpened()
+    end
 end
-
---------------------------------------------------------
---                   Module End                       --
---------------------------------------------------------
 
 return AutoAssembler
