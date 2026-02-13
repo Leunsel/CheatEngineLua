@@ -1,6 +1,6 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.0"
+local VERSION = "2.0.1"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
@@ -15,6 +15,10 @@ local DESCRIPTION = "Manifold Framework Auto-Assembler"
         Added detailed logging for better debugging and user feedback.
         Implemented a transactional system to allow rolling back changes if a script fails.
         Improved error handling to provide clearer messages and prevent partial application of scripts.
+
+    ∂ v2.0.1 (2026-02-13)
+        Fixed a minor inconvenience that caused a forced log message about resetting after a process change, though not
+        necessary.
 ]]--
 
 AutoAssembler = {
@@ -168,9 +172,9 @@ function AutoAssembler:Reset(reason)
     self._txDepth = 0
     self._txStack = nil
     if reason and reason ~= "" then
-        logger:ForceInfo("[Auto-Assembler] Reset completed. Reason: " .. reason)
+        logger:Info("[Auto-Assembler] Reset completed. Reason: " .. reason)
     else 
-        logger:ForceInfo("[Auto-Assembler] Reset completed.")
+        logger:Info("[Auto-Assembler] Reset completed.")
     end
 end
 
@@ -206,7 +210,7 @@ end
 function AutoAssembler:_markProcessChangedAndThrow(oldPid, newPid)
     local msg = "[Auto-Assembler] The game session changed. To prevent broken hooks, everything was reset. Please run the script again."
     self._processChangedMsg = msg
-    logger:ForceInfo("[Auto-Assembler] A new game session was detected. Resetting to keep everything safe...")
+    logger:Info("[Auto-Assembler] A new game session was detected. Resetting to keep everything safe...")
     self:DisableAllWithoutExecute()
     self:Reset("Game session changed")
     -- error(msg, 3)
@@ -591,11 +595,11 @@ function MainForm.OnProcessOpened()
     local newPid = getOpenedProcessID()
     local oldPid = inst._lastKnownPid
     inst._lastKnownPid = newPid
-    if oldPid ~= nil and newPid ~= nil and oldPid ~= newPid then
+    if oldPid ~= 0 and oldPid ~= nil and newPid ~= nil and oldPid ~= newPid then
         logger:Warning("[Auto-Assembler] A new game session was detected. Resetting to keep everything safe...")
         inst:DisableAllWithoutExecute()
         inst:Reset("New game session opened")
-        logger:ForceInfo("[Auto-Assembler] Everything was reset. Please run the script again.")
+        logger:Info("[Auto-Assembler] Everything was reset. Please run the script again.")
     end
     if _o_MainForm_OnProcessOpened then
         _o_MainForm_OnProcessOpened()
