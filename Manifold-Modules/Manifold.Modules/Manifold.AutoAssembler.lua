@@ -177,6 +177,7 @@ function AutoAssembler:Reset(reason)
         logger:Info("[Auto-Assembler] Reset completed.")
     end
 end
+registerLuaFunctionHighlight('Reset')
 
 --
 --- ∑ Disables all records without executing their [DISABLE] sections.
@@ -199,6 +200,7 @@ function AutoAssembler:DisableAllWithoutExecute()
     logger:Error("[Auto-Assembler] Failed to disable records safely. Reason: " .. tostring(err))
     return false
 end
+registerLuaFunctionHighlight('DisableAllWithoutExecute')
 
 --
 --- ∑ Handles a detected process change and aborts execution.
@@ -536,6 +538,7 @@ function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
     end
     return false
 end
+registerLuaFunctionHighlight('AutoAssemble')
 
 --
 --- ∑ Disables an active script state.
@@ -583,6 +586,7 @@ function AutoAssembler:Disable(fileOrKey, memrec)
     end
     return disableState(st)
 end
+registerLuaFunctionHighlight('Disable')
 
 --
 --- ∑ Hook called by Cheat Engine when a new process is opened.
