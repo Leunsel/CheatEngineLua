@@ -21,6 +21,9 @@ local DESCRIPTION = "Manifold Framework Utils"
 
     ∂ v1.0.4 (2026-01-09)
         Added missing property "IsRelease" to Utils class.
+
+    ∂ v1.0.5 (2026-02-16)
+        Added new Custom Type for "Mewgenics".
 ]]--
 
 Utils = {
@@ -268,6 +271,7 @@ function Utils:ShowConfirmation(message)
     return result == mrYes
 end
 registerLuaFunctionHighlight('ShowConfirmation')
+
 --
 --- ∑ Ensures that the user is running the required Cheat Engine version.
 ---   Displays a warning if the version does not match the required version.
@@ -320,6 +324,7 @@ registerLuaFunctionHighlight('EnsureCompatibleCEVersion')
 --- @return # void
 --
 function Utils:RegisterTimeTypes()
+    if getCustomType("Military Hours") then return end
     local TypeName = 'Military Hours'
     local ByteCount = 4
     local IsFloat = true
@@ -346,6 +351,7 @@ registerLuaFunctionHighlight('RegisterTimeTypes')
 --- @return # void
 --
 function Utils:RegisterDecryptionType()
+    if getCustomType("Decrypted") then return end
     local TypeName, ByteCount, IsFloat = "Decrypted", 16, false
     local function BytesToValue(b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15, b16, address)
         local encrypted = b1 | (b2 << 8) | (b3 << 16) | (b4 << 24) | (b5 << 32) | (b6 << 40) | (b7 << 48) | (b8 << 56)
@@ -362,6 +368,46 @@ function Utils:RegisterDecryptionType()
     end
     registerCustomTypeLua(TypeName, ByteCount, BytesToValue, ValueToBytes, IsFloat)
 end
+registerLuaFunctionHighlight('RegisterDecryptionType')
+
+--
+--- ∑ Registers a custom memory value type for "Playtime Float" used in the game "Mewgenics".
+---   Uses 8 bytes of data representing total playtime in seconds, which is then converted to a float format of hours.minutesseconds.
+---   For example, 1 hour, 30 minutes, and 45 seconds would be
+---   represented as 1.3045 (1 hour, 30 minutes as .30, and 45 seconds as .0045).
+---   When writing a value back, the float is converted to total seconds and then to the
+---   appropriate byte format for memory storage.
+--- @return # void
+--
+function Utils:RegisterPlaytimeMilitaryType()
+    if getCustomType("Playtime Float") then return end
+    local TypeName  = "Playtime Float"
+    local ByteCount = 8
+    local IsFloat   = true
+    local function bytesToValue(b1, b2, b3, b4, b5, b6, b7, b8)
+        local raw = b1 | (b2 << 8) | (b3 << 16) | (b4 << 24) | (b5 << 32)| (b6 << 40) | (b7 << 48) | (b8 << 56)
+        local totalSeconds = math.floor(raw / 60)
+        local hours   = math.floor(totalSeconds / 3600)
+        local minutes = math.floor((totalSeconds % 3600) / 60)
+        local seconds = totalSeconds % 60
+        return hours + (minutes / 100) + (seconds / 10000)
+    end
+    local function valueToBytes(value)
+        local v = tonumber(value) or 0
+        local hours     = math.floor(v)
+        local remainder = v - hours
+        local minutes = math.floor((remainder * 100) + 0.0001)
+        local seconds = math.floor(((remainder * 10000) % 100) + 0.0001)
+        local totalSeconds = (hours   * 3600) + (minutes * 60) +  seconds
+        local raw = totalSeconds * 60
+        return raw & 0xFF, ( raw >> 8 )  & 0xFF,
+              ( raw >> 16 ) & 0xFF, ( raw >> 24 ) & 0xFF,
+              ( raw >> 32 ) & 0xFF, ( raw >> 40 ) & 0xFF,
+              ( raw >> 48 ) & 0xFF, ( raw >> 56 ) & 0xFF
+    end
+    registerCustomTypeLua(TypeName, ByteCount, bytesToValue, valueToBytes, IsFloat)
+end
+registerLuaFunctionHighlight('RegisterPlaytimeMilitaryType')
 
 --
 --- ∑ Removes table files that contain the specified string in their name.
