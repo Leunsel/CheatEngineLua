@@ -977,6 +977,7 @@ function Patcher:CheckAndApply(url)
         logger:Warning("[Patcher] No valid patches.")
         return false
     end
+    logger:Info("[Patcher] Found " .. #patches .. " Patch(es).")
     local msg = string.format("There are %d Patch(es) available for your version of the Cheat Table. Do you want to apply them?", #patches)
     if not utils:ShowConfirmation(msg) then
         logger:Info("[Patcher] User declined patch application.")
