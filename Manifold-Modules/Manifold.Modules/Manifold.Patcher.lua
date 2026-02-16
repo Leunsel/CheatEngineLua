@@ -6,6 +6,9 @@ local DESCRIPTION = "Manifold Framework Patcher"
 --[[
     ∂ v1.0.0 (2026-02-16)
         Initial release with core functions.
+
+    ∂ v1.0.1 (2026-02-16)
+        Added Dependency Check and Lua Syntax Highlighting.
 ]]
         
 Patcher = {
@@ -64,6 +67,44 @@ registerLuaFunctionHighlight("PrintModuleInfo")
 --------------------------------------------------------
 --                  Module Start                      --
 --------------------------------------------------------
+
+--
+--- ∑ Ensures all required modules are loaded and ready to use.
+---   This function tries to load missing dependencies via CETrequire and initializes them if needed.
+--- @return nil
+--
+function Patcher:CheckDependencies()
+    local dependencies = {
+        { name = "json", path = "Manifold.Json", init = function() json = JSON:new() end },
+        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end },
+        { name = "utils", path = "Manifold.Utils", init = function() utils = Utils:New() end },
+    }
+    for _, dep in ipairs(dependencies) do
+        local depName = dep.name
+        if _G[depName] == nil then
+            if _G.logger then
+                logger:Warning("[Patcher] Missing dependency '" .. depName .. "'. Trying to load it now...")
+            end
+            local ok, err = pcall(CETrequire, dep.path)
+            if ok then
+                if _G.logger then
+                    logger:Info("[Patcher] Dependency '" .. depName .. "' loaded successfully.")
+                end
+                if dep.init then
+                    dep.init()
+                end
+            else
+                if _G.logger then
+                    logger:Error("[Patcher] Could not load '" .. depName .. "'. Reason: " .. tostring(err))
+                end
+            end
+        else
+            if _G.logger then
+                logger:Debug("[Patcher] Dependency '" .. depName .. "' is already available.")
+            end
+        end
+    end
+end
 
 --
 --- ∑ Escapes special characters in a string for use in Lua pattern matching.
@@ -934,6 +975,11 @@ function Patcher:CheckAndApply(url)
     end
     if type(patches) ~= "table" or #patches == 0 then
         logger:Warning("[Patcher] No valid patches.")
+        return false
+    end
+    local msg = string.format("There are %d Patch(es) available for your version of the Cheat Table. Do you want to apply them?", #patches)
+    if not utils:ShowConfirmation(msg) then
+        logger:Info("[Patcher] User declined patch application.")
         return false
     end
     self:ClearSnapshots()
