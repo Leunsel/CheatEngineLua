@@ -1,6 +1,6 @@
 local NAME = "Manifold.Patcher.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework Patcher"
 
 --[[
@@ -9,18 +9,30 @@ local DESCRIPTION = "Manifold Framework Patcher"
 
     ∂ v1.0.1 (2026-02-16)
         Added Dependency Check and Lua Syntax Highlighting.
+
+    ∂ v1.1.0 (2026-02-17)
+        Added a Config System to disable the Patcher entirely.
+        Adjusted the Snapshot Logic for Patch Generation.
 ]]
         
 Patcher = {
-    Version = VERSION,
+    Version = "",
     TableHash = "",
     Snapshots = {},
     TableSnapshots = {},
     AppliedPatches = {},
+    --
     ShouldCheckForPatches = true,
+    StrictTargetResolution = true,
+    ConfigFileName = "Manifold.Patcher.Config.json",
+    ConfigDefaults = {
+        ShouldCheckForPatches = true,
+        StrictTargetResolution = true,
+        ConfigFileName = "Manifold.Patcher.Config.json"
+    },
+    --
     SafeMode = true,
     Debug = true,
-    StrictTargetResolution = true,
     DefaultScriptReplaceMode = "plain"
 }
 Patcher.__index = Patcher
@@ -78,6 +90,7 @@ function Patcher:CheckDependencies()
         { name = "json", path = "Manifold.Json", init = function() json = JSON:new() end },
         { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end },
         { name = "utils", path = "Manifold.Utils", init = function() utils = Utils:New() end },
+        { name = "customIO", path = "Manifold.CustomIO", init = function() customIO = CustomIO:New() end },
     }
     for _, dep in ipairs(dependencies) do
         local depName = dep.name
@@ -448,6 +461,140 @@ end
 -- registerLuaFunctionHighlight("_ReadRecordState")
 
 --
+--- ∑ Returns full path to the patcher config file.
+--- @return string # File Path for the Patcher Config (I assume this never fails.)
+--
+function Patcher:GetConfigFilePath()
+    return customIO.DataDir .. "\\" .. self.ConfigFileName
+end
+registerLuaFunctionHighlight("GetConfigFilePath")
+
+--
+--- ∑ Loads the patcher config from disk (creates default config if missing/invalid).
+--- @return boolean # true if loaded, false if defaults were used
+--
+function Patcher:LoadConfig()
+    if not customIO or not customIO.EnsureDataDirectory then
+        logger:Warning("[Patcher] CustomIO missing: cannot load config.")
+        self:ApplyConfig(self.ConfigDefaults)
+        return false
+    end
+    if not customIO:EnsureDataDirectory() then
+        logger:Warning("[Patcher] EnsureDataDirectory failed: cannot load config.")
+        self:ApplyConfig(self.ConfigDefaults)
+        return false
+    end
+    local filePath = self:GetConfigFilePath()
+    local cfg = nil
+    if customIO.ReadFromFileAsJson then
+        local ok, res = pcall(function()
+            return customIO:ReadFromFileAsJson(filePath)
+        end)
+        if ok and type(res) == "table" then
+            cfg = res
+        end
+    end
+    if type(cfg) ~= "table" then
+        -- file missing or invalid -> defaults + write defaults
+        self:ApplyConfig(self.ConfigDefaults)
+        self:SaveConfig()
+        if self.Debug then
+            logger:Info("[Patcher] Config missing/invalid. Defaults applied and saved.")
+        end
+        return false
+    end
+    self:ApplyConfig(cfg)
+    if self.Debug then
+        logger:InfoF("[Patcher] Config loaded: ShouldCheckForPatches=%s StrictTargetResolution=%s", tostring(self.ShouldCheckForPatches), tostring(self.StrictTargetResolution))
+    end
+    return true
+end
+registerLuaFunctionHighlight("LoadConfig")
+
+--
+--- ∑ Applies config values to the current patcher instance (with defaults).
+--- @param cfg table?
+--
+function Patcher:ApplyConfig(cfg)
+    cfg = cfg or {}
+    if cfg.ShouldCheckForPatches == nil then
+        self.ShouldCheckForPatches = self.ConfigDefaults.ShouldCheckForPatches
+    else
+        self.ShouldCheckForPatches = (cfg.ShouldCheckForPatches == true)
+    end
+    if cfg.StrictTargetResolution == nil then
+        self.StrictTargetResolution = self.ConfigDefaults.StrictTargetResolution
+    else
+        self.StrictTargetResolution = (cfg.StrictTargetResolution == true)
+    end
+end
+registerLuaFunctionHighlight("ApplyConfig")
+
+--
+--- ∑ Saves the current patcher config to disk.
+--- @return boolean
+--
+function Patcher:SaveConfig()
+    if not customIO or not customIO.EnsureDataDirectory or not customIO.WriteToFileAsJson then
+        logger:Warning("[Patcher] CustomIO missing: cannot save config.")
+        return false
+    end
+    if not customIO:EnsureDataDirectory() then
+        logger:Warning("[Patcher] EnsureDataDirectory failed: cannot save config.")
+        return false
+    end
+    local filePath = self:GetConfigFilePath()
+    local data = {
+        ShouldCheckForPatches  = self.ShouldCheckForPatches == true,
+        StrictTargetResolution = self.StrictTargetResolution == true
+    }
+    local ok, err = pcall(function() customIO:WriteToFileAsJson(filePath, data) end)
+    if not ok then
+        logger:Warning("[Patcher] Failed to save config: " .. tostring(err))
+        return false
+    end
+    logger:Info("[Patcher] Config saved: " .. tostring(filePath))
+    return true
+end
+registerLuaFunctionHighlight("SaveConfig")
+
+--
+--- ∑ Toggles patch checking and persists config.
+--- @return boolean # new value
+--
+function Patcher:TogglePatcher()
+    local prev = self.ShouldCheckForPatches
+    self.ShouldCheckForPatches = not prev
+    local saved = self:SaveConfig()
+    if not saved then
+        self.ShouldCheckForPatches = prev
+        logger:Warning("[Patcher] Failed to save config. Reverting ShouldCheckForPatches to " .. tostring(prev))
+        return prev
+    end
+    logger:ForceInfo("[Patcher] Should Check For Patches = " .. tostring(self.ShouldCheckForPatches))
+    return self.ShouldCheckForPatches
+end
+registerLuaFunctionHighlight("TogglePatcher")
+
+--
+--- ∑ Toggles strict target resolution and persists config.
+--- @return boolean # new value
+--
+function Patcher:ToggleStrictTargetResolution()
+    local prev = self.StrictTargetResolution
+    self.StrictTargetResolution = not prev
+    local saved = self:SaveConfig()
+    if not saved then
+        self.StrictTargetResolution = prev
+        logger:Warning("[Patcher] Failed to save config. Reverting StrictTargetResolution to " .. tostring(prev))
+        return prev
+    end
+    logger:ForceInfo("[Patcher] Strict Target Resolution = " .. tostring(self.StrictTargetResolution))
+    return self.StrictTargetResolution
+end
+registerLuaFunctionHighlight("ToggleStrictTargetResolution")
+
+--
 --- ∑ Takes a snapshot of the current state of all memory records in the address list, storing it under a given name.
 --- @param name string # The name to identify the snapshot.
 --- @param opts table # Options for what to include in the snapshot (e.g. {IncludeScript=true, IncludeValue=true}).
@@ -466,7 +613,7 @@ function Patcher:TakeTableSnapshot(name, opts)
         records = {},
         include = {
             Script = opts.IncludeScript == true,
-            Value  = opts.IncludeValue == true,  -- oft volatil, standardmäßig aus
+            Value  = opts.IncludeValue == false,
             CustomTypeName = opts.IncludeCustomTypeName == true,
         }
     }
@@ -526,8 +673,8 @@ function Patcher:GeneratePatchFromSnapshot(name, meta)
         return id
     end
     local fields = {
-        "Description","Address","Type","VarType","Color",
-        "Active","ShowAsHex","ShowAsSigned","AllowIncrease","AllowDecrease","Collapsed","Async","DontSave",
+        "Description","Address","Type","VarType",
+        "ShowAsHex","ShowAsSigned","AllowIncrease","AllowDecrease","Async","DontSave",
         "DropDownLinked","DropDownLinkedMemrec","DropDownReadOnly","DropDownDescriptionOnly","DisplayAsDropDownListItem",
         "Options","Offset","DropDownList",
     }
@@ -944,8 +1091,8 @@ registerLuaFunctionHighlight("RequestPatches")
 --- @param url string # The URL to request patches from.
 --- @return boolean # True if patches were applied successfully, false otherwise.
 --
-function Patcher:CheckAndApply(url)
-    if not self.ShouldCheckForPatches then
+function Patcher:CheckAndApply(url, bypass)
+   if (not bypass) and (not self.ShouldCheckForPatches) then
         logger:Info("[Patcher] Patch check disabled. Skipping...")
         return false
     end
@@ -1034,7 +1181,7 @@ registerLuaFunctionHighlight("CheckAndApply")
 --
 function Patcher:Start(url)
     self.TableHash = self:GenerateTableHash()
-    return self:CheckAndApply(url)
+    return self:CheckAndApply(url, false)
 end
 registerLuaFunctionHighlight("Start")
 
