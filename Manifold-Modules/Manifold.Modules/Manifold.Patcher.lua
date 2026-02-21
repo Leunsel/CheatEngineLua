@@ -13,6 +13,10 @@ local DESCRIPTION = "Manifold Framework Patcher"
     ∂ v1.1.0 (2026-02-17)
         Added a Config System to disable the Patcher entirely.
         Adjusted the Snapshot Logic for Patch Generation.
+
+    ∂ v1.1.0 Hotfix (2026-02-21)
+        One shouldn't hash the Address-Field of a Memrec given that
+        it is dynamic.
 ]]
         
 Patcher = {
@@ -1007,7 +1011,7 @@ function Patcher:SerializeRecord(record)
     local data = {}
     data[#data + 1] = tostring(record.ID or "")
     data[#data + 1] = tostring(record.Description or "")
-    data[#data + 1] = tostring(record.Address or "")
+    -- data[#data + 1] = tostring(record.Address or "") -- Rather stupid to check for something dynamic.
     data[#data + 1] = tostring(record.Type or "")
     data[#data + 1] = tostring(record.Options or "")
     if record.Script then
@@ -1023,13 +1027,13 @@ function Patcher:SerializeRecord(record)
         local dd = record.DropDownList
         local c = (dd and dd.Count and tonumber(dd.Count)) or tonumber(record.DropDownCount) or 0
         if c > 0 and dd then
-        data[#data+1] = tostring(c)
-        for i=0,c-1 do
-            local ok, s = pcall(function() return (dd.Strings and dd.Strings[i]) or dd[i] end)
-            if ok and s ~= nil then
-                data[#data+1] = tostring(s)
+            data[#data+1] = tostring(c)
+            for i=0,c-1 do
+                local ok, s = pcall(function() return (dd.Strings and dd.Strings[i]) or dd[i] end)
+                if ok and s ~= nil then
+                    data[#data+1] = tostring(s)
+                end
             end
-        end
         end
     end
     return table.concat(data, "|")
