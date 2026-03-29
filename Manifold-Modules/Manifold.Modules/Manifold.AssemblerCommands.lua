@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -12,6 +12,9 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
 
     ∂ v1.0.2 (2026-02-02)
         Added custom Manifold Assert Logic.
+
+    ∂ v1.0.3 (2026-03-29)
+        Added Manifold Resolve Static Command.
 ]]--
 
 AssemblerCommands = {
@@ -463,7 +466,8 @@ function AssemblerCommands:_cmd_aobScanModule()
 end
 
 --
---- ∑ ...
+--- ∑ Performs a runtime assertion that bytes at a resolved address match an expected pattern, with detailed logging on mismatch.
+--- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
 --
 function AssemblerCommands:_cmd_manifoldAssert()
     return function(parameters, syntaxcheck)
@@ -532,6 +536,71 @@ function AssemblerCommands:_cmd_manifoldAssert()
 end
 
 --
+--- ∑ Resolves a RIP-relative static target from an instruction and emits a define() for Auto Assembler.
+--- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
+--
+function AssemblerCommands:_cmd_resolveStatic()
+    return function(parameters, syntaxcheck)
+        local phase = (syntaxcheck and "SYNTAXCHECK" or "EXECUTE")
+        logger:Info("[AssemblerCommands] ManifoldResolveStatic")
+        logger:InfoF("[AssemblerCommands]   Phase: %s", phase)
+        local args = self:_splitArgsComma(parameters)
+        local symbolOut = args[1]
+        local addrExpr  = args[2]
+        local dispOff   = self:_parseNumber(args[3]) or 3
+        local instrLen  = self:_parseNumber(args[4]) or 7
+        local symbolN = self:_stripQuotes(symbolOut or "ManifoldResolveStatic_Symbol")
+        if syntaxcheck then
+            return string.format("define(%s, %016X)", symbolN, 0)
+        end
+        logger:DebugF("[AssemblerCommands]   Parameters: %s", tostring(parameters))
+        logger:DebugF("[AssemblerCommands]   Output Symbol: %s", tostring(symbolOut))
+        logger:DebugF("[AssemblerCommands]   Address Expr  : %s", tostring(addrExpr))
+        logger:DebugF("[AssemblerCommands]   Disp Offset   : %s", tostring(dispOff))
+        logger:DebugF("[AssemblerCommands]   Instr Length  : %s", tostring(instrLen))
+        if not symbolOut or self:_trim(symbolOut) == "" then
+            logger:Error("[AssemblerCommands] ManifoldResolveStatic Error")
+            logger:Error("[AssemblerCommands]   Reason: Missing output symbol (Argument 1)")
+            return nil, "ManifoldResolveStatic: missing output symbol"
+        end
+        if not addrExpr or self:_trim(addrExpr) == "" then
+            logger:Error("[AssemblerCommands] ManifoldResolveStatic Error")
+            logger:Error("[AssemblerCommands]   Reason: Missing address expression (Argument 2)")
+            return nil, "ManifoldResolveStatic: missing address expression"
+        end
+        local baseAddr, addrErr = self:_resolveAddress(addrExpr)
+        if not baseAddr then
+            logger:Error("[AssemblerCommands] ManifoldResolveStatic Error")
+            logger:ErrorF("[AssemblerCommands]   Failed to resolve address '%s': %s", tostring(addrExpr), tostring(addrErr))
+            return nil, "ManifoldResolveStatic: " .. tostring(addrErr)
+        end
+        local ri = rawget(_G, "readInteger")
+        if type(ri) ~= "function" then
+            logger:Critical("[AssemblerCommands] ManifoldResolveStatic Error")
+            logger:Critical("[AssemblerCommands]   Reason: CE API missing (readInteger)")
+            return nil, "ManifoldResolveStatic: readInteger not available"
+        end
+        local ok, disp = pcall(function()
+            return ri(baseAddr + dispOff)
+        end)
+        if not ok or disp == nil then
+            logger:Error("[AssemblerCommands] ManifoldResolveStatic Error")
+            logger:ErrorF("[AssemblerCommands]   Failed to read disp32 at %s + %X", getNameFromAddress(baseAddr), dispOff)
+            return nil, "ManifoldResolveStatic: failed to read disp32"
+        end
+        local target = baseAddr + instrLen + disp
+        local targetName = getNameFromAddress(target)
+        local replace = string.format("define(%s, %s)", symbolN, targetName)
+        logger:Info("[AssemblerCommands] ManifoldResolveStatic OK")
+        logger:InfoF("[AssemblerCommands]   Base Address : %s", getNameFromAddress(baseAddr))
+        logger:InfoF("[AssemblerCommands]   Disp32       : %d", disp)
+        logger:InfoF("[AssemblerCommands]   Target       : %s", targetName)
+        logger:InfoF("[AssemblerCommands]   Replace Line : %s", replace)
+        return replace
+    end
+end
+
+--
 --- ∑ Registers core Auto Assembler commands provided by this module.
 --- @return boolean # Returns true if registration succeeded, otherwise false.
 --
@@ -545,6 +614,8 @@ function AssemblerCommands:RegisterCoreCommands()
     logger:InfoF("[AssemblerCommands] Registered Assembler Command: %s", "ManifoldScanModule")
     reg("ManifoldAssert", self:_cmd_manifoldAssert())
     logger:InfoF("[AssemblerCommands] Registered Assembler Command: %s", "ManifoldAssert")
+    reg("ManifoldResolveStatic", self:_cmd_resolveStatic())
+    logger:InfoF("[AssemblerCommands] Registered Assembler Command: %s", "ManifoldResolveStatic")
     return true
 end
 registerLuaFunctionHighlight('RegisterCoreCommands')
