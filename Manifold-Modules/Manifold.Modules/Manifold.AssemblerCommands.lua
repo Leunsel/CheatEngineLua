@@ -581,7 +581,7 @@ function AssemblerCommands:_cmd_resolveStatic()
             return nil, "ManifoldResolveStatic: readInteger not available"
         end
         local ok, disp = pcall(function()
-            return ri(baseAddr + dispOff)
+            return ri(baseAddr + dispOff, true)
         end)
         if not ok or disp == nil then
             logger:Error("[AssemblerCommands] ManifoldResolveStatic Error")
