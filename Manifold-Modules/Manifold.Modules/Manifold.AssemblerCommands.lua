@@ -21,6 +21,7 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
         Added command argument validation and improved error handling with consistent logging.
         Adjusted logger calls to use structured formatting and included more debug info on errors.
         Added a few utility functions for argument parsing and validation to reduce code duplication and improve maintainability.
+        Added some usage example comments.
 ]]--
 
 AssemblerCommands = {
@@ -474,6 +475,24 @@ function AssemblerCommands:_cmd_aobScanModule()
 end
 
 --
+--- ∑ Example usage for ManifoldScanModule.
+---
+--- Purpose:
+---     Simply a logged version of native "aobscanmodule".
+---
+--- Example - ManifoldScanModule:
+---     Disassembly:
+---         SomeGame.exe+1255B5B - E8 E0 01 02 00 - call SomeGame.exe+1275D40
+---
+---     Auto Assembler:
+---         ManifoldScanModule(ExampleHook, SomeGame.exe, E8 E0 01 02 00)
+---
+---     Result:
+---         define(ExampleHook, SomeGame.exe+1255B5B)
+--
+
+
+--
 --- ∑ Performs a runtime assertion that bytes at a resolved address match an expected pattern, with detailed logging on mismatch.
 --- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
 --
@@ -533,6 +552,38 @@ function AssemblerCommands:_cmd_manifoldAssert()
 end
 
 --
+--- ∑ Example usage for ManifoldAssert.
+---
+--- Purpose:
+---     Verifies that the bytes at a resolved address still match the expected
+---     instruction bytes. This is useful as a safety check before patching.
+---
+--- Example:
+---     Suppose ExampleHook was resolved earlier with:
+---         ManifoldScanModule(ExampleHook, SomeGame.exe, E8 E0 01 02 00)
+---
+---     Then you can validate the bytes like this:
+---         ManifoldAssert(ExampleHook, E8 E0 01 02 00)
+---
+---     Concept:
+---         E8 E0 01 02 00
+---         ^^
+---         └─ CALL opcode
+---            └──────────── rel32 operand
+---
+--- Example with wildcard:
+---     ManifoldAssert(ExampleHook, E8 ?? ?? ?? ??)
+---
+--- On mismatch:
+---     - The command does not stop the execution.
+---     - It emits detailed warning logs with:
+---         * resolved address
+---         * expected bytes
+---         * actual bytes
+---         * first mismatch offset
+--
+
+--
 --- ∑ Resolves a RIP-relative static target from an instruction and emits a define() for Auto Assembler.
 --- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
 --
@@ -590,6 +641,52 @@ function AssemblerCommands:_cmd_resolveStatic()
         return replace
     end
 end
+
+--
+--- ∑ Example usage for ManifoldResolveStatic.
+---
+--- Purpose:
+---     Resolves the final target of a RIP-relative instruction and emits a
+---     define() for that resolved static address.
+---
+--- Typical use case:
+---     x64 instructions often reference globals via RIP-relative addressing,
+---     for example:
+---
+---         SomeGame.exe+140123456 - 48 8B 05 11 22 33 44 - mov rax,[SomeGame.exe+12345678]
+---
+---     Here:
+---         48 8B 05    = opcode + ModRM
+---         11 22 33 44 = disp32
+---
+--- Example:
+---     First resolve the instruction itself:
+---         ManifoldScanModule(GlobalLoadInsn, SomeGame.exe, 48 8B 05 ?? ?? ?? ??)
+---
+---     Then resolve the static target:
+---         ManifoldResolveStatic(GlobalPtr, GlobalLoadInsn, 3, 7)
+---
+---     Result:
+---         define(GlobalPtr, SomeGame.exe+XXXXXXXX)
+---
+--- How it works:
+---     target = instructionAddress + instructionLength + disp32
+---
+---     With defaults:
+---         disp offset      = 3
+---         instruction len  = 7
+---
+--- Why these defaults?
+---     For many common x64 RIP-relative instructions like:
+---         mov rax, [rip+disp32]
+---     the displacement starts after 3 bytes and the full instruction is
+---     7 bytes long.
+---
+--- When to change disp offset / instruction length:
+---     Only if the instruction encoding differs.
+---     Example:
+---         ManifoldResolveStatic(MyTarget, SomeInsn, 2, 6)
+--
 
 --
 --- ∑ Registers core Auto Assembler commands provided by this module.
