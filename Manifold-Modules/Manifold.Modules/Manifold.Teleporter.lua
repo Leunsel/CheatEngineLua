@@ -39,6 +39,9 @@ local DESCRIPTION = "Manifold Framework Teleporter"
         Removed obsolete legacy UI helpers and editor coupling.
         Added new Theme support to the Teleporter UI.
         Added support for a Y-Coordinate adjustment when teleporting, with configurable index and amount.
+    
+    ∂ v1.1.1 (2026-04-02)
+        Perhaps it's smart to add a splitter between the Save Panel and the Editor Panel...
 ]]--
 
 Teleporter = {
@@ -1695,8 +1698,8 @@ end
 function Teleporter:CreateTreePanel(parent)
     local theme = self:GetUiTheme()
     local ui = self:EnsureUiState()
-    local outer, inner, header, content = UiCreateBorderCard(parent, "alLeft", 330, theme, "SAVED LOCATIONS")
-    outer.Width = 330
+    local outer, inner, header, content = UiCreateBorderCard(parent, "alClient", 330, theme, "SAVED LOCATIONS")
+    outer.Width = 530
     local hint = createLabel(header)
     hint.Align = "alRight"
     hint.Caption = string.format("%d saves", self:CountSaves())
@@ -1904,10 +1907,18 @@ function Teleporter:InitTeleporterUI()
     body.BorderSpacing.Left = 6
     body.BorderSpacing.Right = 6
     body.BorderSpacing.Bottom = 6
-    self:CreateEditorPanel(body)
-    local gap = UiCreatePanel(body, "alLeft", nil, theme.COLOR_BG)
-    gap.Width = 6
-    self:CreateTreePanel(body)
+    local editorHost = UiCreatePanel(body, "alClient", nil, theme.COLOR_BG)
+    editorHost.Constraints.MinWidth = 420
+    local splitter = createSplitter(body)
+    splitter.Align = "alLeft"
+    splitter.Width = 6
+    splitter.MinSize = 250
+    splitter.ResizeStyle = "rsUpdate"
+    local treeHost = UiCreatePanel(body, "alLeft", nil, theme.COLOR_BG)
+    treeHost.Width = 330
+    treeHost.Constraints.MinWidth = 250
+    self:CreateEditorPanel(editorHost)
+    self:CreateTreePanel(treeHost)
     self:CreateTreeContextMenu()
     self:ApplyEditorTheme()
     local themeTimer = createTimer(form)
