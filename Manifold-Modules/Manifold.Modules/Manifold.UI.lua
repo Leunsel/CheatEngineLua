@@ -14,6 +14,9 @@ local DESCRIPTION = "Manifold Framework UI"
 
     ∂ v1.0.2 (2025-12-27)
         Adjusted Theme Selector AA script generation.
+
+    ∂ v1.0.3 (2026-04-02)
+        Added "support" for theming the Teleporter UI.
 ]] 
 
 UI = {
@@ -828,6 +831,9 @@ function UI:ApplyTheme(themeName, allowReapply)
     self:ApplyThemeToLuaEngine(theme)
     MainForm.repaint()
     self.ActiveTheme = themeName
+    if teleporter and type(teleporter.OnThemeApplied) == "function" then
+        teleporter:OnThemeApplied(themeName, theme)
+    end
     logger:Info("[UI] Theme '" .. themeName .. "' applied.")
 end
 registerLuaFunctionHighlight("ApplyTheme")
