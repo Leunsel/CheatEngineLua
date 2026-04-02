@@ -1,6 +1,6 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.7"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
@@ -31,6 +31,14 @@ local DESCRIPTION = "Manifold Framework Teleporter"
     ∂ v1.0.7 (2025-12-08)
         Added Pause Flag support to Teleporter functions, pausing
         the process while teleporting if set.
+
+    ∂ v1.1.0 (2026-04-02)
+        Refactored the Teleporter UI.
+        Added automatic UI refresh after save mutations.
+        Added a menu strip, toolbar, status bar and improved context menu.
+        Removed obsolete legacy UI helpers and editor coupling.
+        Added new Theme support to the Teleporter UI.
+        Added support for a Y-Coordinate adjustment when teleporting, with configurable index and amount.
 ]]--
 
 Teleporter = {
@@ -59,7 +67,11 @@ Teleporter = {
 
     Settings = {
         ValueType = vtSingle,
-        PauseWhileTeleporting = true
+        PauseWhileTeleporting = true,
+        --- Y Coordinate Adjustment Settings ---
+        AdjustYCoordinate = true,
+        YCoordinateIndex = 1,
+        AdjustmentAmount = 10.000
     },
 
     Saves = {},
@@ -373,6 +385,33 @@ end
 registerLuaFunctionHighlight('SaveCurrentPosition')
 
 --
+--- ∑ Returns a copied target position and applies the configured coordinate adjustment if enabled.
+--- @param position table # The source position table {x, y, z}.
+--- @return table|nil # The copied and adjusted target position, or nil on invalid input.
+--
+function Teleporter:GetAdjustedTargetPosition(position)
+    if type(position) ~= "table" or #position ~= 3 then
+        logger:Error("[Teleporter] Invalid target position for adjustment.")
+        return nil
+    end
+    local adjusted = { position[1], position[2], position[3] }
+    if not self.Settings.AdjustYCoordinate then
+        return adjusted
+    end
+    local coordinateIndex = tonumber(self.Settings.YCoordinateIndex) or 1
+    local adjustmentAmount = tonumber(self.Settings.AdjustmentAmount) or 0
+    if coordinateIndex < 1 or coordinateIndex > #adjusted then
+        logger:WarningF("[Teleporter] Invalid YCoordinateIndex '%s'. Skipping adjustment.", tostring(self.Settings.YCoordinateIndex))
+        return adjusted
+    end
+    adjusted[coordinateIndex] = adjusted[coordinateIndex] + adjustmentAmount
+    logger:DebugF("[Teleporter] Adjusted coordinate index %d by %.3f -> {%.3f, %.3f, %.3f}",
+        coordinateIndex, adjustmentAmount, adjusted[1], adjusted[2], adjusted[3])
+    return adjusted
+end
+registerLuaFunctionHighlight('GetAdjustedTargetPosition')
+
+--
 --- ∑ Loads the previously saved position from memory and teleports the player there.
 --- @returns # true if the position was successfully loaded, false otherwise.
 --
@@ -383,16 +422,19 @@ function Teleporter:LoadSavedPosition()
         logger:Error("[Teleporter] No saved position found. Is it populated?")
         return false
     end
-    -- savedPosition[3] = savedPosition[3] + 0.000
+    local targetPosition = self:GetAdjustedTargetPosition(savedPosition)
+    if not targetPosition then
+        return false
+    end
     self:PauseGame()
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, savedPosition, true, self.Transform.ValueType)
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, targetPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, savedPosition, true, self.Additional.ValueType)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, targetPosition, true, self.Additional.ValueType)
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Loaded saved position -> {%.3f, %.3f, %.3f}", savedPosition[1], savedPosition[2], savedPosition[3])
-        self:LogDistanceTraveled(currentPosition, savedPosition)
+        logger:InfoF("[Teleporter] Loaded saved position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
@@ -416,16 +458,19 @@ function Teleporter:LoadBackupPosition()
         logger:Error("[Teleporter] No backup position found. Is it populated?")
         return false
     end
-    -- backupPosition[3] = backupPosition[3] + 0.000
+    local targetPosition = self:GetAdjustedTargetPosition(backupPosition)
+    if not targetPosition then
+        return false
+    end
     self:PauseGame()
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, backupPosition, true, self.Transform.ValueType)
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, targetPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, backupPosition, true, self.Additional.ValueType)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, targetPosition, true, self.Additional.ValueType)
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Loaded backup position -> {%.3f, %.3f, %.3f}", backupPosition[1], backupPosition[2], backupPosition[3])
-        self:LogDistanceTraveled(currentPosition, backupPosition)
+        logger:InfoF("[Teleporter] Loaded backup position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
@@ -453,15 +498,19 @@ function Teleporter:TeleportToCoordinates(position)
         logger:Error("[Teleporter] Unable to retrieve current position.")
         return false
     end
+    local targetPosition = self:GetAdjustedTargetPosition(position)
+    if not targetPosition then
+        return false
+    end
     self:PauseGame()
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, position, true, self.Transform.ValueType)
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, targetPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, position, true, self.Additional.ValueType)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, targetPosition, true, self.Additional.ValueType)
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Teleported to coordinates -> {%.3f, %.3f, %.3f}", position[1], position[2], position[3])
-        self:LogDistanceTraveled(currentPosition, position)
+        logger:InfoF("[Teleporter] Teleported to coordinates -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
@@ -485,15 +534,19 @@ function Teleporter:TeleportToWaypoint()
         logger:Error("[Teleporter] No waypoint position found.")
         return false
     end
+    local targetPosition = self:GetAdjustedTargetPosition(waypointPosition)
+    if not targetPosition then
+        return false
+    end
     self:PauseGame()
-    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, waypointPosition, true, self.Transform.ValueType)
+    local success = self:WritePositionToMemory(self.Transform.Symbol, self.Transform.Offsets, targetPosition, true, self.Transform.ValueType)
     if success and self.Additional and self.Additional.Symbol and self.Additional.Offsets then
-        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, waypointPosition, true, self.Additional.ValueType)
+        success = self:WritePositionToMemory(self.Additional.Symbol, self.Additional.Offsets, targetPosition, true, self.Additional.ValueType)
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Teleported to waypoint -> {%.3f, %.3f, %.3f}", waypointPosition[1], waypointPosition[2], waypointPosition[3])
-        self:LogDistanceTraveled(currentPosition, waypointPosition)
+        logger:InfoF("[Teleporter] Teleported to waypoint -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
@@ -507,7 +560,10 @@ registerLuaFunctionHighlight('TeleportToWaypoint')
 -- .....................................................
 
 --
---- ∑ ...
+--- ∑ Validates the name of a save or waypoint.
+--- @param name string # The name to validate.
+--- @param action string # The action for which the name is being validated.
+--- @returns boolean # true if the name is valid, false otherwise.
 --
 local function validateName(name, action)
     if not name or type(name) ~= "string" then
@@ -518,103 +574,10 @@ local function validateName(name, action)
 end
 
 --
---- ∑ ...
+--- ∑ Teleports the player to a saved position.
+--- @param name string # The name of the save to teleport to.
+--- @return boolean # true if teleportation was successful, false otherwise.
 --
-local function logSavePositionError(name, position)
-    if not position or not position[1] or not position[2] or not position[3] then
-        if type(position) == "table" then
-            logger:ErrorF("[Teleporter] Invalid position for save '%s'. Position is a table, contents: X=%s, Y=%s, Z=%s", 
-                           name, tostring(position[1]), tostring(position[2]), tostring(position[3]))
-        else
-            logger:ErrorF("[Teleporter] Invalid position for save '%s'. Position is not a table: %s", name, tostring(position))
-        end
-        return false
-    end
-    return true
-end
-
-function Teleporter:GetCurrentAuthor()
-    return os.getenv("USERNAME") or os.getenv("USER") or "Unknown"
-end
-
---
---- ∑ Adds a new teleport save and writes to file storage.
---- @param name string # The name of the save.
---
-function Teleporter:AddSave()
-    if not inMainThread() then
-        synchronize(function(thread)
-            self:AddSave()
-        end)
-        return
-    end
-    local name = inputQuery("Rename Save", "Enter a name for the new save:", "Location")
-    if not validateName(name, "Save") then return end
-    local position = self:GetCurrentPosition()
-    if not logSavePositionError(name, position) then return end
-    self.Saves = self.Saves or {}
-    if self.Saves[name] then
-        logger:WarningF("[Teleporter] Duplicate Save Name: '%s'. Overwriting.", name)
-    end
-    self.Saves[name] = { X = position[1], Y = position[2], Z = position[3], Author = self:GetCurrentAuthor(), Description = "" }
-    logger:InfoF("[Teleporter] Added Save: '%s' at position (%.4f, %.4f, %.4f).", name, position[1], position[2], position[3])
-    -- TODO:
-    -- Update Teleporter Saves UI here...
-end
-registerLuaFunctionHighlight('AddSave')
-
---
---- ∑ Deletes a saved teleport position and updates file storage.
---- @param saveName string # The name of the save to delete.
---
-function Teleporter:DeleteSave(saveName)
-    if not inMainThread() then
-        synchronize(function(thread)
-            self:DeleteSave(saveName)
-        end)
-        return
-    end
-    local name = saveName or inputQuery("Rename Save", "Enter a name for a save to be deleted:", "Location")
-    if not validateName(name, "Delete") then return end
-    if not self.Saves or not self.Saves[name] then
-        logger:WarningF("[Teleporter] Save Not Found: '%s'.", name)
-        return
-    end
-    self.Saves[name] = nil
-    logger:InfoF("[Teleporter] Deleted Save: '%s'.", name)
-end
-registerLuaFunctionHighlight('DeleteSave')
-
---
---- ∑ Renames a saved teleport position and updates file storage.
---- @param oldName string # The old name of the save.
---- @param newName string # The new name of the save.
---
-function Teleporter:RenameSave()
-    if not inMainThread() then
-        synchronize(function(thread)
-            self:RenameSave()
-        end)
-        return
-    end
-    local oldName = inputQuery("Rename Save", "Enter a name for the save to be renamed:", "Location")
-    if not validateName(oldName, "Old") then return end
-    if not self.Saves or not self.Saves[oldName] then
-        logger:ErrorF("[Teleporter] Save Not Found for rename: '%s'.", oldName)
-        return
-    end
-    local newName = inputQuery("Rename Save", "Enter a new name for the save:", "Location")
-    if not validateName(newName, "New") then return end
-    if self.Saves[newName] then
-        logger:ErrorF("[Teleporter] Save Name Already Exists: '%s'.", newName)
-        return
-    end
-    self.Saves[newName] = self.Saves[oldName]
-    self.Saves[oldName] = nil
-    logger:InfoF("[Teleporter] Renamed Save: '%s' to '%s'.", oldName, newName)
-end
-registerLuaFunctionHighlight('RenameSave')
-
 function Teleporter:TeleportToSave(name)
     if not validateName(name, "Save") then
         logger:Error("[Teleporter] Invalid save name.")
@@ -634,7 +597,7 @@ end
 registerLuaFunctionHighlight('TeleportToSave')
 
 --
---- ∑ ...
+--- ∑ Clears all child records from a given memory record, effectively resetting it.
 --
 function Teleporter:ClearSubrecords(record)
     while record ~= nil and record.Count > 0 do
@@ -773,651 +736,1103 @@ end
 registerLuaFunctionHighlight('WriteSavesToDataDir')
 
 --
---- ∑ Creates Teleporter saves and populates the memory record list.
+--- ∑ Logs detailed errors when a save position is invalid, including the name of the save and the contents of the position table.
+--- @param name string # The name of the save being validated.
+--- @param position table # The position table to validate, expected to contain numeric values at indices 1, 2, and 3.
+--- @returns boolean # true if the position is valid, false if it is invalid and an error was logged.
 --
-function Teleporter:CreateTeleporterSaves()
-    logger:Info("[Teleporter] Starting creation of Teleporter Saves...")
-    local addressList = getAddressList()
-    local root = addressList.getMemoryRecordByDescription(self.SaveMemoryRecordName)
-    if not root then
-        logger:ErrorF("[Teleporter] Failed to find root memory record: '%s'.", self.SaveMemoryRecordName)
-        return
+local function logSavePositionError(name, position)
+    if not position or not position[1] or not position[2] or not position[3] then
+        if type(position) == "table" then
+            logger:ErrorF("[Teleporter] Invalid position for save '%s'. Position is a table, contents: X=%s, Y=%s, Z=%s", 
+                           name, tostring(position[1]), tostring(position[2]), tostring(position[3]))
+        else
+            logger:ErrorF("[Teleporter] Invalid position for save '%s'. Position is not a table: %s", name, tostring(position))
+        end
+        return false
     end
-    self:ClearSubrecords(root)
-    local grouped = {}
-    for saveName, data in pairs(self.Saves or {}) do
-        if type(data) == "table" and data.X and data.Y and data.Z then
-            local author = data.Author or "Unknown"
-            local category = (data.Category ~= "" and data.Category) or "Default"
-            grouped[author] = grouped[author] or {}
-            grouped[author][category] = grouped[author][category] or {}
-            table.insert(grouped[author][category], saveName)
+    return true
+end
+
+--
+--- ∑ Retrieves the current system username for use as the default author.
+--- @returns string # The current username or "Unknown" if it cannot be determined.
+--
+function Teleporter:GetCurrentAuthor()
+    return os.getenv("USERNAME") or os.getenv("USER") or "Unknown"
+end
+
+--
+--- ∑ Ensures that the UI state table is initialized and returns it.
+--- The UI state holds references to form controls and other relevant data for managing the Teleporter UI.
+--- If the UI state is not already initialized, this function will create it with default values.
+--- @return table # The UI state table containing references to form controls and other UI-related data.
+--
+function Teleporter:EnsureUiState()
+    self.UiState = self.UiState or {
+        Form = nil,
+        TreeView = nil,
+        SearchEdit = nil,
+        NameEdit = nil,
+        AuthorEdit = nil,
+        CategoryEdit = nil,
+        XEdit = nil,
+        YEdit = nil,
+        ZEdit = nil,
+        DescriptionEdit = nil,
+        StatusLabel = nil,
+        CurrentSelection = nil,
+        SearchQuery = "",
+        IsRefreshing = false,
+    }
+    return self.UiState
+end
+
+--
+--- ∑ Counts the number of saves currently stored in the Teleporter's Saves table.
+--- @returns integer # The total number of saves.
+--
+function Teleporter:CountSaves()
+    local count = 0
+    for _ in pairs(self.Saves or {}) do
+        count = count + 1
+    end
+    return count
+end
+
+--
+--- ∑ Persists the current saves to storage. It first attempts to write to DataDir, and if that fails, it falls back to writing to TableFiles. Logs errors if both methods fail.
+--- @param preferDataDir boolean # Whether to prefer saving to DataDir first. Defaults to true. If false, it will attempt to save to TableFiles first.
+--- @returns boolean # true if the saves were successfully persisted, false otherwise.
+--
+function Teleporter:PersistSaves(preferDataDir)
+    local ok = false
+    if preferDataDir ~= false then
+        ok = self:WriteSavesToDataDir()
+        if not ok then
+            logger:Warning("[Teleporter] Failed to persist saves to DataDir. Falling back to TableFile...")
         end
     end
-    local sortedAuthors = {}
-    for author in pairs(grouped) do table.insert(sortedAuthors, author) end
-    table.sort(sortedAuthors, function(a, b) return a:lower() < b:lower() end)
-    local totalSaves = 0
-    for _, author in ipairs(sortedAuthors) do
-        local authorHeader = addressList.createMemoryRecord()
-        authorHeader.Type = vtGroupHeader
-        authorHeader.Description = string.format("[— %s —] ()->", author)
-        authorHeader.Color = 0xFFFFFF
-        authorHeader.Parent = root
-        authorHeader.IsAddressGroupHeader = false
-        local categories = grouped[author]
-        local sortedCategories = {}
-        for category in pairs(categories) do table.insert(sortedCategories, category) end
-        table.sort(sortedCategories, function(a, b) return a:lower() < b:lower() end)
-        for _, category in ipairs(sortedCategories) do
-            local categoryHeader = addressList.createMemoryRecord()
-            categoryHeader.Type = vtGroupHeader
-            categoryHeader.IsAddressGroupHeader = false
-            categoryHeader.Description = string.format("[— %s —] ()->", category)
-            categoryHeader.Color = 0xFFFFFF
-            categoryHeader.Parent = authorHeader
-            local saves = categories[category]
-            table.sort(saves, function(a, b) return a:lower() < b:lower() end)
-            for _, saveName in ipairs(saves) do
-                local position = self.Saves[saveName]
-                local scriptContent = string.format([[
-{$lua}
-[ENABLE]
-if syntaxcheck then return end
--- .................................................................
---- Save: %s
---- Author: %s
----- X: %.4f
----- Y: %.4f
----- Z: %.4f
-teleporter:TeleportToSave("%s")
-utils:AutoDisable(memrec.ID)
--- .................................................................
-[DISABLE]
+    if not ok then
+        ok = self:WriteSavesToTableFile()
+    end
+    if not ok then
+        logger:Error("[Teleporter] Failed to persist Teleporter saves.")
+    end
+    return ok
+end
 
---- Script generated using %s
----- Version: %s
----- Source: https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Modules
-]], saveName, author, position.X, position.Y, position.Z, saveName, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
-                local mr = addressList.createMemoryRecord()
-                mr.Type = vtAutoAssembler
-                mr.Description = "Teleport To: '" .. saveName .. "' ()->"
-                mr.Color = 0xFFFFFF
-                mr.Parent = categoryHeader
-                mr.Script = scriptContent
-                totalSaves = totalSaves + 1
+--
+--- ∑ Sets the status text in the UI, typically used to provide feedback to the user about the current state of the Teleporter (e.g., "Ready", "Error: Invalid Save Name", etc.).
+--- @param text string # The status text to display. If nil or empty, defaults to "Ready".
+--
+function Teleporter:SetStatus(text)
+    local ui = self:EnsureUiState()
+    if ui.StatusLabel then
+        ui.StatusLabel.Caption = text or "Ready"
+    end
+end
+
+function Teleporter:ClearEditor()
+    local ui = self:EnsureUiState()
+    if ui.NameEdit then ui.NameEdit.Text = "" end
+    if ui.AuthorEdit then ui.AuthorEdit.Text = self:GetCurrentAuthor() end
+    if ui.CategoryEdit then ui.CategoryEdit.Text = "" end
+    if ui.XEdit then ui.XEdit.Text = "" end
+    if ui.YEdit then ui.YEdit.Text = "" end
+    if ui.ZEdit then ui.ZEdit.Text = "" end
+    if ui.DescriptionEdit then ui.DescriptionEdit.Lines.Text = "" end
+    ui.CurrentSelection = nil
+end
+
+--
+--- ∑ Retrieves the currently selected save name from the UI state.
+--- @returns string|nil # The name of the currently selected save, or nil if no selection.
+--
+function Teleporter:GetSelectedSaveName()
+    local ui = self:EnsureUiState()
+    return ui.CurrentSelection
+end
+
+--
+--- ∑ Sets the currently selected save name in the UI state.
+--- @param name string # The name of the save to set as selected.
+--
+function Teleporter:SetSelectedSaveName(name)
+    local ui = self:EnsureUiState()
+    ui.CurrentSelection = name
+end
+
+--
+--- ∑ Loads a save by name into the editor fields. Returns false if the save is not found.
+--- @param name string # The name of the save to load.
+--- @returns boolean # true if the save was loaded successfully, false otherwise.
+--
+function Teleporter:LoadSaveIntoEditor(name)
+    local ui = self:EnsureUiState()
+    local save = self.Saves and self.Saves[name]
+    if not save then
+        self:ClearEditor()
+        return false
+    end
+    ui.CurrentSelection = name
+    ui.NameEdit.Text = name
+    ui.AuthorEdit.Text = save.Author or self:GetCurrentAuthor()
+    ui.CategoryEdit.Text = save.Category or ""
+    ui.XEdit.Text = tostring(save.X or "")
+    ui.YEdit.Text = tostring(save.Y or "")
+    ui.ZEdit.Text = tostring(save.Z or "")
+    ui.DescriptionEdit.Lines.Text = save.Description or ""
+    return true
+end
+
+--
+--- ∑ Attempts to parse the position from the editor fields. Returns nil if any field is invalid.
+--- @returns table|nil # A table containing the position {x, y, z} or nil if parsing fails.
+--
+function Teleporter:TryGetEditorPosition()
+    local ui = self:EnsureUiState()
+    local x = tonumber(ui.XEdit.Text)
+    local y = tonumber(ui.YEdit.Text)
+    local z = tonumber(ui.ZEdit.Text)
+    if not x or not y or not z then
+        return nil
+    end
+    return { x, y, z }
+end
+
+--
+--- ∑ Generates a unique copy name for a save based on an existing name.
+--- @param baseName string # The original name to base the copy name on.
+--- @returns string # A unique name for the copied save (e.g., "Save (Copy)", "Save (Copy 2)", etc.).
+--
+function Teleporter:GenerateUniqueCopyName(baseName)
+    local index = 1
+    local name = string.format("%s (Copy)", baseName)
+    while self.Saves and self.Saves[name] do
+        index = index + 1
+        name = string.format("%s (Copy %d)", baseName, index)
+    end
+    return name
+end
+
+--
+--- ∑ Refreshes the Teleporter UI, optionally preserving the current selection.
+--- @param preserveSelection boolean # Whether to preserve the current selection after refresh. Defaults to true.
+--
+function Teleporter:RefreshUi(preserveSelection)
+    local ui = self:EnsureUiState()
+    if ui.IsRefreshing or not ui.TreeView then
+        return
+    end
+    ui.IsRefreshing = true
+    local previousSelection = preserveSelection ~= false and ui.CurrentSelection or nil
+    local query = (ui.SearchEdit and ui.SearchEdit.Text or ui.SearchQuery or ""):lower()
+    ui.TreeView.beginUpdate()
+    ui.TreeView.Items:clear()
+    self:EnsureAuthorsAndCategories()
+    local grouped = {}
+    for saveName, data in pairs(self.Saves or {}) do
+        if type(saveName) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
+            local author = data.Author or "Unknown"
+            local category = (data.Category and data.Category ~= "") and data.Category or "Default"
+            local description = data.Description or ""
+            local haystack = string.lower(table.concat({ saveName, author, category, description }, " "))
+            if query == "" or haystack:find(query, 1, true) then
+                grouped[author] = grouped[author] or {}
+                grouped[author][category] = grouped[author][category] or {}
+                table.insert(grouped[author][category], saveName)
             end
         end
     end
-
-    logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves (grouped by Author and Category).", totalSaves)
-end
-registerLuaFunctionHighlight('CreateTeleporterSaves')
-
---
---- ∑ Prints all saved Teleporter locations to the log.
---
-function Teleporter:PrintSaves()
-    if not self.Saves or next(self.Saves) == nil then
-        logger:ForceError("[Teleporter] No Saves Found!")
-        return
+    local authors = {}
+    for author in pairs(grouped) do
+        table.insert(authors, author)
     end
-    for name, position in pairs(self.Saves) do
-        if position and position.X and position.Y and position.Z then
-            local positionStr = string.format("(%.4f, %.4f, %.4f)", position.X, position.Y, position.Z)
-            local authorStr = position.Author and tostring(position.Author) or "Unknown"
-            logger:ForceInfoF("[Teleporter] Location '%s' saved by '%s' at coordinates %s.", name, authorStr, positionStr)
-        else
-            logger:ForceErrorF("[Teleporter] Invalid save position for '%s'. Details: %s", name, tostring(position))
-        end
-    end
-end
-registerLuaFunctionHighlight('PrintSaves')
-
---
---- ∑ Updates an existing Teleporter save with new coordinates.
---- @param name string # The name of the save to update.
---- @param newPos table # A table containing the new {X, Y, Z} coordinates.
---- @param TreeView object # The TreeView control to update.
---- @param newAuthor string # The new author of the save (optional).
---- @param newCategory string # The new category of the save (optional).
---- @param newDescription string # The new description of the save (optional).
---- @return boolean # True if the update was successful, false otherwise.
---
-function UpdateSave(name, newPos, TreeView, newAuthor, newCategory, newDescription)
-    if not name or name == "" then
-        logger:WarningF("[Teleporter] Update failed: Name is missing.")
-        return false
-    end
-    if not newPos or type(newPos) ~= "table" or #newPos ~= 3 then
-        logger:WarningF("[Teleporter] Update failed: Invalid position data.")
-        return false
-    end
-    teleporter.Saves = teleporter.Saves or {}
-    local oldName = TreeView.Selected and TreeView.Selected.Text or name
-    if not teleporter.Saves[oldName] then
-        logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", oldName)
-        return false
-    end
-    if oldName ~= name then
-        teleporter.Saves[name] = teleporter.Saves[oldName]
-        teleporter.Saves[oldName] = nil
-    end
-    local save = teleporter.Saves[name]
-    save.X, save.Y, save.Z = newPos[1], newPos[2], newPos[3]
-    save.Author = newAuthor or save.Author or teleporter:GetCurrentAuthor()
-    save.Category = newCategory or ""
-    save.Description = newDescription or ""
-    logger:InfoF("[Teleporter] Save '%s' updated: Author='%s', Category='%s', X=%.2f, Y=%.2f, Z=%.2f, Description='%s'",
-                 name, save.Author, save.Category, save.X, save.Y, save.Z, save.Description or "")
-    return true
-end
-registerLuaFunctionHighlight('UpdateSave')
-
---
---- ∑ Loads all Teleporter saves into a UI TreeView component.
---- @param TreeView userdata # The UI TreeView element to populate.
---
-local function LoadTeleporterSaves(TreeView)
-    TreeView.beginUpdate()
-    TreeView.Items:clear()
-    if not teleporter or not teleporter.Saves then
-        TreeView.endUpdate()
-        return
-    end
-    teleporter:EnsureAuthorsAndCategories()
-    for name, data in pairs(teleporter.Saves) do
-        if type(data) == "table" and data.Description == nil then
-            data.Description = ""
-        end
-    end
-    local grouped = {}
-    for name, data in pairs(teleporter.Saves) do
-        if type(name) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
-            local author   = data.Author or "Unknown"
-            local category = data.Category ~= "" and data.Category or "Default"
-            grouped[author] = grouped[author] or {}
-            grouped[author][category] = grouped[author][category] or {}
-            table.insert(grouped[author][category], name)
-        end
-    end
-    for author, categoryMap in pairs(grouped) do
-        local authorNode = TreeView.Items:add()
+    table.sort(authors, function(a, b) return a:lower() < b:lower() end)
+    for _, author in ipairs(authors) do
+        local authorNode = ui.TreeView.Items:add()
         authorNode.Text = author
-        local sortedCategories = {}
-        for category in pairs(categoryMap) do
-            table.insert(sortedCategories, category)
+        local categories = {}
+        for category in pairs(grouped[author]) do
+            table.insert(categories, category)
         end
-        table.sort(sortedCategories, function(a, b) return a:lower() < b:lower() end)
-        for _, category in ipairs(sortedCategories) do
-            local saves = categoryMap[category]
+        table.sort(categories, function(a, b) return a:lower() < b:lower() end)
+        for _, category in ipairs(categories) do
             local categoryNode = authorNode:add()
             categoryNode.Text = category
+            local saves = grouped[author][category]
             table.sort(saves, function(a, b) return a:lower() < b:lower() end)
             for _, saveName in ipairs(saves) do
                 local saveNode = categoryNode:add()
                 saveNode.Text = saveName
+                if previousSelection and previousSelection == saveName then
+                    ui.TreeView.Selected = saveNode
+                end
             end
         end
     end
-    TreeView.endUpdate()
+    ui.TreeView.endUpdate()
+    ui.IsRefreshing = false
+    if previousSelection and self.Saves and self.Saves[previousSelection] then
+        self:LoadSaveIntoEditor(previousSelection)
+    elseif not previousSelection then
+        self:ClearEditor()
+    end
+    if ui.TreeStatsLabel then
+        ui.TreeStatsLabel.Caption = string.format("%d saves", self:CountSaves())
+    end
+    self:SetStatus(string.format("%d saves loaded", self:CountSaves()))
 end
 
-local COLOR_BG           = 0x2E2723
-local COLOR_PANEL        = 0x3A312C
-local COLOR_ACCENT       = 0x9CBC1A
-local COLOR_TEXT         = 0xEAEAEA
-local COLOR_LABEL        = 0xB0B0B0
-local COLOR_BTN          = 0x2E2723
-local COLOR_BTN_HOVER    = 0x9CBC1A
-local COLOR_BTN_TEXT     = 0xEAEAEA
-local COLOR_TAB_ACTIVE   = 0x9CBC1A
-local COLOR_TAB_INACTIVE = 0x3A312C
+--
+--- ∑ Creates a new save from the current position and persists it.
+--- @param name string # The name of the save. If nil, the user will be prompted to enter a name.
+--- @param category string # An optional category for the save.
+--- @param description string # An optional description for the save.
+--- @returns # true if the save was successfully created, false otherwise.
+--
+function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
+    local saveName = name
+    if not saveName or saveName == "" then
+        saveName = inputQuery("Add Save", "Enter a name for the new save:", "Location")
+    end
+    if not validateName(saveName, "Save") then
+        return false
+    end
+    local position = self:GetCurrentPosition()
+    if not logSavePositionError(saveName, position) then
+        return false
+    end
+    self.Saves = self.Saves or {}
+    self.Saves[saveName] = {
+        X = position[1],
+        Y = position[2],
+        Z = position[3],
+        Author = self:GetCurrentAuthor(),
+        Category = category or "",
+        Description = description or "",
+    }
+    self:PersistSaves(true)
+    self:SetSelectedSaveName(saveName)
+    self:RefreshUi(true)
+    self:LoadSaveIntoEditor(saveName)
+    self:SetStatus("Save created: " .. saveName)
+    logger:InfoF("[Teleporter] Added Save: '%s'", saveName)
+    return true
+end
 
 --
---- ∑ Creates a button with a given caption and attaches it to a parent UI component.
---- @param parent userdata # The parent UI element.
---- @param caption string # The caption text for the button.
---- @return userdata # The created button instance.
+--- ∑ Adds a new save using the current position. If called from a non-main thread, it synchronizes the call to the main thread.
+--- @returns # true if the save was successfully created, false otherwise.
 --
-local function CreateButtonWithCaption(parent, caption)
+function Teleporter:AddSave()
+    if not inMainThread() then
+        synchronize(function() self:AddSave() end)
+        return
+    end
+    return self:CreateSaveFromCurrentPosition()
+end
+
+--
+--- ∑ Deletes an existing save by name and persists changes.
+--- @param saveName string # The name of the save to delete. If nil, the currently selected save will be used. If still nil, the user will be prompted to enter a name.
+--- @returns # true if the save was successfully deleted, false otherwise.
+--
+function Teleporter:DeleteSave(saveName)
+    if not inMainThread() then
+        synchronize(function() self:DeleteSave(saveName) end)
+        return
+    end
+    local name = saveName or self:GetSelectedSaveName() or inputQuery("Delete Save", "Enter a name for the save to delete:", "")
+    if not validateName(name, "Delete") then
+        return false
+    end
+    if not self.Saves or not self.Saves[name] then
+        logger:WarningF("[Teleporter] Save Not Found: '%s'.", name)
+        return false
+    end
+    local confirmed = messageDialog("Delete save '" .. name .. "'?", mtConfirmation, mbYes, mbNo)
+    if confirmed ~= mrYes then
+        return false
+    end
+    self.Saves[name] = nil
+    self:PersistSaves(true)
+    self:SetSelectedSaveName(nil)
+    self:RefreshUi(false)
+    self:ClearEditor()
+    self:SetStatus("Save deleted: " .. name)
+    logger:InfoF("[Teleporter] Deleted Save: '%s'.", name)
+    return true
+end
+
+--
+--- ∑ Renames an existing save to a new name and persists changes.
+--- @param oldName string # The current name of the save to rename. If nil, the currently selected save will be used.
+--- @param newName string # The new name for the save. If nil, the user will be prompted to enter a new name.
+--- @returns # true if the save was successfully renamed, false otherwise.
+--
+function Teleporter:RenameSave(oldName, newName)
+    if not inMainThread() then
+        synchronize(function() self:RenameSave(oldName, newName) end)
+        return
+    end
+    local sourceName = oldName or self:GetSelectedSaveName()
+    if not validateName(sourceName, "Old") then
+        return false
+    end
+    if not self.Saves or not self.Saves[sourceName] then
+        logger:ErrorF("[Teleporter] Save Not Found for rename: '%s'.", sourceName)
+        return false
+    end
+    local targetName = newName or inputQuery("Rename Save", "Enter a new name:", sourceName)
+    if not validateName(targetName, "New") then
+        return false
+    end
+    if sourceName ~= targetName and self.Saves[targetName] then
+        logger:ErrorF("[Teleporter] Save Name Already Exists: '%s'.", targetName)
+        return false
+    end
+    self.Saves[targetName] = self.Saves[sourceName]
+    if targetName ~= sourceName then
+        self.Saves[sourceName] = nil
+    end
+    self:PersistSaves(true)
+    self:SetSelectedSaveName(targetName)
+    self:RefreshUi(true)
+    self:LoadSaveIntoEditor(targetName)
+    self:SetStatus(string.format("Renamed '%s' -> '%s'", sourceName, targetName))
+    logger:InfoF("[Teleporter] Renamed Save: '%s' to '%s'.", sourceName, targetName)
+    return true
+end
+
+--
+--- ∑ Duplicates the currently selected save with a new unique name and persists it.
+--- @returns # true if the save was successfully duplicated, false otherwise.
+--
+function Teleporter:DuplicateSelectedSave()
+    local sourceName = self:GetSelectedSaveName()
+    if not sourceName or not self.Saves or not self.Saves[sourceName] then
+        logger:Warning("[Teleporter] No valid save selected for duplication.")
+        return false
+    end
+    local newName = self:GenerateUniqueCopyName(sourceName)
+    local src = self.Saves[sourceName]
+    self.Saves[newName] = {
+        X = src.X,
+        Y = src.Y,
+        Z = src.Z,
+        Author = src.Author or self:GetCurrentAuthor(),
+        Category = src.Category or "",
+        Description = src.Description or "",
+    }
+    self:PersistSaves(true)
+    self:SetSelectedSaveName(newName)
+    self:RefreshUi(true)
+    self:LoadSaveIntoEditor(newName)
+    self:SetStatus("Save duplicated: " .. newName)
+    logger:InfoF("[Teleporter] Duplicated save '%s' as '%s'.", sourceName, newName)
+    return true
+end
+
+--
+--- ∑ Updates the currently selected save with values from the editor and persists changes.
+--- @returns # true if the save was successfully updated, false otherwise.
+--
+function Teleporter:UpdateSelectedSaveFromEditor()
+    local ui = self:EnsureUiState()
+    local oldName = self:GetSelectedSaveName() or ui.NameEdit.Text
+    local newName = ui.NameEdit.Text
+    local position = self:TryGetEditorPosition()
+    if not validateName(newName, "Save") then
+        return false
+    end
+    if not position then
+        logger:Warning("[Teleporter] Invalid input for update.")
+        return false
+    end
+    if not self.Saves or not self.Saves[oldName] then
+        logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", tostring(oldName))
+        return false
+    end
+    if oldName ~= newName and self.Saves[newName] then
+        logger:WarningF("[Teleporter] Update failed: Save '%s' already exists.", newName)
+        return false
+    end
+    if oldName ~= newName then
+        self.Saves[newName] = self.Saves[oldName]
+        self.Saves[oldName] = nil
+    end
+    local save = self.Saves[newName]
+    save.X = position[1]
+    save.Y = position[2]
+    save.Z = position[3]
+    save.Author = ui.AuthorEdit.Text ~= "" and ui.AuthorEdit.Text or self:GetCurrentAuthor()
+    save.Category = ui.CategoryEdit.Text or ""
+    save.Description = ui.DescriptionEdit.Lines.Text or ""
+    self:PersistSaves(true)
+    self:SetSelectedSaveName(newName)
+    self:RefreshUi(true)
+    self:LoadSaveIntoEditor(newName)
+    self:SetStatus("Save updated: " .. newName)
+    logger:InfoF("[Teleporter] Save '%s' updated.", newName)
+    return true
+end
+
+
+local DEFAULT_THEME = {
+    COLOR_BG           = 0x2E2723,
+    COLOR_PANEL        = 0x3A312C,
+    COLOR_ACCENT       = 0x9CBC1A,
+    COLOR_TEXT         = 0xEAEAEA,
+    COLOR_LABEL        = 0xB0B0B0,
+    COLOR_BTN          = 0x2E2723,
+    COLOR_BTN_HOVER    = 0x9CBC1A,
+    COLOR_BTN_TEXT     = 0xEAEAEA,
+    COLOR_TAB_ACTIVE   = 0x9CBC1A,
+    COLOR_TAB_INACTIVE = 0x3A312C,
+    COLOR_INPUT        = 0x1E1917,
+    COLOR_INPUT_TEXT   = 0xEAEAEA,
+    COLOR_BORDER       = 0x74614A,
+    COLOR_MUTED        = 0x8B7B68,
+    COLOR_SURFACE      = 0x433933,
+    COLOR_SURFACE_ALT  = 0x241F1C,
+    COLOR_SUCCESS      = 0x6FD96F,
+}
+
+--
+--- ∑ Resolves the current UI theme by attempting to retrieve active theme data from the host application.
+--- If active theme data is available, it maps relevant color values to the Teleporter theme.
+--- If no theme data is available or an error occurs, it falls back to a default theme.
+--- @returns table # A table containing color values for the UI theme.
+--
+function Teleporter:ResolveUiTheme()
+    local theme = {}
+    for key, value in pairs(DEFAULT_THEME) do
+        theme[key] = value
+    end
+    if not _G.ui then
+        return theme
+    end
+    local activeTheme = nil
+    local ok = false
+    if type(ui.GetActiveThemeData) == "function" then
+        ok, activeTheme = pcall(function()
+            return ui:GetActiveThemeData()
+        end)
+    elseif type(ui.GetTheme) == "function" and ui.ActiveTheme then
+        ok, activeTheme = pcall(function()
+            return ui:GetTheme(ui.ActiveTheme)
+        end)
+    end
+    if not ok or type(activeTheme) ~= "table" then
+        return theme
+    end
+    local function themeValue(key)
+        local value = activeTheme[key]
+        return value
+    end
+    theme.COLOR_BG           = themeValue("MainForm.Color") or theme.COLOR_BG
+    theme.COLOR_PANEL        = themeValue("MainForm.Foundlist3.Color") or theme.COLOR_PANEL
+    theme.COLOR_ACCENT       = themeValue("AddressList.Header.Canvas.Pen.Color") or themeValue("MainForm.Splitter1.Color") or theme.COLOR_ACCENT
+    theme.COLOR_TEXT         = themeValue("Memrec.DefaultForeground.Color") or theme.COLOR_TEXT
+    theme.COLOR_LABEL        = themeValue("AddressList.Header.Font.Color") or theme.COLOR_LABEL
+    theme.COLOR_INPUT        = themeValue("AddressList.List.BackgroundColor") or themeValue("TreeView.Color") or theme.COLOR_INPUT
+    theme.COLOR_INPUT_TEXT   = themeValue("TreeView.Font.Color") or theme.COLOR_INPUT_TEXT
+    theme.COLOR_BORDER       = themeValue("MainForm.Panel4.BevelColor") or theme.COLOR_BORDER
+    theme.COLOR_BTN          = theme.COLOR_PANEL
+    theme.COLOR_BTN_HOVER    = theme.COLOR_ACCENT
+    theme.COLOR_BTN_TEXT     = theme.COLOR_TEXT
+    theme.COLOR_TAB_ACTIVE   = theme.COLOR_ACCENT
+    theme.COLOR_TAB_INACTIVE = theme.COLOR_SURFACE or theme.COLOR_PANEL
+    theme.COLOR_MUTED        = themeValue("Memrec.GroupHeader.Color") or theme.COLOR_MUTED
+    theme.COLOR_SURFACE      = themeValue("Memrec.AutoAssembler.Color") or theme.COLOR_SURFACE
+    theme.COLOR_SURFACE_ALT  = themeValue("Memrec.UserDefined.Color") or theme.COLOR_SURFACE_ALT
+    theme.COLOR_SUCCESS      = themeValue("Memrec.StringType.Color") or theme.COLOR_SUCCESS
+    return theme
+end
+
+function Teleporter:OnThemeApplied(themeData)
+    local ui = self:EnsureUiState()
+    ui.Theme = nil
+    if type(themeData) == "table" then
+        ui.Theme = themeData
+    end
+    if not ui.Form then
+        return
+    end
+    self:RebuildTeleporterTheme()
+end
+
+function Teleporter:RebuildTeleporterTheme()
+    local ui = self:EnsureUiState()
+    local selected = self:GetSelectedSaveName()
+    local search = ui.SearchEdit and ui.SearchEdit.Text or ""
+    if ui.Form then
+        ui.Form.close()
+    end
+    self.UiState = nil
+    self:InitTeleporterUI()
+    local newUi = self:EnsureUiState()
+    if newUi.SearchEdit then
+        newUi.SearchEdit.Text = search
+    end
+    self:SetSelectedSaveName(selected)
+    self:RefreshUi(true)
+    if selected then
+        self:LoadSaveIntoEditor(selected)
+    end
+end
+
+--
+--- ∑ Applies font settings to a given control, including font name, size, color, and style.
+--- This function checks if the control and its Font property exist before applying the specified settings.
+--- @param control table # The UI control to which the font settings will be applied.
+--- @param color integer # An optional color value to apply to the font. If nil, the font color will not be changed.
+--- @param size integer # An optional font size to apply. If nil, the font size will default to 10.
+--- @param style string # An optional font style to apply (e.g., "[fsBold]"). If nil, the font style will not be changed.
+--
+local function UiApplyFont(control, color, size, style)
+    if not control or not control.Font then
+        return
+    end
+    control.Font.Name = "Consolas"
+    control.Font.Size = size or 10
+    if color ~= nil then
+        control.Font.Color = color
+    end
+    if style then
+        control.Font.Style = style
+    end
+end
+
+--
+--- ∑ Retrieves the current UI theme, ensuring that it is resolved and cached in the UI state for future use.
+--- If the theme has not been resolved yet, this function will call ResolveUiTheme to obtain the theme data and store it in the UI state before returning it.
+--- @returns table # The current UI theme containing color values for styling the Teleporter UI.
+--
+function Teleporter:GetUiTheme()
+    local uiState = self:EnsureUiState()
+    if not uiState.Theme then
+        uiState.Theme = self:ResolveUiTheme()
+    end
+    return uiState.Theme
+end
+
+--
+--- ∑ Applies the current UI theme to all relevant editor controls, ensuring consistent styling across the Teleporter UI.
+--- This function iterates through each editor control (name, author, category, position fields, search, and description)
+--- and applies the appropriate colors, fonts, and border styles based on the resolved theme.
+--- If a control has a repaint method, it is called to ensure the visual updates take effect immediately.
+-- This function should be called whenever the theme is changed or when the editor is initialized to ensure the controls match the current theme.
+--
+function Teleporter:ApplyEditorTheme()
+    local theme = self:GetUiTheme()
+    local ui = self:EnsureUiState()
+    local function applyEdit(ctrl)
+        if not ctrl then
+            return
+        end
+        ctrl.ParentColor = false
+        ctrl.Color = theme.COLOR_INPUT
+        ctrl.BorderStyle = "bsNone"
+        UiApplyFont(ctrl, theme.COLOR_INPUT_TEXT, 10)
+        if ctrl.repaint then
+            ctrl:repaint()
+        elseif ctrl.Repaint then
+            ctrl:Repaint()
+        end
+    end
+    applyEdit(ui.NameEdit)
+    applyEdit(ui.AuthorEdit)
+    applyEdit(ui.CategoryEdit)
+    applyEdit(ui.XEdit)
+    applyEdit(ui.YEdit)
+    applyEdit(ui.ZEdit)
+    applyEdit(ui.SearchEdit)
+    if ui.DescriptionEdit then
+        ui.DescriptionEdit.ParentColor = false
+        ui.DescriptionEdit.Color = theme.COLOR_INPUT
+        ui.DescriptionEdit.BorderStyle = "bsNone"
+        UiApplyFont(ui.DescriptionEdit, theme.COLOR_INPUT_TEXT, 10)
+        if ui.DescriptionEdit.repaint then
+            ui.DescriptionEdit:repaint()
+        elseif ui.DescriptionEdit.Repaint then
+            ui.DescriptionEdit:Repaint()
+        end
+    end
+end
+
+--
+--- ∑ Creates a new panel control with specified parent, alignment, height, and color.
+--- The panel is configured with no bevel and the specified background color.
+--- @param parent table # The parent control to which the panel will be added.
+--- @param align string # The alignment for the panel (e.g., "alLeft", "alTop"). Defaults to "alTop" if not provided.
+--- @param height integer # An optional height for the panel. If not provided, the panel will size to its content.
+--- @param color integer # The background color for the panel.
+--- @returns table # The created panel control.
+--
+local function UiCreatePanel(parent, align, height, color)
     local panel = createPanel(parent)
-    panel.Align = "alTop"
-    panel.Height = 25
-    panel.BevelOuter = bvRaised
-    panel.BevelWidth = 1
-    panel.Color = COLOR_BG
-    panel.Cursor = -21 -- crHandPoint
-    panel.Caption = caption
-    panel.BorderSpacing.Around = 3
-    panel.BorderColor = 0xFF0000
-    local label = createLabel(panel)
-    panel.OnMouseEnter = function()
-        panel.Color = COLOR_TAB_ACTIVE
-        label.Font.Color = COLOR_BG
+    panel.Align = align or "alTop"
+    if height ~= nil then
+        panel.Height = height
     end
-    panel.OnMouseLeave = function()
-        panel.Color = COLOR_BG
-        label.Font.Color = COLOR_TEXT
-    end
+    panel.BevelOuter = "bvNone"
+    panel.Color = color
     return panel
 end
 
-local function createDarkPanel(parent)
-    local panel = createPanel(parent)
-    panel.Color = COLOR_PANEL
-    return panel
+--
+--- ∑ Creates a bordered card UI element with a header and content area, styled according to the provided theme.
+--- The card consists of an outer panel with a border color, an inner panel for the background, a header panel with a title label, and a content panel for additional controls.
+--- @param parent table # The parent control to which the card will be added.
+--- @param align string # The alignment for the card (e.g., "alLeft", "alTop"). Defaults to "alTop" if not provided.
+--- @param size integer # An optional height for the card. If not provided, the card will size to its content.
+--- @param theme table # The theme containing color values for styling the card and its components.
+--- @param title string # The text to display in the card's header. Defaults to "SECTION" if not provided.
+--- @returns table, table, table, table # The outer panel, inner panel, header panel, and content panel of the created card, respectively.
+--
+local function UiCreateBorderCard(parent, align, size, theme, title)
+    local outer = UiCreatePanel(parent, align, size, theme.COLOR_BORDER)
+    outer.BorderSpacing.Around = 6
+    local inner = UiCreatePanel(outer, "alClient", nil, theme.COLOR_PANEL)
+    inner.BorderSpacing.Around = 2
+    local header = UiCreatePanel(inner, "alTop", 24, theme.COLOR_PANEL)
+    local headerLabel = createLabel(header)
+    headerLabel.Align = "alLeft"
+    headerLabel.Caption = title or "SECTION"
+    headerLabel.BorderSpacing.Left = 6
+    headerLabel.BorderSpacing.Top = 4
+    UiApplyFont(headerLabel, theme.COLOR_LABEL, 10, "[fsBold]")
+    local content = UiCreatePanel(inner, "alClient", nil, theme.COLOR_PANEL)
+    content.BorderSpacing.Around = 6
+    return outer, inner, header, content
 end
 
 --
---- ∑ Creates a labeled input field with a given label text and attaches it to a parent UI component.
---- @param parent userdata # The parent UI element.
---- @param labelText string # The label text for the input field.
---- @return userdata # The created input field instance.
+--- ∑ Creates a styled label control with specified caption, theme colors, alignment, and width.
+--- The label is configured to use the theme's label color and a consistent font size, and is aligned according to the provided parameters.
+--- @param parent table # The parent control to which the label will be added.
+--- @param caption string # The text to display in the label.
+--- @param theme table # The theme containing color values for styling the label.
+--- @param align string # The alignment for the label (e.g., "alLeft", "alTop"). Defaults to "alLeft" if not provided.
+--- @param width integer # An optional width for the label. If not provided, the label will size to its content.
+--- @returns table # The styled label control.
 --
-local function CreateLabeledEdit(parent, labelText)
-    local container = createDarkPanel(parent)
-    container.Align = "alTop"
-    container.Height = 25
-    container.BevelOuter = "bvNone"
-    local label = createLabel(container)
-    label.Caption = labelText
-    label.Align = "alLeft"
-    label.BorderSpacing.Around = 2
-    label.Font.Color = COLOR_LABEL
-    label.Font.Name = "Consolas"
-    label.Font.Size = 10
-    local edit = createEdit(container)
+local function UiCreateLabel(parent, caption, theme, align, width)
+    local label = createLabel(parent)
+    label.Align = align or "alLeft"
+    if width then
+        label.Width = width
+    end
+    label.Caption = caption or ""
+    UiApplyFont(label, theme.COLOR_LABEL, 10)
+    return label
+end
+
+--
+--- ∑ Creates a styled edit control for single-line text input, using the provided theme for consistent styling.
+--- The edit control is configured with appropriate colors, font, and border style to match the overall theme of the UI.
+--- @param parent table # The parent control to which the edit will be added.
+--- @param theme table # The theme containing color values for styling the edit control.
+--- @returns table # The styled edit control for single-line text input.
+--
+local function UiCreateStyledEdit(parent, theme)
+    local edit = createEdit(parent)
     edit.Align = "alClient"
-    edit.BorderSpacing.Around = 2
-    -- edit.Color = COLOR_BG
-    edit.Font.Color = COLOR_TEXT
-    edit.Font.Name = "Consolas"
-    edit.Font.Size = 10
+    edit.ParentColor = false
+    edit.Color = theme.COLOR_INPUT
+    edit.BorderStyle = "bsNone"
+    UiApplyFont(edit, theme.COLOR_INPUT_TEXT, 10)
     return edit
 end
 
 --
---- Handles the selection of a save entry in the TreeView and updates UI input fields accordingly.
---- @param TreeView userdata
---- @param NameEdit, XEdit, YEdit, ZEdit ...
+--- ∑ Creates a styled memo control wrapped in themed panels for consistent styling.
+--- The function returns the memo control for multi-line text input, wrapped in panels that provide padding
+--- and background color according to the provided theme.
+--- @param parent table # The parent control to which the memo will be added.
+--- @param theme table # The theme containing color values for styling the memo and its panels.
+--- @returns table # The memo control for multi-line text input.
 --
-local function HandleTreeViewSelection(TreeView, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit, DescriptionEdit)
-    TreeView.OnClick = function()
-        local selected = TreeView.Selected
-        if not selected then return end
-        if selected.Level == 2 then
-            local saveName = selected.Text
-            local categoryNode = selected.Parent
-            local authorNode = categoryNode and categoryNode.Parent
-            if teleporter.Saves and teleporter.Saves[saveName] then
-                local save = teleporter.Saves[saveName]
-                NameEdit.Text = saveName
-                AuthorEdit.Text = authorNode and authorNode.Text or "Unknown"
-                CategoryEdit.Text = categoryNode and categoryNode.Text or "Default"
-                XEdit.Text = tostring(save.X or "")
-                YEdit.Text = tostring(save.Y or "")
-                ZEdit.Text = tostring(save.Z or "")
-                DescriptionEdit.Lines.Text = save.Description or ""
-            else
-                DescriptionEdit.Lines.Text = ""
-            end
-        else
-            DescriptionEdit.Lines.Text = ""
-        end
+local function UiCreateStyledMemo(parent, theme)
+    local outer = UiCreatePanel(parent, "alClient", nil, theme.COLOR_INPUT)
+    outer.BorderSpacing.Around = 1
+    local inner = UiCreatePanel(outer, "alClient", nil, theme.COLOR_INPUT)
+    inner.BorderSpacing.Left = 6
+    inner.BorderSpacing.Right = 6
+    inner.BorderSpacing.Top = 6
+    inner.BorderSpacing.Bottom = 6
+    local memo = createMemo(inner)
+    memo.Align = "alClient"
+    memo.ParentColor = false
+    memo.Color = theme.COLOR_INPUT
+    memo.BorderStyle = "bsNone"
+    memo.WordWrap = true
+    memo.ScrollBars = "ssAutoBoth"
+    UiApplyFont(memo, theme.COLOR_INPUT_TEXT, 10)
+    return memo
+end
+
+--
+--- ∑ Creates a styled input row with a label and an edit control, wrapped in themed panels for consistent styling.
+--- The function returns the edit control for data entry, the outer row panel for layout, and the label for potential updates to the caption or styling.
+--- @param parent table # The parent control to which the row will be added.
+--- @param caption string # The text to display in the label for this row.
+--- @param theme table # The theme containing color values for styling the row and its components.
+--- @returns table, table, table # The edit control for user input, the outer panel representing the row, and the label control.
+--
+local function UiCreateFieldRow(parent, caption, theme)
+    local row = UiCreatePanel(parent, "alTop", 34, theme.COLOR_PANEL)
+    row.BorderSpacing.Bottom = 6
+    local border = UiCreatePanel(row, "alClient", nil, theme.COLOR_BORDER)
+    local fill = UiCreatePanel(border, "alClient", nil, theme.COLOR_INPUT)
+    fill.BorderSpacing.Around = 1
+    local inner = UiCreatePanel(fill, "alClient", nil, theme.COLOR_INPUT)
+    inner.BorderSpacing.Left = 6
+    inner.BorderSpacing.Right = 8
+    inner.BorderSpacing.Top = 4
+    inner.BorderSpacing.Bottom = 4
+    local label = createLabel(inner)
+    label.Align = "alLeft"
+    label.Width = 52
+    label.Caption = caption
+    label.Alignment = "taLeftJustify"
+    label.Layout = "tlCenter"
+    label.Transparent = true
+    UiApplyFont(label, theme.COLOR_LABEL, 10, "[fsBold]")
+    local gap = UiCreatePanel(inner, "alLeft", nil, theme.COLOR_INPUT)
+    gap.Width = 6
+    local edit = createEdit(inner)
+    edit.BorderSpacing.Left = 10
+    edit.BorderSpacing.Top = 3
+    edit.Align = "alClient"
+    edit.ParentColor = false
+    edit.Color = theme.COLOR_INPUT
+    edit.BorderStyle = "bsNone"
+    edit.TextHint = ""
+    UiApplyFont(edit, theme.COLOR_INPUT_TEXT, 10)
+    return edit, row, label
+end
+
+--
+--- ∑ Sets the visual state of a button based on whether it is being hovered over, using the provided theme for colors.
+--- This function updates the button's background color and the font color of its label (if it has one) to reflect the hover state.
+--- @param button table # The button control to update. Expected to have a _theme property
+--- @param isHover boolean # Whether the button is currently being hovered over.
+--
+local function UiSetButtonState(button, isHover)
+    if not button or not button._theme then
+        return
     end
-    TreeView.OnDblClick = function()
-        local selected = TreeView.Selected
-        if not selected or selected.Level ~= 2 then return end
-        local saveName = selected.Text
-        if teleporter.Saves and teleporter.Saves[saveName] then
-            logger:InfoF("[Teleporter] Double-clicked save '%s' - attempting teleport.", saveName)
-            teleporter:TeleportToSave(saveName)
-        end
-    end
-end
-
---
---- ∑ Creates and initializes the Teleporter UI form.
---- @return userdata # The created form instance.
---
-local function CreateTeleporterForm()
-    local form = createForm(false)
-    form.Top = -2000
-    form.Show()
-    form.Caption = "Teleporter Saves"
-    -- form.Color = 0x0a0305
-    form.Width = 700
-    form.Height = 500
-    form.Constraints.MinWidth = form.Width
-    form.Constraints.MinHeight = form.Height
-    form.Scaled = false
-    form.BorderStyle = "bsSizeable"
-    form.Color = COLOR_BG
-    local defaultDPI = 96
-    local currentDPI = getScreenDPI()
-    local scaleFactor = defaultDPI / currentDPI
-    local baseFontSize = 10
-    form.Font.Name = "Consolas"
-    form.Font.Size = baseFontSize * scaleFactor
-    form.Font.Color = COLOR_TEXT
-    form.Position = "poScreenCenter"
-    form.CenterScreen()
-    return form
-end
-
---
---- ∑ Creates a panel containing a TreeView and search bar for Teleporter saves.
---- @param parent userdata # The parent UI element.
---- @return userdata, userdata, userdata - The created panel, search bar, and TreeView instances.
---
-local function CreateTreeViewPanel(parent)
-    local panel = createDarkPanel(parent)
-    panel.Align = "alTop"
-    panel.Constraints.MinHeight = 315
-    panel.BorderSpacing.Around = 3
-    panel.BevelOuter = "bvNone"
-    panel.Anchors = "[akTop,akLeft,akRight,akBottom]"
-    local searchEdit = createEdit(panel)
-    searchEdit.Align = "alTop"
-    searchEdit.Height = 30
-    searchEdit.BorderSpacing.Around = 3
-    searchEdit.Text = ""
-    searchEdit.TextHint = "Search Saves..."
-    searchEdit.Color = COLOR_BG
-    searchEdit.Font.Color = COLOR_TEXT
-    searchEdit.Font.Name = "Consolas"
-    searchEdit.Font.Size = 10
-    local treeView = createTreeView(panel)
-    treeView.Align = "alClient"
-    treeView.BorderSpacing.Around = 3
-    treeView.AutoExpand = true
-    treeView.ReadOnly = true
-    treeView.AutoSize = true
-    treeView.BorderStyle = "bsNone"
-    treeView.Color = COLOR_PANEL
-    treeView.Font.Color = COLOR_TEXT
-    treeView.Font.Name = "Consolas"
-    treeView.Font.Size = 10
-    treeView.ScrollBars = "ssAutoBoth"
-    return panel, searchEdit, treeView
-end
-
-local function CreateSaveDetailsTabControl(parent)
-    local tabButtonPanel = createDarkPanel(parent)
-    tabButtonPanel.Align = "alTop"
-    tabButtonPanel.Height = 25
-    tabButtonPanel.BevelOuter = "bvNone"
-    tabButtonPanel.BorderSpacing.Around = 4
-    local tabContentPanel = createDarkPanel(parent)
-    tabContentPanel.Align = "alClient"
-    tabContentPanel.AutoSize = true
-    tabContentPanel.BevelOuter = "bvNone"
-    tabContentPanel.BorderSpacing.Around = 4
-    local tabs = {
-        {caption = "Details"},
-        {caption = "Coordinates"},
-        {caption = "Description"}
-    }
-    local tabPanels = {}
-    local tabPages = {}
-    for i, tab in ipairs(tabs) do
-        local page = createDarkPanel(tabContentPanel)
-        page.Align = "alClient"
-        page.Visible = (i == 1)
-        page.BevelOuter = "bvNone"
-        tabPages[i] = page
-    end
-    local function selectTab(idx)
-        for i, page in ipairs(tabPages) do
-            page.Visible = (i == idx)
-            if tabPanels[i] then
-                tabPanels[i].Color = (i == idx) and COLOR_TAB_ACTIVE or COLOR_TAB_INACTIVE
-                tabPanels[i].Font.Color = (i == idx) and COLOR_BG or COLOR_TEXT
-            end
-        end
-    end
-    for i, tab in ipairs(tabs) do
-        local p = createDarkPanel(tabButtonPanel)
-        p.Left = (i-1)*140
-        p.Top = 2
-        p.Width = 132
-        p.Height = 25
-        p.BevelOuter = bvRaised
-        p.BevelWidth = 1
-        p.Caption = tab.caption
-        p.Font.Name = "Consolas"
-        p.Font.Size = 10
-        p.Color = COLOR_TAB_INACTIVE
-        p.Font.Color = COLOR_TEXT
-        p.ParentFont = false
-        p.Cursor = -21 -- crHandPoint
-        p.OnClick = function()
-            selectTab(i)
-        end
-        tabPanels[i] = p
-    end
-    selectTab(1)
-    return tabButtonPanel, tabContentPanel, tabPages
-end
-
---
---- ∑ Creates a panel containing input fields and action buttons for save details.
---- @param parent userdata # The parent UI element.
---- @return userdata, userdata, userdata, userdata, userdata #  
---- The created group box, name input, X input, Y input, Z input.
---
-local function CreateSaveDetailsPanel(parent)
-    local layoutPanel = createPanel(parent)
-    layoutPanel.Align = "alClient"
-    layoutPanel.AutoSize = true
-    layoutPanel.BorderSpacing.Around = 5
-    layoutPanel.BevelOuter = "bvNone"
-    local updateButton = CreateButtonWithCaption(layoutPanel, "Update Save")
-    local teleportToSaveButton = CreateButtonWithCaption(layoutPanel, "Teleport To Save")
-    local nameEdit = CreateLabeledEdit(layoutPanel, "Name: ")
-    nameEdit.TextHint = "Save Name"
-    local categoryEdit = CreateLabeledEdit(layoutPanel, "Category: ")
-    categoryEdit.TextHint = "Save Category"
-    local authorEdit = CreateLabeledEdit(layoutPanel, "Author: ")
-    authorEdit.TextHint = "Save Author"
-    return groupBox, nameEdit, authorEdit, categoryEdit, teleportToSaveButton, updateButton
-end
-
-local function CreateCoordinatesPanel(parent)
-    local coordinatesPanel = createPanel(parent)
-    coordinatesPanel.Align = "alClient"
-    coordinatesPanel.BevelOuter = "bvNone"
-    coordinatesPanel.BorderSpacing.Around = 5
-    local zEdit = CreateLabeledEdit(coordinatesPanel, "Z: ")
-    zEdit.TextHint = "Z Coordinate"
-    local yEdit = CreateLabeledEdit(coordinatesPanel, "Y: ")
-    yEdit.TextHint = "Y Coordinate"
-    local xEdit = CreateLabeledEdit(coordinatesPanel, "X: ")
-    xEdit.TextHint = "X Coordinate"
-    return xEdit, yEdit, zEdit
-end
-
-local function CreateDescriptionPanel(parent)
-    local descriptionPanel = createDarkPanel(parent)
-    descriptionPanel.Align = "alClient"
-    descriptionPanel.BevelOuter = "bvNone"
-    descriptionPanel.BorderSpacing.Around = 5
-    local descriptionEdit = createMemo(descriptionPanel)
-    descriptionEdit.Align = "alClient"
-    descriptionEdit.BorderSpacing.Around = 5
-    descriptionEdit.TextHint = "Description (optional)"
-    descriptionEdit.Color = COLOR_BG
-    descriptionEdit.Font.Color = COLOR_TEXT
-    descriptionEdit.Font.Name = "Consolas"
-    descriptionEdit.Font.Size = 10
-    descriptionEdit.WordWrap = true
-    descriptionEdit.Scrollbars = "ssAutoBoth"
-    return descriptionEdit
-end
-
---
---- ∑ Handles the deletion of a selected save when the delete button is clicked.
---- @param DeleteButton userdata # The UI button for deleting saves.
---- @param NameEdit userdata # The input field for the save name.
---- @param TreeView userdata # The UI TreeView element containing save entries.
---
-local function HandleDeleteButtonClick(DeleteButton, NameEdit, TreeView)
-    DeleteButton.OnClick = function()
-        local selectedName = NameEdit.Text
-        if selectedName ~= "" and teleporter and teleporter.DeleteSave then
-            logger:Info("[Teleporter] Deleting save: " .. selectedName)
-            teleporter:DeleteSave(selectedName)
-            LoadTeleporterSaves(TreeView)
-        else
-            logger:Warning("[Teleporter] No valid save selected for deletion.")
-        end
+    local theme = button._theme
+    button.Color = isHover and theme.COLOR_BTN_HOVER or theme.COLOR_BTN
+    if button._label and button._label.Font then
+        button._label.Font.Color = isHover and theme.COLOR_BG or theme.COLOR_BTN_TEXT
     end
 end
 
 --
---- ∑ Handles updating a selected save when the update button is clicked.
---- @param UpdateButton userdata # The UI button for updating saves.
---- @param NameEdit userdata # The input field for the save name.
---- @param XEdit userdata # The input field for the X coordinate.
---- @param YEdit userdata # The input field for the Y coordinate.
---- @param ZEdit userdata # The input field for the Z coordinate.
---- @param TreeView userdata # The UI TreeView element containing save entries.
+--- ∑ Creates a styled panel that functions as a button, with a label centered on it, and sets up event handlers for click and hover states.
+--- The button's appearance changes when hovered, and it executes the provided onClick function when clicked
+--- @param parent table # The parent control to which the button will be added.
+--- @param caption string # The text to display on the button.
+--- @param width integer # The width of the button in pixels. If nil, a default width will be used.
+--- @param theme table # The theme containing color values for styling the button.
+--- @param onClick function # The function to execute when the button is clicked.
+--- @returns table # The panel control that functions as a button.
 --
-local function HandleUpdateButtonClick(UpdateButton, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit, TreeView, DescriptionEdit)
-    UpdateButton.OnClick = function()
-        local name = NameEdit.Text
-        local newPos = { tonumber(XEdit.Text), tonumber(YEdit.Text), tonumber(ZEdit.Text) }
-        local newAuthor = AuthorEdit.Text
-        local newCategory = CategoryEdit.Text
-        local newDescription = DescriptionEdit.Lines.Text -- Use Lines.Text for full memo content
-        if name ~= "" and newPos[1] and newPos[2] and newPos[3] then
-            logger:Info("[Teleporter] Updating save: " .. name)
-            local success = UpdateSave(name, newPos, TreeView, newAuthor, newCategory, newDescription)
-            if success then
-                LoadTeleporterSaves(TreeView)
-            else
-                logger:Warning("[Teleporter] Update failed.")
-            end
-        else
-            logger:Warning("[Teleporter] Invalid input for update.")
+local function UiCreatePanelButton(parent, caption, width, theme, onClick)
+    local button = UiCreatePanel(parent, "alLeft", 30, theme.COLOR_BTN)
+    button.Width = width or 92
+    button.BevelOuter = "bvRaised"
+    button.BevelWidth = 1
+    button.BevelColor = theme.COLOR_BORDER
+    button.Cursor = -21
+    button.BorderSpacing.Right = 6
+    button._theme = theme
+    local label = createLabel(button)
+    label.Align = "alClient"
+    label.Alignment = "taCenter"
+    label.Layout = "tlCenter"
+    label.Caption = caption
+    UiApplyFont(label, theme.COLOR_BTN_TEXT, 10, "[fsBold]")
+    label.Transparent = true
+    button._label = label
+    local function clickHandler()
+        if type(onClick) == "function" then
+            onClick()
         end
     end
+    button.OnClick = clickHandler
+    label.OnClick = clickHandler
+    button.OnMouseEnter = function() UiSetButtonState(button, true) end
+    button.OnMouseLeave = function() UiSetButtonState(button, false) end
+    label.OnMouseEnter = function() UiSetButtonState(button, true) end
+    label.OnMouseLeave = function() UiSetButtonState(button, false) end
+    return button
 end
 
 --
---- ∑ Handles duplicating a selected save when the duplicate button is clicked.
---- @param DuplicateButton userdata # The UI button for duplicating saves.
---- @param NameEdit userdata # The input field for the save name.
---- @param TreeView userdata # The UI TreeView element containing save entries.
+--- ∑ Creates the main menu strip for the Teleporter UI, populating it with "File", "Saves", and "Tools" menus and their respective items.
+--- Each menu item is associated with a handler function that performs the corresponding action when clicked.
+--- @param parent table # The parent control to which the menu strip will be added.
 --
-local function HandleDuplicateButtonClick(DuplicateButton, NameEdit, TreeView)
-    DuplicateButton.OnClick = function()
-        local selectedName = NameEdit.Text
-        if not selectedName or selectedName == "" or not teleporter.Saves[selectedName] then
-            logger:Warning("[Teleporter] No valid save selected for duplication.")
-            return
+function Teleporter:CreateMenuStrip(parent)
+    local menu = createMainMenu(parent)
+    parent.Menu = menu
+    local function menuItem(root, caption, handler)
+        local item = createMenuItem(menu)
+        item.Caption = caption
+        if handler then
+            item.OnClick = handler
         end
-        local newSaveName = selectedName .. " (Copy)"
-        local counter = 1
-        while teleporter.Saves[newSaveName] do
-            counter = counter + 1
-            newSaveName = string.format("%s_copy%d", selectedName, counter)
-        end
-        local originalSave = teleporter.Saves[selectedName]
-        teleporter.Saves[newSaveName] = {
-            X = originalSave.X,
-            Y = originalSave.Y,
-            Z = originalSave.Z,
-            Author = originalSave.Author or Teleporter:GetCurrentAuthor(),
-            Description = originalSave.Description or ""
-        }
-        logger:InfoF("[Teleporter] Duplicated save '%s' as '%s'.", selectedName, newSaveName)
-        LoadTeleporterSaves(TreeView)
+        root.add(item)
+        return item
     end
-end
-
---
---- ∑ Teleports the player to the selected save location.
---- @param NameEdit userdata # The name input field.
---- @return boolean # True if teleportation is successful, false otherwise.
---
-local function HandleTeleportButtonClick(TeleportButton, NameEdit)
-    TeleportButton.OnClick = function()
-        local saveName = NameEdit.Text
-        if not saveName or saveName == "" then
-            logger:Warning("[Teleporter] No save selected for teleportation.")
-            return false
+    local fileItem = createMenuItem(menu)
+    fileItem.Caption = "&File"
+    menu.Items.add(fileItem)
+    menuItem(fileItem, "Load Saves", function()
+        self:SaveLookup()
+        self:RefreshUi(true)
+        self:SetStatus("Saves loaded")
+    end)
+    menuItem(fileItem, "Save To DataDir", function()
+        self:WriteSavesToDataDir()
+        self:SetStatus("Saved to DataDir")
+    end)
+    menuItem(fileItem, "Save To TableFile", function()
+        self:WriteSavesToTableFile()
+        self:SetStatus("Saved to TableFile")
+    end)
+    menuItem(fileItem, "-", nil)
+    menuItem(fileItem, "Close", function()
+        if self.UiState and self.UiState.Form then
+            self.UiState.Form.close()
         end
-        if not teleporter.Saves or not teleporter.Saves[saveName] then
-            logger:ErrorF("[Teleporter] Save '%s' does not exist.", saveName)
-            return false
+    end)
+    local savesItem = createMenuItem(menu)
+    savesItem.Caption = "&Saves"
+    menu.Items.add(savesItem)
+    menuItem(savesItem, "Add Current Position", function() self:AddSave() end)
+    menuItem(savesItem, "Update Selected", function() self:UpdateSelectedSaveFromEditor() end)
+    menuItem(savesItem, "Duplicate Selected", function() self:DuplicateSelectedSave() end)
+    menuItem(savesItem, "Rename Selected", function() self:RenameSave() end)
+    menuItem(savesItem, "Delete Selected", function() self:DeleteSave() end)
+    local toolsItem = createMenuItem(menu)
+    toolsItem.Caption = "&Tools"
+    menu.Items.add(toolsItem)
+    menuItem(toolsItem, "Teleport To Selected Save", function()
+        local name = self:GetSelectedSaveName()
+        if name then self:TeleportToSave(name) end
+    end)
+    menuItem(toolsItem, "Teleport To Waypoint", function() self:TeleportToWaypoint() end)
+    menuItem(toolsItem, "Save Current Runtime Position", function()
+        self:SaveCurrentPosition()
+        self:SetStatus("Runtime position saved")
+    end)
+    menuItem(toolsItem, "Load Runtime Position", function() self:LoadSavedPosition() end)
+end
+
+--
+--- ∑ Creates the header panel for the Teleporter UI, containing buttons for adding, duplicating, deleting, teleporting to, and updating saves.
+--- Each button is associated with a handler function that performs the corresponding action when clicked.
+--- @param parent table # The parent control to which the header panel will be added.
+--- @returns table # The header panel containing the action buttons.
+--
+function Teleporter:CreateHeader(parent)
+    local theme = self:GetUiTheme()
+    local header = UiCreatePanel(parent, "alTop", 30, theme.COLOR_PANEL)
+    header.BevelOuter = "bvNone"
+    header.BorderSpacing.Left = 6
+    header.BorderSpacing.Right = 6
+    header.BorderSpacing.Top = 6
+    header.BorderSpacing.Bottom = 3
+    local buttons = UiCreatePanel(header, "alClient", nil, theme.COLOR_PANEL)
+    UiCreatePanelButton(buttons, "Add Current", 108, theme, function() self:AddSave() end)
+    UiCreatePanelButton(buttons, "Duplicate", 92, theme, function() self:DuplicateSelectedSave() end)
+    UiCreatePanelButton(buttons, "Delete", 80, theme, function() self:DeleteSave() end)
+    UiCreatePanelButton(buttons, "Teleport", 86, theme, function()
+        local name = self:GetSelectedSaveName()
+        if name then self:TeleportToSave(name) end
+    end)
+    UiCreatePanelButton(buttons, "Update", 84, theme, function() self:UpdateSelectedSaveFromEditor() end)
+    return header
+end
+
+--
+--- ∑ Creates the status bar panel for the Teleporter UI, containing a label to display status messages to the user.
+--- The status bar is styled according to the current UI theme and provides a method for updating the displayed status message.
+--- @param parent table # The parent control to which the status bar will be added.
+--- @returns table # The status bar panel containing the status label.
+--
+function Teleporter:CreateStatusBar(parent)
+    local theme = self:GetUiTheme()
+    local statusPanel = UiCreatePanel(parent, "alBottom", 26, theme.COLOR_PANEL)
+    statusPanel.BevelOuter = "bvRaised"
+    statusPanel.BevelColor = theme.COLOR_BORDER
+    statusPanel.BevelWidth = 1
+    statusPanel.BorderSpacing.Around = 6
+    local label = createLabel(statusPanel)
+    label.Align = "alClient"
+    label.Caption = "Ready"
+    label.BorderSpacing.Left = 8
+    label.BorderSpacing.Top = 5
+    UiApplyFont(label, theme.COLOR_TEXT, 10)
+    local ui = self:EnsureUiState()
+    ui.StatusLabel = label
+    return statusPanel
+end
+
+--
+--- ∑ Creates the main tree view panel for displaying saved locations, including a search box for filtering saves and a label showing the count of saves.
+--- The tree view allows users to select saves, which will load the save details into the editor, and supports double-clicking to teleport to the selected save.
+--- @param parent table # The parent control to which the tree panel will be added.
+--- @returns table # The outer panel containing the tree view and related controls.
+--
+function Teleporter:CreateTreePanel(parent)
+    local theme = self:GetUiTheme()
+    local ui = self:EnsureUiState()
+    local outer, inner, header, content = UiCreateBorderCard(parent, "alLeft", 330, theme, "SAVED LOCATIONS")
+    outer.Width = 330
+    local hint = createLabel(header)
+    hint.Align = "alRight"
+    hint.Caption = string.format("%d saves", self:CountSaves())
+    hint.BorderSpacing.Right = 8
+    hint.BorderSpacing.Top = 4
+    UiApplyFont(hint, theme.COLOR_MUTED, 9)
+    local searchBorder = UiCreatePanel(content, "alTop", 32, theme.COLOR_BORDER)
+    searchBorder.BorderSpacing.Bottom = 6
+    local searchFill = UiCreatePanel(searchBorder, "alClient", nil, theme.COLOR_INPUT)
+    searchFill.BorderSpacing.Around = 1
+    local searchInner = UiCreatePanel(searchFill, "alClient", nil, theme.COLOR_INPUT)
+    searchInner.BorderSpacing.Left = 8
+    searchInner.BorderSpacing.Right = 8
+    searchInner.BorderSpacing.Top = 4
+    local searchEdit = createEdit(searchInner)
+    searchEdit.Align = "alClient"
+    searchEdit.ParentColor = false
+    searchEdit.Color = theme.COLOR_INPUT
+    searchEdit.BorderStyle = "bsNone"
+    searchEdit.TextHint = "Search saves..."
+    UiApplyFont(searchEdit, theme.COLOR_INPUT_TEXT, 10)
+    searchEdit.OnChange = function()
+        self:RefreshUi(true)
+    end
+    ui.SearchEdit = searchEdit
+    local treeBorder = UiCreatePanel(content, "alClient", nil, theme.COLOR_PANEL)
+    local treeHost = UiCreatePanel(treeBorder, "alClient", nil, theme.COLOR_PANEL)
+    treeHost.BorderSpacing.Around = 1
+    local tree = createTreeView(treeHost)
+    tree.Align = "alClient"
+    tree.ReadOnly = true
+    tree.AutoExpand = true
+    tree.BorderStyle = "bsNone"
+    tree.ScrollBars = "ssAutoBoth"
+    tree.Color = theme.COLOR_PANEL
+    UiApplyFont(tree, theme.COLOR_INPUT_TEXT, 10)
+    ui.TreeView = tree
+    ui.TreeStatsLabel = hint
+    tree.OnClick = function()
+        local selected = tree.Selected
+        if selected and selected.Level == 2 then
+            self:SetSelectedSaveName(selected.Text)
+            self:LoadSaveIntoEditor(selected.Text)
+            self:SetStatus("Selected: " .. selected.Text)
         end
-        logger:InfoF("[Teleporter] Teleporting to save: '%s'", saveName)
-        teleporter:TeleportToSave(saveName)
-        return true
     end
-end
-
---
---- ∑ Handles deleting all saves when the delete all button is clicked.
---- @param DeleteAllButton userdata # The UI button for deleting all saves.
---- @param TreeView userdata # The UI TreeView element containing save entries.
---
-local function HandleDeleteAllButtonClick(DeleteAllButton, TreeView)
-    DeleteAllButton.OnClick = function()
-        teleporter.Saves = nil
-        LoadTeleporterSaves(TreeView)
+    tree.OnDblClick = function()
+        local selected = tree.Selected
+        if selected and selected.Level == 2 then
+            self:SetSelectedSaveName(selected.Text)
+            self:TeleportToSave(selected.Text)
+        end
     end
+    return outer
 end
 
 --
---- ∑ Creates a context menu for the TreeView with options to teleport, update, duplicate, and delete saves.
---- @param TreeView userdata # The TreeView control to attach the context menu to.
---- @param NameEdit userdata # The input field for the save name.
---- @param AuthorEdit userdata # The input field for the save author.
---- @param CategoryEdit userdata # The input field for the save category.
---- @param XEdit userdata # The input field for the X coordinate.
---- @param YEdit userdata # The input field for the Y coordinate.
---- @param ZEdit userdata # The input field for the Z coordinate.
---- @return 
+--- ∑ Creates the editor panel for viewing and editing the details of a selected save, including fields for name, author, category, position, and description.
+--- The editor allows users to modify the save details and update the save, as well as fill the fields with the current in-game position.
+--- @param parent table # The parent control to which the editor panel will be added.
+--- @returns table # The outer panel containing the editor controls.
 --
-local function CreateContextMenuForTreeView(TreeView, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit)
-    local contextMenu = createPopupMenu(TreeView)
-    TreeView.PopupMenu = contextMenu
-    local teleportItem = createMenuItem(contextMenu)
-    teleportItem.Caption = "Teleport To Save"
-    HandleTeleportButtonClick(teleportItem, NameEdit)
-    contextMenu.Items.add(teleportItem)
-    local updateItem = createMenuItem(contextMenu)
-    updateItem.Caption = "Update Save"
-    HandleUpdateButtonClick(updateItem, NameEdit, AuthorEdit, CategoryEdit, XEdit, YEdit, ZEdit, TreeView)
-    contextMenu.Items.add(updateItem)
-    local duplicateItem = createMenuItem(contextMenu)
-    duplicateItem.Caption = "Duplicate Save"
-    HandleDuplicateButtonClick(duplicateItem, NameEdit, TreeView)
-    contextMenu.Items.add(duplicateItem)
-    local deleteItem = createMenuItem(contextMenu)
-    deleteItem.Caption = "Delete Save"
-    HandleDeleteButtonClick(deleteItem, NameEdit, TreeView)
-    contextMenu.Items.add(deleteItem)
+function Teleporter:CreateEditorPanel(parent)
+    local theme = self:GetUiTheme()
+    local outer, inner, header, content = UiCreateBorderCard(parent, "alClient", nil, theme, "SAVE EDITOR")
+    local footer = UiCreatePanel(content, "alBottom", 36, theme.COLOR_PANEL)
+    footer.BorderSpacing.Top = 6
+    UiCreatePanelButton(footer, "Clear", 72, theme, function()
+        self:ClearEditor()
+        self:SetStatus("Editor cleared")
+    end)
+    UiCreatePanelButton(footer, "Rename", 84, theme, function()
+        self:RenameSave()
+    end)
+    UiCreatePanelButton(footer, "Use Current Position", 148, theme, function()
+        local pos = self:GetCurrentPosition()
+        local ui = self:EnsureUiState()
+        if pos then
+            ui.XEdit.Text = tostring(pos[1])
+            ui.YEdit.Text = tostring(pos[2])
+            ui.ZEdit.Text = tostring(pos[3])
+            self:SetStatus("Editor filled with current position")
+        end
+    end)
+    local memoBorder = UiCreatePanel(content, "alClient", nil, theme.COLOR_BORDER)
+    memoBorder.BorderSpacing.Top = 6
+    memoBorder.BorderSpacing.Bottom = 6
+    local description = UiCreateStyledMemo(memoBorder, theme)
+    local fieldsHost = UiCreatePanel(content, "alTop", 244, theme.COLOR_PANEL)
+    local bottomGroup = UiCreatePanel(fieldsHost, "alTop", 118, theme.COLOR_PANEL)
+    local topGroup = UiCreatePanel(fieldsHost, "alTop", 118, theme.COLOR_PANEL)
+    local categoryEdit = UiCreateFieldRow(topGroup, "Category", theme)
+    local authorEdit   = UiCreateFieldRow(topGroup, "Author", theme)
+    local nameEdit     = UiCreateFieldRow(topGroup, "Name", theme)
+    local zEdit = UiCreateFieldRow(bottomGroup, "Z", theme)
+    local yEdit = UiCreateFieldRow(bottomGroup, "Y", theme)
+    local xEdit = UiCreateFieldRow(bottomGroup, "X", theme)
+    local ui = self:EnsureUiState()
+    ui.NameEdit = nameEdit
+    ui.AuthorEdit = authorEdit
+    ui.CategoryEdit = categoryEdit
+    ui.XEdit = xEdit
+    ui.YEdit = yEdit
+    ui.ZEdit = zEdit
+    ui.DescriptionEdit = description
+    return outer
 end
 
---
---- ∑ Creates a panel with save details and controls.
---- @param parent userdata # The parent UI element.
---- @return ... # The created panels, edits, and buttons.
---
-local function CreateSaveDetailsWithControlsPanel(parent)
-    local containerPanel = createPanel(parent)
-    containerPanel.Align = "alClient"
-    containerPanel.BevelOuter = "bvNone"
-    local tabButtonPanel, tabContentPanel, tabPages = CreateSaveDetailsTabControl(containerPanel)
-    local saveDetailsGroupBox, nameEdit, authorEdit, categoryEdit, teleportToSaveButton, updateButton = CreateSaveDetailsPanel(tabPages[1])
-    local xEdit, yEdit, zEdit = CreateCoordinatesPanel(tabPages[2])
-    local descriptionEdit = CreateDescriptionPanel(tabPages[3])
-    return containerPanel, saveDetailsGroupBox,
-           nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, teleportToSaveButton, updateButton, descriptionEdit
+-- ∑ Creates the context menu for the tree view, providing options to teleport to a save, load it into the editor, update it from the editor, duplicate it, rename it, or delete it.
+--- @returns table # The context menu.
+function Teleporter:CreateTreeContextMenu()
+    local ui = self:EnsureUiState()
+    if not ui.TreeView then
+        return
+    end
+    local menu = createPopupMenu(ui.TreeView)
+    ui.TreeView.PopupMenu = menu
+    local function addItem(caption, handler)
+        local item = createMenuItem(menu)
+        item.Caption = caption
+        item.OnClick = handler
+        menu.Items.add(item)
+        return item
+    end
+    addItem("Teleport", function()
+        local name = self:GetSelectedSaveName()
+        if name then self:TeleportToSave(name) end
+    end)
+    addItem("Load Into Editor", function()
+        local name = self:GetSelectedSaveName()
+        if name then self:LoadSaveIntoEditor(name) end
+    end)
+    addItem("Update From Editor", function() self:UpdateSelectedSaveFromEditor() end)
+    addItem("Duplicate", function() self:DuplicateSelectedSave() end)
+    addItem("Rename", function() self:RenameSave() end)
+    addItem("Delete", function() self:DeleteSave() end)
 end
 
 --
@@ -1435,6 +1850,7 @@ end
 
 --
 --- ∑ Gets a table of save authors.
+--- @returns table # A table mapping save names to their respective authors.
 --
 function Teleporter:GetAuthors()
     local authors = {}
@@ -1450,67 +1866,84 @@ end
 
 --
 --- ∑ Initializes the Teleporter UI, synchronizing if necessary.
+--- If the UI already exists, it will be shown and brought to the front. Otherwise, a new UI will be created with the appropriate theme and controls.
+--- @returns table # The form representing the Teleporter UI.
 --
 function Teleporter:InitTeleporterUI()
     if not inMainThread() then
-        synchronize(function()
-            self:InitTeleporterUI()
-        end)
+        synchronize(function() self:InitTeleporterUI() end)
         return
     end
-    TeleporterForm = CreateTeleporterForm()
-    local containerPanel = createPanel(TeleporterForm)
-    containerPanel.Align = "alClient"
-    containerPanel.BevelOuter = "bvNone"
-    local saveDetailsWithControlsPanel, saveDetailsGroupBox,
-          nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, teleportToSaveButton, updateButton, descriptionEdit = CreateSaveDetailsWithControlsPanel(containerPanel)
-    local TreeViewPanel, SearchEdit, TreeView = CreateTreeViewPanel(containerPanel)
-    HandleTreeViewSelection(TreeView, nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, descriptionEdit)
-    HandleUpdateButtonClick(updateButton, nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit, TreeView, descriptionEdit)
-    HandleTeleportButtonClick(teleportToSaveButton, nameEdit)
-    CreateContextMenuForTreeView(TreeView, nameEdit, authorEdit, categoryEdit, xEdit, yEdit, zEdit)
-    LoadTeleporterSaves(TreeView)
-    TeleporterForm.CenterScreen()
-    local function updateTreeView(TreeView, searchQuery)
-        TreeView.beginUpdate()
-        TreeView.Items:clear()
-        if not teleporter or not teleporter.Saves then
-            TreeView.endUpdate()
-            return
-        end
-        teleporter:EnsureAuthorsAndCategories()
-        local grouped = {}
-        for saveName, data in pairs(teleporter.Saves) do
-            if type(saveName) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
-                local author = data.Author or "Unknown"
-                local category = data.Category ~= "" and data.Category or "Default"
-                if saveName:lower():find(searchQuery:lower())
-                or author:lower():find(searchQuery:lower())
-                or category:lower():find(searchQuery:lower()) then
-                    grouped[author] = grouped[author] or {}
-                    grouped[author][category] = grouped[author][category] or {}
-                    table.insert(grouped[author][category], saveName)
-                end
-            end
-        end
-        for author, categoryMap in pairs(grouped) do
-            local authorNode = TreeView.Items:add()
-            authorNode.Text = author
-            for category, saves in pairs(categoryMap) do
-                local categoryNode = authorNode:add()
-                categoryNode.Text = category
-                table.sort(saves, function(a, b) return a:lower() < b:lower() end)
-                for _, name in ipairs(saves) do
-                    local saveNode = categoryNode:add()
-                    saveNode.Text = name
-                end
-            end
-        end
-        TreeView.endUpdate()
+    local ui = self:EnsureUiState()
+    ui.Theme = self:ResolveUiTheme()
+    if ui.Form and ui.Form.ClassName and ui.Form.ClassName ~= "" then
+        ui.Form.show()
+        ui.Form.bringToFront()
+        self:RefreshUi(true)
+        return ui.Form
     end
-    SearchEdit.OnChange = function()
-        updateTreeView(TreeView, SearchEdit.Text)
+    local theme = self:GetUiTheme()
+    local form = createForm()
+    form.Caption = "Teleporter"
+    form.Width = 1120
+    form.Height = 720
+    form.Position = "poScreenCenter"
+    form.BorderStyle = "bsSizeable"
+    form.Color = theme.COLOR_BG
+    form.Font.Name = "Consolas"
+    form.Font.Size = 10
+    form.Constraints.MinWidth = 980
+    form.Constraints.MinHeight = 620
+    form.show()
+    ui.Form = form
+    self:CreateMenuStrip(form)
+    local root = UiCreatePanel(form, "alClient", nil, theme.COLOR_BG)
+    self:CreateStatusBar(root)
+    self:CreateHeader(root)
+    local body = UiCreatePanel(root, "alClient", nil, theme.COLOR_BG)
+    body.BorderSpacing.Left = 6
+    body.BorderSpacing.Right = 6
+    body.BorderSpacing.Bottom = 6
+    self:CreateEditorPanel(body)
+    local gap = UiCreatePanel(body, "alLeft", nil, theme.COLOR_BG)
+    gap.Width = 6
+    self:CreateTreePanel(body)
+    self:CreateTreeContextMenu()
+    self:ApplyEditorTheme()
+    local themeTimer = createTimer(form)
+    themeTimer.Interval = 1
+    themeTimer.OnTimer = function(timer)
+        timer.Enabled = false
+        self:ApplyEditorTheme()
+        if timer.destroy then
+            timer:destroy()
+        elseif timer.Destroy then
+            timer:Destroy()
+        end
     end
+    form.OnClose = function(sender)
+        self:SetStatus("Closed")
+        ui.Form = nil
+        ui.TreeView = nil
+        ui.TreeStatsLabel = nil
+        ui.SearchEdit = nil
+        ui.NameEdit = nil
+        ui.AuthorEdit = nil
+        ui.CategoryEdit = nil
+        ui.XEdit = nil
+        ui.YEdit = nil
+        ui.ZEdit = nil
+        ui.DescriptionEdit = nil
+        ui.StatusLabel = nil
+        ui.Theme = nil
+        return caFree
+    end
+    self:SaveLookup()
+    self:RefreshUi(true)
+    self:ClearEditor()
+    self:SetStatus("Teleporter ready")
+    form.centerScreen()
+    return form
 end
 registerLuaFunctionHighlight('InitTeleporterUI')
 
