@@ -42,6 +42,7 @@ local DESCRIPTION = "Manifold Framework Teleporter"
     
     ∂ v1.1.1 (2026-04-02)
         Perhaps it's smart to add a splitter between the Save Panel and the Editor Panel...
+        Added the PrintSave and CreateTeleporterSaves Function back and improved the CreateTeleporterSaves function to prevent TreeIndex errors.
 ]]--
 
 Teleporter = {
@@ -560,6 +561,68 @@ function Teleporter:TeleportToWaypoint()
 end
 registerLuaFunctionHighlight('TeleportToWaypoint')
 
+--
+--- ∑ Prints all saved locations grouped by author and category in a structured and readable format.
+--
+function Teleporter:PrintSaves()
+    if not self.Saves or next(self.Saves) == nil then
+        logger:ForceError("[Teleporter] No saves found.")
+        return
+    end
+    local grouped = {}
+    local totalCount = 0
+    for name, save in pairs(self.Saves) do
+        if type(save) == "table" and save.X and save.Y and save.Z then
+            local author = (save.Author and tostring(save.Author) ~= "") and tostring(save.Author) or "Unknown"
+            local category = (save.Category and tostring(save.Category) ~= "") and tostring(save.Category) or "Default"
+            grouped[author] = grouped[author] or {}
+            grouped[author][category] = grouped[author][category] or {}
+            table.insert(grouped[author][category], {
+                Name = tostring(name),
+                X = save.X,
+                Y = save.Y,
+                Z = save.Z,
+                Description = (save.Description and tostring(save.Description) ~= "") and tostring(save.Description) or nil
+            })
+            totalCount = totalCount + 1
+        else
+            logger:ForceErrorF("[Teleporter] Invalid save entry: '%s'", tostring(name))
+        end
+    end
+    local authors = {}
+    for author in pairs(grouped) do
+        table.insert(authors, author)
+    end
+    table.sort(authors, function(a, b)
+        return a:lower() < b:lower()
+    end)
+    logger:ForceInfoF("[Teleporter] Saved Locations (%d)", totalCount)
+    for _, author in ipairs(authors) do
+        logger:ForceInfoF("[Teleporter] Author: %s", author)
+        local categories = {}
+        for category in pairs(grouped[author]) do
+            table.insert(categories, category)
+        end
+        table.sort(categories, function(a, b)
+            return a:lower() < b:lower()
+        end)
+        for _, category in ipairs(categories) do
+            logger:ForceInfoF("[Teleporter]   Category: %s", category)
+            local saves = grouped[author][category]
+            table.sort(saves, function(a, b)
+                return a.Name:lower() < b.Name:lower()
+            end)
+            for _, save in ipairs(saves) do
+                logger:ForceInfoF("[Teleporter]     — %s | (%.3f, %.3f, %.3f)", save.Name, save.X, save.Y, save.Z)
+                if save.Description then
+                    logger:ForceInfoF("[Teleporter]       Description: %s", save.Description)
+                end
+            end
+        end
+    end
+end
+registerLuaFunctionHighlight('PrintSaves')
+
 -- .....................................................
 
 --
@@ -737,6 +800,128 @@ function Teleporter:WriteSavesToDataDir()
     end
 end
 registerLuaFunctionHighlight('WriteSavesToDataDir')
+
+--
+--- ∑ Creates Teleporter saves and populates the memory record list.
+--
+function Teleporter:CreateTeleporterSaves()
+    if not inMainThread() then
+        synchronize(function() self:CreateTeleporterSaves() end)
+        return
+    end
+    logger:Info("[Teleporter] Starting creation of Teleporter Saves...")
+    local addressList = getAddressList()
+    if not addressList then
+        logger:Error("[Teleporter] AddressList not available.")
+        return
+    end
+    local root = addressList.getMemoryRecordByDescription(self.SaveMemoryRecordName)
+    if not root then
+        logger:ErrorF("[Teleporter] Failed to find root memory record: '%s'.", self.SaveMemoryRecordName)
+        return
+    end
+    local didBeginUpdate = false
+    if addressList.beginUpdate then
+        addressList.beginUpdate()
+        didBeginUpdate = true
+    elseif addressList.BeginUpdate then
+        addressList:BeginUpdate()
+        didBeginUpdate = true
+    end
+    local ok, err = pcall(function()
+        self:ClearSubrecords(root)
+        local grouped = {}
+        for saveName, data in pairs(self.Saves or {}) do
+            if type(data) == "table" and data.X and data.Y and data.Z then
+                local author = data.Author or "Unknown"
+                local category = (data.Category and data.Category ~= "") and data.Category or "Default"
+                grouped[author] = grouped[author] or {}
+                grouped[author][category] = grouped[author][category] or {}
+                table.insert(grouped[author][category], saveName)
+            end
+        end
+        local sortedAuthors = {}
+        for author in pairs(grouped) do
+            table.insert(sortedAuthors, author)
+        end
+        table.sort(sortedAuthors, function(a, b)
+            return a:lower() < b:lower()
+        end)
+        local totalSaves = 0
+        for _, author in ipairs(sortedAuthors) do
+            local authorHeader = addressList.createMemoryRecord()
+            authorHeader.Type = vtGroupHeader
+            authorHeader.Description = string.format("[— %s —] ()->", author)
+            authorHeader.Color = 0xFFFFFF
+            authorHeader.Parent = root
+            authorHeader.IsAddressGroupHeader = false
+            local categories = grouped[author]
+            local sortedCategories = {}
+            for category in pairs(categories) do
+                table.insert(sortedCategories, category)
+            end
+            table.sort(sortedCategories, function(a, b)
+                return a:lower() < b:lower()
+            end)
+            for _, category in ipairs(sortedCategories) do
+                local categoryHeader = addressList.createMemoryRecord()
+                categoryHeader.Type = vtGroupHeader
+                categoryHeader.IsAddressGroupHeader = false
+                categoryHeader.Description = string.format("[— %s —] ()->", category)
+                categoryHeader.Color = 0xFFFFFF
+                categoryHeader.Parent = authorHeader
+
+                local saves = categories[category]
+                table.sort(saves, function(a, b)
+                    return a:lower() < b:lower()
+                end)
+
+                for _, saveName in ipairs(saves) do
+                    local position = self.Saves[saveName]
+                    local scriptContent = string.format([[
+{$lua}
+[ENABLE]
+if syntaxcheck then return end
+-- .................................................................
+--- Save: %s
+--- Author: %s
+---- X: %.4f
+---- Y: %.4f
+---- Z: %.4f
+teleporter:TeleportToSave("%s")
+utils:AutoDisable(memrec.ID)
+-- .................................................................
+[DISABLE]
+
+--- Script generated using %s
+---- Version: %s
+---- Source: https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Modules
+]], saveName, author, position.X, position.Y, position.Z, saveName, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
+
+                    local mr = addressList.createMemoryRecord()
+                    mr.Type = vtAutoAssembler
+                    mr.Description = "Teleport To: '" .. saveName .. "' ()->"
+                    mr.Color = 0xFFFFFF
+                    mr.Parent = categoryHeader
+                    mr.Script = scriptContent
+                    totalSaves = totalSaves + 1
+                end
+            end
+        end
+        logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves (grouped by Author and Category).", totalSaves)
+    end)
+    if didBeginUpdate then
+        if addressList.endUpdate then
+            addressList.endUpdate()
+        elseif addressList.EndUpdate then
+            addressList:EndUpdate()
+        end
+    end
+    if not ok then
+        logger:ErrorF("[Teleporter] Failed to create Teleporter saves: %s", tostring(err))
+    end
+end
+registerLuaFunctionHighlight('CreateTeleporterSaves')
 
 --
 --- ∑ Logs detailed errors when a save position is invalid, including the name of the save and the contents of the position table.
