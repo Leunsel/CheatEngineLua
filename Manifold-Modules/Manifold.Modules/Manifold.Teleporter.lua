@@ -43,6 +43,7 @@ local DESCRIPTION = "Manifold Framework Teleporter"
     ∂ v1.1.1 (2026-04-02)
         Perhaps it's smart to add a splitter between the Save Panel and the Editor Panel...
         Added the PrintSave and CreateTeleporterSaves Function back and improved the CreateTeleporterSaves function to prevent TreeIndex errors.
+        Made the Main Menu Strip Entry conditionally appear based on the presence of a Waypoint Symbol in the config.
 ]]--
 
 Teleporter = {
@@ -1816,7 +1817,9 @@ function Teleporter:CreateMenuStrip(parent)
         local name = self:GetSelectedSaveName()
         if name then self:TeleportToSave(name) end
     end)
-    menuItem(toolsItem, "Teleport To Waypoint", function() self:TeleportToWaypoint() end)
+    if self.Waypoint and self.Waypoint.Symbol ~= nil or self.Waypoint.Symbol ~= "" then
+        menuItem(toolsItem, "Teleport To Waypoint", function() self:TeleportToWaypoint() end)
+    end
     menuItem(toolsItem, "Save Current Runtime Position", function()
         self:SaveCurrentPosition()
         self:SetStatus("Runtime position saved")
@@ -2072,7 +2075,7 @@ function Teleporter:InitTeleporterUI()
     end
     local theme = self:GetUiTheme()
     local form = createForm()
-    form.Caption = "Teleporter"
+    form.Caption = "[Manifold] Teleporter"
     form.Width = 1120
     form.Height = 720
     form.Position = "poScreenCenter"
