@@ -44,6 +44,9 @@ local DESCRIPTION = "Manifold Framework Teleporter"
         Perhaps it's smart to add a splitter between the Save Panel and the Editor Panel...
         Added the PrintSave and CreateTeleporterSaves Function back and improved the CreateTeleporterSaves function to prevent TreeIndex errors.
         Made the Main Menu Strip Entry conditionally appear based on the presence of a Waypoint Symbol in the config.
+
+    ∂ v1.1.2 (2026-04-03)
+        Adjusted the Teleporter UI Panel Width to be 50% by default for both, Editor and TreeView.
 ]]--
 
 Teleporter = {
@@ -2097,13 +2100,14 @@ function Teleporter:InitTeleporterUI()
     body.BorderSpacing.Bottom = 6
     local editorHost = UiCreatePanel(body, "alClient", nil, theme.COLOR_BG)
     editorHost.Constraints.MinWidth = 420
+    editorHost.Width = form.Width / 2
     local splitter = createSplitter(body)
     splitter.Align = "alLeft"
     splitter.Width = 6
     splitter.MinSize = 250
     splitter.ResizeStyle = "rsUpdate"
     local treeHost = UiCreatePanel(body, "alLeft", nil, theme.COLOR_BG)
-    treeHost.Width = 330
+    treeHost.Width = form.Width / 2
     treeHost.Constraints.MinWidth = 250
     self:CreateEditorPanel(editorHost)
     self:CreateTreePanel(treeHost)
