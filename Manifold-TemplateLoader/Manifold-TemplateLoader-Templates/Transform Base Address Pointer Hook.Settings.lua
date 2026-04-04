@@ -1,8 +1,8 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Teleporter Hooks — Dedicated",
+    SubMenuName = "[7] x86/x64 — Teleporter Hooks",
     Caption = "Transform Base Address Pointer Hook",
-    Shortcut = "Ctrl+Alt+T",
+    Shortcut = "",
     AskForInjectionAddress = true,
     AskForHookName = true,
     AppendToHookName = "Hook"

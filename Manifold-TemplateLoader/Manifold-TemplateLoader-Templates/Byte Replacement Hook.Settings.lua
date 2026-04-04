@@ -1,8 +1,8 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Byte Patch Hooks — Dedicated",
+    SubMenuName = "[3] x86/x64 — Byte Patch Hooks",
     Caption = "Byte Replacement Hook",
-    Shortcut = "Ctrl+Alt+5",
+    Shortcut = "",
     AskForInjectionAddress = true,
     AskForHookName = true,
     AppendToHookName = "Hook"

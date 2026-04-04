@@ -2,8 +2,11 @@
 
 [ENABLE]
 
-aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+// aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
 << Alloc >>
+
+ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
 label(o_<< HookName >> r_<< HookName >>)
 label(<< HookName >>Ptr)
@@ -19,9 +22,9 @@ o_<< HookName >>:
 << HookName >>Ptr:
  << PointerType >> 0
 << HookName >>Offsets:
- dd 0
- dd 0
- dd 0
+ dd 08
+ dd 0C
+ dd 10
 SavedPositionFlt:
  dd (float)0
  dd (float)0
