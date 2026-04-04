@@ -2,14 +2,13 @@
 
 [ENABLE]
 
-aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+// aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
 
+ManifoldResolveStatic(<< HookName >>Ptr,<< HookNameParsed >>)
 
-registersymbol(<< HookNameParsed >>)
+registersymbol(<< HookNameParsed >> << HookName >>Ptr)
 
 [DISABLE]
-
-<< HookNameParsed >><< AoBOffset >>:
-  db << OriginalBytes >>
 
 unregisterSymbol(*)

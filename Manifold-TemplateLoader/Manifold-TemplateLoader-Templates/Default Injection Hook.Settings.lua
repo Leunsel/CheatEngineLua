@@ -1,9 +1,9 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Miscellaneous Hooks",
-    Caption = "Lua Write",
+    SubMenuName = "[4] x86/x64 — Default Hooks",
+    Caption = "Default Injection Hook",
     Shortcut = "",
-    AskForInjectionAddress = true,
+    AskForInjectionAddress = false,
     AskForHookName = true,
     AppendToHookName = "Hook"
 }

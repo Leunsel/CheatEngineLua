@@ -2,7 +2,10 @@
 
 [ENABLE]
 
-aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+// aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+
+ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
 << HookNameParsed >><< AoBOffset >>:
   db C3

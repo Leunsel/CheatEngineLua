@@ -1,8 +1,8 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Pointer Hooks — Dedicated",
+    SubMenuName = "[1] x86/x64 — Pointer Hooks",
     Caption = "Base Address Pointer Hook — Multiplier",
-    Shortcut = "Ctrl+Alt+3",
+    Shortcut = "",
     AskForInjectionAddress = true,
     AskForHookName = true,
     AppendToHookName = "Hook"

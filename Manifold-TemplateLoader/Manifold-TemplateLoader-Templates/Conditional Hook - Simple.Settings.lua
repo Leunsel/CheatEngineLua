@@ -1,8 +1,8 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "Conditional Hooks — Dedicated",
+    SubMenuName = "[2] x86/x64 — Conditional Hooks",
     Caption = "Conditional Hook — Simple",
-    Shortcut = "Ctrl+Alt+7",
+    Shortcut = "",
     AskForInjectionAddress = true,
     AskForHookName = true,
     AppendToHookName = "Hook"
