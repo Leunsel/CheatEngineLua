@@ -160,6 +160,25 @@ end
 registerLuaFunctionHighlight('SafeReadWord')
 
 -- 
+--- SafeWriteWord
+--- ∑ Writes a 2-byte value to the specified address.
+---   Returns true if the write is successful, otherwise false.
+--- @param address integer # The memory address to write to.
+--- @param value integer # The word value to write.
+--- @return boolean # True if the write is successful, false otherwise.
+--
+function Memory:SafeWriteWord(address, value)
+    local success = writeSmallInteger(address, value)
+    if not success then
+        logger:ErrorF("[Memory] Unable to write word value %d to address '0x%08X'", value, self:SafeGetAddress(address))
+        return false
+    end
+    logger:InfoF("[Memory] Successfully wrote word value %d to address '0x%08X'", value, self:SafeGetAddress(address))
+    return true
+end
+registerLuaFunctionHighlight('SafeWriteWord')
+
+-- 
 --- SafeAddWord
 --- ∑ Adds a value to the current 2-byte value at the specified address.
 ---   Returns true if the operation succeeds, otherwise false.
@@ -203,6 +222,24 @@ function Memory:SafeReadInteger(address, signed)
     return value
 end
 registerLuaFunctionHighlight('SafeReadInteger')
+
+-- 
+--- SafeWriteInteger
+--- ∑ Writes a 4-byte integer to the specified address.
+---   Returns true if the write is successful; otherwise, false.
+--- @param address integer # The memory address to write to.
+--- @param value integer # The integer value to write.
+--- @return boolean # True if the write is successful, false otherwise.
+--
+function Memory:SafeWriteInteger(address, value)
+    local success = writeInteger(address, value)
+    if not success then
+        logger:ErrorF("[Memory] Unable to write integer value %d to address '0x%08X'", value, self:SafeGetAddress(address))
+        return false
+    end
+    return true
+end
+registerLuaFunctionHighlight('SafeWriteInteger')
 
 -- 
 --- SafeAddInteger
