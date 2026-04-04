@@ -1,6 +1,6 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
@@ -48,7 +48,7 @@ local DESCRIPTION = "Manifold Framework Teleporter"
     ∂ v1.1.2 (2026-04-03)
         Adjusted the Teleporter UI Panel Width to be 50% by default for both, Editor and TreeView.
 
-    ∂ v1.1.2 (2026-04-04)
+    ∂ v1.1.3 (2026-04-04)
         Manifold.UI Themes now properly apply to the Teleporter UI at runtime, eliminating the need for a bruteforced UI Restart.
 ]]--
 
