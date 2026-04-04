@@ -1,6 +1,6 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.1.2"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
@@ -47,6 +47,9 @@ local DESCRIPTION = "Manifold Framework Teleporter"
 
     ∂ v1.1.2 (2026-04-03)
         Adjusted the Teleporter UI Panel Width to be 50% by default for both, Editor and TreeView.
+
+    ∂ v1.1.2 (2026-04-04)
+        Manifold.UI Themes now properly apply to the Teleporter UI at runtime, eliminating the need for a bruteforced UI Restart.
 ]]--
 
 Teleporter = {
@@ -963,16 +966,88 @@ end
 function Teleporter:EnsureUiState()
     self.UiState = self.UiState or {
         Form = nil,
+        RootPanel = nil,
+        ToolbarPanel = nil,
+        StatusPanel = nil,
+        LeftPanel = nil,
+        LeftInnerPanel = nil,
+        LeftHeaderPanel = nil,
+        LeftContentPanel = nil,
+        RightPanel = nil,
+        RightInnerPanel = nil,
+        RightHeaderPanel = nil,
+        RightContentPanel = nil,
+        EditorPanel = nil,
+        TreePanel = nil,
+        SearchPanel = nil,
+        SearchFillPanel = nil,
+        SearchInnerPanel = nil,
+        TreeBorderPanel = nil,
+        TreeHostPanel = nil,
+        FieldsHostPanel = nil,
+        TopGroupPanel = nil,
+        BottomGroupPanel = nil,
+        FooterPanel = nil,
+        MemoBorderPanel = nil,
+        MemoPanel = nil,
+        MemoInnerPanel = nil,
+        NameRow = nil,
+        NameBorder = nil,
+        NameFill = nil,
+        NameInner = nil,
+        AuthorRow = nil,
+        AuthorBorder = nil,
+        AuthorFill = nil,
+        AuthorInner = nil,
+        CategoryRow = nil,
+        CategoryBorder = nil,
+        CategoryFill = nil,
+        CategoryInner = nil,
+        XRow = nil,
+        XBorder = nil,
+        XFill = nil,
+        XInner = nil,
+        YRow = nil,
+        YBorder = nil,
+        YFill = nil,
+        YInner = nil,
+        ZRow = nil,
+        ZBorder = nil,
+        ZFill = nil,
+        ZInner = nil,
         TreeView = nil,
+        TreeStatsLabel = nil,
+        SearchLabel = nil,
         SearchEdit = nil,
+        TreeHeaderLabel = nil,
+        EditorHeaderLabel = nil,
+        AddButton = nil,
+        DuplicateButton = nil,
+        TeleportButton = nil,
+        UpdateButton = nil,
+        ClearButton = nil,
+        RenameButton = nil,
+        UseCurrentPositionButton = nil,
+        NameLabel = nil,
         NameEdit = nil,
+        AuthorLabel = nil,
         AuthorEdit = nil,
+        CategoryLabel = nil,
         CategoryEdit = nil,
+        XLabel = nil,
         XEdit = nil,
+        YLabel = nil,
         YEdit = nil,
+        ZLabel = nil,
         ZEdit = nil,
+        DescriptionLabel = nil,
         DescriptionEdit = nil,
         StatusLabel = nil,
+        SaveButton = nil,
+        LoadButton = nil,
+        DeleteButton = nil,
+        RefreshButton = nil,
+        WaypointButton = nil,
         CurrentSelection = nil,
         SearchQuery = "",
         IsRefreshing = false,
@@ -1371,118 +1446,46 @@ function Teleporter:UpdateSelectedSaveFromEditor()
     return true
 end
 
-
-local DEFAULT_THEME = {
-    COLOR_BG           = 0x2E2723,
-    COLOR_PANEL        = 0x3A312C,
-    COLOR_ACCENT       = 0x9CBC1A,
+local BUILD_THEME = {
+    COLOR_BG           = 0x202020,
+    COLOR_PANEL        = 0x2A2A2A,
+    COLOR_ACCENT       = 0x4A4A4A,
     COLOR_TEXT         = 0xEAEAEA,
-    COLOR_LABEL        = 0xB0B0B0,
-    COLOR_BTN          = 0x2E2723,
-    COLOR_BTN_HOVER    = 0x9CBC1A,
+    COLOR_LABEL        = 0xC8C8C8,
+    COLOR_BTN          = 0x2A2A2A,
+    COLOR_BTN_HOVER    = 0x4A4A4A,
     COLOR_BTN_TEXT     = 0xEAEAEA,
-    COLOR_TAB_ACTIVE   = 0x9CBC1A,
-    COLOR_TAB_INACTIVE = 0x3A312C,
-    COLOR_INPUT        = 0x1E1917,
+    COLOR_TAB_ACTIVE   = 0x4A4A4A,
+    COLOR_TAB_INACTIVE = 0x2A2A2A,
+    COLOR_INPUT        = 0x1B1B1B,
     COLOR_INPUT_TEXT   = 0xEAEAEA,
-    COLOR_BORDER       = 0x74614A,
-    COLOR_MUTED        = 0x8B7B68,
-    COLOR_SURFACE      = 0x433933,
-    COLOR_SURFACE_ALT  = 0x241F1C,
+    COLOR_BORDER       = 0x454545,
+    COLOR_MUTED        = 0x8A8A8A,
+    COLOR_SURFACE      = 0x2F2F2F,
+    COLOR_SURFACE_ALT  = 0x242424,
     COLOR_SUCCESS      = 0x6FD96F,
 }
 
 --
---- ∑ Resolves the current UI theme by attempting to retrieve active theme data from the host application.
---- If active theme data is available, it maps relevant color values to the Teleporter theme.
---- If no theme data is available or an error occurs, it falls back to a default theme.
---- @returns table # A table containing color values for the UI theme.
+--- ∑ Applies the given theme data to the Teleporter UI by delegating to the UI module.
+--- @param themeData table # The processed theme token table.
 --
-function Teleporter:ResolveUiTheme()
-    local theme = {}
-    for key, value in pairs(DEFAULT_THEME) do
-        theme[key] = value
-    end
-    if not _G.ui then
-        return theme
-    end
-    local activeTheme = nil
-    local ok = false
-    if type(ui.GetActiveThemeData) == "function" then
-        ok, activeTheme = pcall(function()
-            return ui:GetActiveThemeData()
-        end)
-    elseif type(ui.GetTheme) == "function" and ui.ActiveTheme then
-        ok, activeTheme = pcall(function()
-            return ui:GetTheme(ui.ActiveTheme)
-        end)
-    end
-    if not ok or type(activeTheme) ~= "table" then
-        return theme
-    end
-    local function themeValue(key)
-        local value = activeTheme[key]
-        return value
-    end
-    theme.COLOR_BG           = themeValue("MainForm.Color") or theme.COLOR_BG
-    theme.COLOR_PANEL        = themeValue("MainForm.Foundlist3.Color") or theme.COLOR_PANEL
-    theme.COLOR_ACCENT       = themeValue("AddressList.Header.Canvas.Pen.Color") or themeValue("MainForm.Splitter1.Color") or theme.COLOR_ACCENT
-    theme.COLOR_TEXT         = themeValue("Memrec.DefaultForeground.Color") or theme.COLOR_TEXT
-    theme.COLOR_LABEL        = themeValue("AddressList.Header.Font.Color") or theme.COLOR_LABEL
-    theme.COLOR_INPUT        = themeValue("AddressList.List.BackgroundColor") or themeValue("TreeView.Color") or theme.COLOR_INPUT
-    theme.COLOR_INPUT_TEXT   = themeValue("TreeView.Font.Color") or theme.COLOR_INPUT_TEXT
-    theme.COLOR_BORDER       = themeValue("MainForm.Panel4.BevelColor") or theme.COLOR_BORDER
-    theme.COLOR_BTN          = theme.COLOR_PANEL
-    theme.COLOR_BTN_HOVER    = theme.COLOR_ACCENT
-    theme.COLOR_BTN_TEXT     = theme.COLOR_TEXT
-    theme.COLOR_TAB_ACTIVE   = theme.COLOR_ACCENT
-    theme.COLOR_TAB_INACTIVE = theme.COLOR_SURFACE or theme.COLOR_PANEL
-    theme.COLOR_MUTED        = themeValue("Memrec.GroupHeader.Color") or theme.COLOR_MUTED
-    theme.COLOR_SURFACE      = themeValue("Memrec.AutoAssembler.Color") or theme.COLOR_SURFACE
-    theme.COLOR_SURFACE_ALT  = themeValue("Memrec.UserDefined.Color") or theme.COLOR_SURFACE_ALT
-    theme.COLOR_SUCCESS      = themeValue("Memrec.StringType.Color") or theme.COLOR_SUCCESS
-    return theme
-end
-
 function Teleporter:OnThemeApplied(themeData)
-    local ui = self:EnsureUiState()
-    ui.Theme = nil
-    if type(themeData) == "table" then
-        ui.Theme = themeData
-    end
-    if not ui.Form then
+    local uiState = self:EnsureUiState()
+    if not uiState or not uiState.Form then
         return
     end
-    self:RebuildTeleporterTheme()
-end
-
-function Teleporter:RebuildTeleporterTheme()
-    local ui = self:EnsureUiState()
-    local selected = self:GetSelectedSaveName()
-    local search = ui.SearchEdit and ui.SearchEdit.Text or ""
-    if ui.Form then
-        ui.Form.close()
-    end
-    self.UiState = nil
-    self:InitTeleporterUI()
-    local newUi = self:EnsureUiState()
-    if newUi.SearchEdit then
-        newUi.SearchEdit.Text = search
-    end
-    self:SetSelectedSaveName(selected)
-    self:RefreshUi(true)
-    if selected then
-        self:LoadSaveIntoEditor(selected)
+    if _G.ui and type(ui.ApplyThemeToTeleporter) == "function" then
+        ui:ApplyThemeToTeleporter(self, themeData)
     end
 end
 
 --
 --- ∑ Applies font settings to a given control, including font name, size, color, and style.
---- This function checks if the control and its Font property exist before applying the specified settings.
 --- @param control table # The UI control to which the font settings will be applied.
---- @param color integer # An optional color value to apply to the font. If nil, the font color will not be changed.
---- @param size integer # An optional font size to apply. If nil, the font size will default to 10.
---- @param style string # An optional font style to apply (e.g., "[fsBold]"). If nil, the font style will not be changed.
+--- @param color integer # An optional color value to apply to the font.
+--- @param size integer # An optional font size to apply.
+--- @param style string # An optional font style to apply (e.g., "[fsBold]").
 --
 local function UiApplyFont(control, color, size, style)
     if not control or not control.Font then
@@ -1495,63 +1498,6 @@ local function UiApplyFont(control, color, size, style)
     end
     if style then
         control.Font.Style = style
-    end
-end
-
---
---- ∑ Retrieves the current UI theme, ensuring that it is resolved and cached in the UI state for future use.
---- If the theme has not been resolved yet, this function will call ResolveUiTheme to obtain the theme data and store it in the UI state before returning it.
---- @returns table # The current UI theme containing color values for styling the Teleporter UI.
---
-function Teleporter:GetUiTheme()
-    local uiState = self:EnsureUiState()
-    if not uiState.Theme then
-        uiState.Theme = self:ResolveUiTheme()
-    end
-    return uiState.Theme
-end
-
---
---- ∑ Applies the current UI theme to all relevant editor controls, ensuring consistent styling across the Teleporter UI.
---- This function iterates through each editor control (name, author, category, position fields, search, and description)
---- and applies the appropriate colors, fonts, and border styles based on the resolved theme.
---- If a control has a repaint method, it is called to ensure the visual updates take effect immediately.
--- This function should be called whenever the theme is changed or when the editor is initialized to ensure the controls match the current theme.
---
-function Teleporter:ApplyEditorTheme()
-    local theme = self:GetUiTheme()
-    local ui = self:EnsureUiState()
-    local function applyEdit(ctrl)
-        if not ctrl then
-            return
-        end
-        ctrl.ParentColor = false
-        ctrl.Color = theme.COLOR_INPUT
-        ctrl.BorderStyle = "bsNone"
-        UiApplyFont(ctrl, theme.COLOR_INPUT_TEXT, 10)
-        if ctrl.repaint then
-            ctrl:repaint()
-        elseif ctrl.Repaint then
-            ctrl:Repaint()
-        end
-    end
-    applyEdit(ui.NameEdit)
-    applyEdit(ui.AuthorEdit)
-    applyEdit(ui.CategoryEdit)
-    applyEdit(ui.XEdit)
-    applyEdit(ui.YEdit)
-    applyEdit(ui.ZEdit)
-    applyEdit(ui.SearchEdit)
-    if ui.DescriptionEdit then
-        ui.DescriptionEdit.ParentColor = false
-        ui.DescriptionEdit.Color = theme.COLOR_INPUT
-        ui.DescriptionEdit.BorderStyle = "bsNone"
-        UiApplyFont(ui.DescriptionEdit, theme.COLOR_INPUT_TEXT, 10)
-        if ui.DescriptionEdit.repaint then
-            ui.DescriptionEdit:repaint()
-        elseif ui.DescriptionEdit.Repaint then
-            ui.DescriptionEdit:Repaint()
-        end
     end
 end
 
@@ -1588,18 +1534,25 @@ end
 local function UiCreateBorderCard(parent, align, size, theme, title)
     local outer = UiCreatePanel(parent, align, size, theme.COLOR_BORDER)
     outer.BorderSpacing.Around = 6
+    outer.BevelOuter = "bvRaised"
+    outer.BevelWidth = 1
+    outer.BevelColor = theme.COLOR_BORDER
     local inner = UiCreatePanel(outer, "alClient", nil, theme.COLOR_PANEL)
-    inner.BorderSpacing.Around = 2
+    inner.BorderSpacing.Around = 1
     local header = UiCreatePanel(inner, "alTop", 24, theme.COLOR_PANEL)
+    header.BevelOuter = "bvLowered"
+    header.BevelWidth = 1
+    header.BevelColor = theme.COLOR_BORDER
     local headerLabel = createLabel(header)
     headerLabel.Align = "alLeft"
     headerLabel.Caption = title or "SECTION"
     headerLabel.BorderSpacing.Left = 6
     headerLabel.BorderSpacing.Top = 4
+    headerLabel.Transparent = true
     UiApplyFont(headerLabel, theme.COLOR_LABEL, 10, "[fsBold]")
     local content = UiCreatePanel(inner, "alClient", nil, theme.COLOR_PANEL)
     content.BorderSpacing.Around = 6
-    return outer, inner, header, content
+    return outer, inner, header, content, headerLabel
 end
 
 --
@@ -1651,6 +1604,9 @@ end
 local function UiCreateStyledMemo(parent, theme)
     local outer = UiCreatePanel(parent, "alClient", nil, theme.COLOR_INPUT)
     outer.BorderSpacing.Around = 1
+    outer.BevelOuter = "bvLowered"
+    outer.BevelWidth = 1
+    outer.BevelColor = theme.COLOR_BORDER
     local inner = UiCreatePanel(outer, "alClient", nil, theme.COLOR_INPUT)
     inner.BorderSpacing.Left = 6
     inner.BorderSpacing.Right = 6
@@ -1664,7 +1620,7 @@ local function UiCreateStyledMemo(parent, theme)
     memo.WordWrap = true
     memo.ScrollBars = "ssAutoBoth"
     UiApplyFont(memo, theme.COLOR_INPUT_TEXT, 10)
-    return memo
+    return memo, outer, inner
 end
 
 --
@@ -1679,6 +1635,9 @@ local function UiCreateFieldRow(parent, caption, theme)
     local row = UiCreatePanel(parent, "alTop", 34, theme.COLOR_PANEL)
     row.BorderSpacing.Bottom = 6
     local border = UiCreatePanel(row, "alClient", nil, theme.COLOR_BORDER)
+    border.BevelOuter = "bvRaised"
+    border.BevelWidth = 1
+    border.BevelColor = theme.COLOR_BORDER
     local fill = UiCreatePanel(border, "alClient", nil, theme.COLOR_INPUT)
     fill.BorderSpacing.Around = 1
     local inner = UiCreatePanel(fill, "alClient", nil, theme.COLOR_INPUT)
@@ -1705,7 +1664,7 @@ local function UiCreateFieldRow(parent, caption, theme)
     edit.BorderStyle = "bsNone"
     edit.TextHint = ""
     UiApplyFont(edit, theme.COLOR_INPUT_TEXT, 10)
-    return edit, row, label
+    return edit, row, label, border, fill, inner
 end
 
 --
@@ -1820,7 +1779,7 @@ function Teleporter:CreateMenuStrip(parent)
         local name = self:GetSelectedSaveName()
         if name then self:TeleportToSave(name) end
     end)
-    if self.Waypoint and self.Waypoint.Symbol ~= nil or self.Waypoint.Symbol ~= "" then
+    if self.Waypoint and self.Waypoint.Symbol ~= nil and self.Waypoint.Symbol ~= "" then
         menuItem(toolsItem, "Teleport To Waypoint", function() self:TeleportToWaypoint() end)
     end
     menuItem(toolsItem, "Save Current Runtime Position", function()
@@ -1837,7 +1796,8 @@ end
 --- @returns table # The header panel containing the action buttons.
 --
 function Teleporter:CreateHeader(parent)
-    local theme = self:GetUiTheme()
+    local ui = self:EnsureUiState()
+    local theme = BUILD_THEME
     local header = UiCreatePanel(parent, "alTop", 30, theme.COLOR_PANEL)
     header.BevelOuter = "bvNone"
     header.BorderSpacing.Left = 6
@@ -1845,14 +1805,24 @@ function Teleporter:CreateHeader(parent)
     header.BorderSpacing.Top = 6
     header.BorderSpacing.Bottom = 3
     local buttons = UiCreatePanel(header, "alClient", nil, theme.COLOR_PANEL)
-    UiCreatePanelButton(buttons, "Add Current", 108, theme, function() self:AddSave() end)
-    UiCreatePanelButton(buttons, "Duplicate", 92, theme, function() self:DuplicateSelectedSave() end)
-    UiCreatePanelButton(buttons, "Delete", 80, theme, function() self:DeleteSave() end)
-    UiCreatePanelButton(buttons, "Teleport", 86, theme, function()
+    local addButton = UiCreatePanelButton(buttons, "Add Current", 108, theme, function() self:AddSave() end)
+    local duplicateButton = UiCreatePanelButton(buttons, "Duplicate", 92, theme, function() self:DuplicateSelectedSave() end)
+    local deleteButton = UiCreatePanelButton(buttons, "Delete", 80, theme, function() self:DeleteSave() end)
+    local waypointButton = UiCreatePanelButton(buttons, "Teleport", 86, theme, function()
         local name = self:GetSelectedSaveName()
         if name then self:TeleportToSave(name) end
     end)
-    UiCreatePanelButton(buttons, "Update", 84, theme, function() self:UpdateSelectedSaveFromEditor() end)
+    local updateButton = UiCreatePanelButton(buttons, "Update", 84, theme, function() self:UpdateSelectedSaveFromEditor() end)
+    ui.ToolbarPanel = header
+    ui.AddButton = addButton
+    ui.DuplicateButton = duplicateButton
+    ui.DeleteButton = deleteButton
+    ui.TeleportButton = waypointButton
+    ui.UpdateButton = updateButton
+    ui.SaveButton = addButton
+    ui.LoadButton = duplicateButton
+    ui.WaypointButton = waypointButton
+    ui.RefreshButton = updateButton
     return header
 end
 
@@ -1863,19 +1833,22 @@ end
 --- @returns table # The status bar panel containing the status label.
 --
 function Teleporter:CreateStatusBar(parent)
-    local theme = self:GetUiTheme()
-    local statusPanel = UiCreatePanel(parent, "alBottom", 26, theme.COLOR_PANEL)
-    statusPanel.BevelOuter = "bvRaised"
-    statusPanel.BevelColor = theme.COLOR_BORDER
-    statusPanel.BevelWidth = 1
+    local ui = self:EnsureUiState()
+    local theme = BUILD_THEME
+    local statusPanel = UiCreatePanel(parent, "alBottom", 26, theme.COLOR_BORDER)
+    statusPanel.BevelOuter = "bvNone"
     statusPanel.BorderSpacing.Around = 6
-    local label = createLabel(statusPanel)
-    label.Align = "alClient"
+    local statusInnerPanel = UiCreatePanel(statusPanel, "alClient", nil, theme.COLOR_PANEL)
+    statusInnerPanel.BevelOuter = "bvNone"
+    statusInnerPanel.BorderSpacing.Around = 1
+    local label = createLabel(statusInnerPanel)
+    label.Align = "alLeft"
     label.Caption = "Ready"
     label.BorderSpacing.Left = 8
-    label.BorderSpacing.Top = 5
+    label.BorderSpacing.Top = 3
     UiApplyFont(label, theme.COLOR_TEXT, 10)
-    local ui = self:EnsureUiState()
+    ui.StatusPanel = statusPanel
+    ui.StatusInnerPanel = statusInnerPanel
     ui.StatusLabel = label
     return statusPanel
 end
@@ -1887,17 +1860,22 @@ end
 --- @returns table # The outer panel containing the tree view and related controls.
 --
 function Teleporter:CreateTreePanel(parent)
-    local theme = self:GetUiTheme()
+    local theme = BUILD_THEME
     local ui = self:EnsureUiState()
-    local outer, inner, header, content = UiCreateBorderCard(parent, "alClient", 330, theme, "SAVED LOCATIONS")
+    local outer, inner, header, content, headerLabel = UiCreateBorderCard(parent, "alClient", 330, theme, "SAVED LOCATIONS")
     outer.Width = 530
     local hint = createLabel(header)
     hint.Align = "alRight"
     hint.Caption = string.format("%d saves", self:CountSaves())
     hint.BorderSpacing.Right = 8
     hint.BorderSpacing.Top = 4
+    hint.Transparent = true
     UiApplyFont(hint, theme.COLOR_MUTED, 9)
+    ui.TreeHeaderLabel = headerLabel
     local searchBorder = UiCreatePanel(content, "alTop", 32, theme.COLOR_BORDER)
+    searchBorder.BevelOuter = "bvRaised"
+    searchBorder.BevelWidth = 1
+    searchBorder.BevelColor = theme.COLOR_BORDER
     searchBorder.BorderSpacing.Bottom = 6
     local searchFill = UiCreatePanel(searchBorder, "alClient", nil, theme.COLOR_INPUT)
     searchFill.BorderSpacing.Around = 1
@@ -1915,8 +1893,10 @@ function Teleporter:CreateTreePanel(parent)
     searchEdit.OnChange = function()
         self:RefreshUi(true)
     end
-    ui.SearchEdit = searchEdit
-    local treeBorder = UiCreatePanel(content, "alClient", nil, theme.COLOR_PANEL)
+    local treeBorder = UiCreatePanel(content, "alClient", nil, theme.COLOR_BORDER)
+    treeBorder.BevelOuter = "bvRaised"
+    treeBorder.BevelWidth = 1
+    treeBorder.BevelColor = theme.COLOR_BORDER
     local treeHost = UiCreatePanel(treeBorder, "alClient", nil, theme.COLOR_PANEL)
     treeHost.BorderSpacing.Around = 1
     local tree = createTreeView(treeHost)
@@ -1927,6 +1907,18 @@ function Teleporter:CreateTreePanel(parent)
     tree.ScrollBars = "ssAutoBoth"
     tree.Color = theme.COLOR_PANEL
     UiApplyFont(tree, theme.COLOR_INPUT_TEXT, 10)
+    ui.LeftPanel = outer
+    ui.LeftInnerPanel = inner
+    ui.LeftHeaderPanel = header
+    ui.LeftContentPanel = content
+    ui.TreePanel = outer
+    ui.SearchPanel = searchBorder
+    ui.SearchFillPanel = searchFill
+    ui.SearchInnerPanel = searchInner
+    ui.SearchLabel = searchLabel
+    ui.SearchEdit = searchEdit
+    ui.TreeBorderPanel = treeBorder
+    ui.TreeHostPanel = treeHost
     ui.TreeView = tree
     ui.TreeStatsLabel = hint
     tree.OnClick = function()
@@ -1954,18 +1946,21 @@ end
 --- @returns table # The outer panel containing the editor controls.
 --
 function Teleporter:CreateEditorPanel(parent)
-    local theme = self:GetUiTheme()
-    local outer, inner, header, content = UiCreateBorderCard(parent, "alClient", nil, theme, "SAVE EDITOR")
+    local theme = BUILD_THEME
+    local outer, inner, header, content, headerLabel = UiCreateBorderCard(parent, "alClient", nil, theme, "SAVE EDITOR")
     local footer = UiCreatePanel(content, "alBottom", 36, theme.COLOR_PANEL)
+    footer.BevelOuter = "bvLowered"
+    footer.BevelWidth = 1
+    footer.BevelColor = theme.COLOR_BORDER
     footer.BorderSpacing.Top = 6
-    UiCreatePanelButton(footer, "Clear", 72, theme, function()
+    local clearButton = UiCreatePanelButton(footer, "Clear", 72, theme, function()
         self:ClearEditor()
         self:SetStatus("Editor cleared")
     end)
-    UiCreatePanelButton(footer, "Rename", 84, theme, function()
+    local renameButton = UiCreatePanelButton(footer, "Rename", 84, theme, function()
         self:RenameSave()
     end)
-    UiCreatePanelButton(footer, "Use Current Position", 148, theme, function()
+    local currentPositionButton = UiCreatePanelButton(footer, "Use Current Position", 148, theme, function()
         local pos = self:GetCurrentPosition()
         local ui = self:EnsureUiState()
         if pos then
@@ -1976,26 +1971,76 @@ function Teleporter:CreateEditorPanel(parent)
         end
     end)
     local memoBorder = UiCreatePanel(content, "alClient", nil, theme.COLOR_BORDER)
+    memoBorder.BevelOuter = "bvRaised"
+    memoBorder.BevelWidth = 1
+    memoBorder.BevelColor = theme.COLOR_BORDER
     memoBorder.BorderSpacing.Top = 6
     memoBorder.BorderSpacing.Bottom = 6
-    local description = UiCreateStyledMemo(memoBorder, theme)
+    local description, memoPanel, memoInnerPanel = UiCreateStyledMemo(memoBorder, theme)
     local fieldsHost = UiCreatePanel(content, "alTop", 244, theme.COLOR_PANEL)
     local bottomGroup = UiCreatePanel(fieldsHost, "alTop", 118, theme.COLOR_PANEL)
     local topGroup = UiCreatePanel(fieldsHost, "alTop", 118, theme.COLOR_PANEL)
-    local categoryEdit = UiCreateFieldRow(topGroup, "Category", theme)
-    local authorEdit   = UiCreateFieldRow(topGroup, "Author", theme)
-    local nameEdit     = UiCreateFieldRow(topGroup, "Name", theme)
-    local zEdit = UiCreateFieldRow(bottomGroup, "Z", theme)
-    local yEdit = UiCreateFieldRow(bottomGroup, "Y", theme)
-    local xEdit = UiCreateFieldRow(bottomGroup, "X", theme)
+    local categoryEdit, categoryRow, categoryLabel, categoryBorder, categoryFill, categoryInner = UiCreateFieldRow(topGroup, "Category", theme)
+    local authorEdit, authorRow, authorLabel, authorBorder, authorFill, authorInner = UiCreateFieldRow(topGroup, "Author", theme)
+    local nameEdit, nameRow, nameLabel, nameBorder, nameFill, nameInner = UiCreateFieldRow(topGroup, "Name", theme)
+    local zEdit, zRow, zLabel, zBorder, zFill, zInner = UiCreateFieldRow(bottomGroup, "Z", theme)
+    local yEdit, yRow, yLabel, yBorder, yFill, yInner = UiCreateFieldRow(bottomGroup, "Y", theme)
+    local xEdit, xRow, xLabel, xBorder, xFill, xInner = UiCreateFieldRow(bottomGroup, "X", theme)
     local ui = self:EnsureUiState()
+    ui.RightPanel = outer
+    ui.RightInnerPanel = inner
+    ui.RightHeaderPanel = header
+    ui.RightContentPanel = content
+    ui.EditorPanel = outer
+    ui.EditorHeaderLabel = headerLabel
+    ui.FooterPanel = footer
+    ui.MemoBorderPanel = memoBorder
+    ui.MemoPanel = memoPanel
+    ui.MemoInnerPanel = memoInnerPanel
+    ui.FieldsHostPanel = fieldsHost
+    ui.TopGroupPanel = topGroup
+    ui.BottomGroupPanel = bottomGroup
+    ui.NameRow = nameRow
+    ui.NameBorder = nameBorder
+    ui.NameFill = nameFill
+    ui.NameInner = nameInner
+    ui.NameLabel = nameLabel
     ui.NameEdit = nameEdit
+    ui.AuthorRow = authorRow
+    ui.AuthorBorder = authorBorder
+    ui.AuthorFill = authorFill
+    ui.AuthorInner = authorInner
+    ui.AuthorLabel = authorLabel
     ui.AuthorEdit = authorEdit
+    ui.CategoryRow = categoryRow
+    ui.CategoryBorder = categoryBorder
+    ui.CategoryFill = categoryFill
+    ui.CategoryInner = categoryInner
+    ui.CategoryLabel = categoryLabel
     ui.CategoryEdit = categoryEdit
+    ui.XRow = xRow
+    ui.XBorder = xBorder
+    ui.XFill = xFill
+    ui.XInner = xInner
+    ui.XLabel = xLabel
     ui.XEdit = xEdit
+    ui.YRow = yRow
+    ui.YBorder = yBorder
+    ui.YFill = yFill
+    ui.YInner = yInner
+    ui.YLabel = yLabel
     ui.YEdit = yEdit
+    ui.ZRow = zRow
+    ui.ZBorder = zBorder
+    ui.ZFill = zFill
+    ui.ZInner = zInner
+    ui.ZLabel = zLabel
     ui.ZEdit = zEdit
+    ui.DescriptionLabel = descriptionLabel
     ui.DescriptionEdit = description
+    ui.ClearButton = clearButton
+    ui.RenameButton = renameButton
+    ui.UseCurrentPositionButton = currentPositionButton
     return outer
 end
 
@@ -2068,15 +2113,14 @@ function Teleporter:InitTeleporterUI()
         synchronize(function() self:InitTeleporterUI() end)
         return
     end
-    local ui = self:EnsureUiState()
-    ui.Theme = self:ResolveUiTheme()
-    if ui.Form and ui.Form.ClassName and ui.Form.ClassName ~= "" then
-        ui.Form.show()
-        ui.Form.bringToFront()
+    local uiState = self:EnsureUiState()
+    if uiState.Form and uiState.Form.ClassName and uiState.Form.ClassName ~= "" then
+        uiState.Form.show()
+        uiState.Form.bringToFront()
         self:RefreshUi(true)
-        return ui.Form
+        return uiState.Form
     end
-    local theme = self:GetUiTheme()
+    local theme = BUILD_THEME
     local form = createForm()
     form.Caption = "[Manifold] Teleporter"
     form.Width = 1120
@@ -2089,56 +2133,37 @@ function Teleporter:InitTeleporterUI()
     form.Constraints.MinWidth = 980
     form.Constraints.MinHeight = 620
     form.show()
-    ui.Form = form
+    uiState.Form = form
     self:CreateMenuStrip(form)
     local root = UiCreatePanel(form, "alClient", nil, theme.COLOR_BG)
+    uiState.RootPanel = root
     self:CreateStatusBar(root)
     self:CreateHeader(root)
     local body = UiCreatePanel(root, "alClient", nil, theme.COLOR_BG)
+    uiState.BodyPanel = body
     body.BorderSpacing.Left = 6
     body.BorderSpacing.Right = 6
     body.BorderSpacing.Bottom = 6
     local editorHost = UiCreatePanel(body, "alClient", nil, theme.COLOR_BG)
+    uiState.EditorHost = editorHost
     editorHost.Constraints.MinWidth = 420
     editorHost.Width = form.Width / 2
     local splitter = createSplitter(body)
+    uiState.Splitter = splitter
     splitter.Align = "alLeft"
     splitter.Width = 6
     splitter.MinSize = 250
     splitter.ResizeStyle = "rsUpdate"
     local treeHost = UiCreatePanel(body, "alLeft", nil, theme.COLOR_BG)
+    uiState.TreeHost = treeHost
     treeHost.Width = form.Width / 2
     treeHost.Constraints.MinWidth = 250
     self:CreateEditorPanel(editorHost)
     self:CreateTreePanel(treeHost)
     self:CreateTreeContextMenu()
-    self:ApplyEditorTheme()
-    local themeTimer = createTimer(form)
-    themeTimer.Interval = 1
-    themeTimer.OnTimer = function(timer)
-        timer.Enabled = false
-        self:ApplyEditorTheme()
-        if timer.destroy then
-            timer:destroy()
-        elseif timer.Destroy then
-            timer:Destroy()
-        end
-    end
-    form.OnClose = function(sender)
+    form.OnClose = function()
         self:SetStatus("Closed")
-        ui.Form = nil
-        ui.TreeView = nil
-        ui.TreeStatsLabel = nil
-        ui.SearchEdit = nil
-        ui.NameEdit = nil
-        ui.AuthorEdit = nil
-        ui.CategoryEdit = nil
-        ui.XEdit = nil
-        ui.YEdit = nil
-        ui.ZEdit = nil
-        ui.DescriptionEdit = nil
-        ui.StatusLabel = nil
-        ui.Theme = nil
+        self.UiState = nil
         return caFree
     end
     self:SaveLookup()
@@ -2146,6 +2171,23 @@ function Teleporter:InitTeleporterUI()
     self:ClearEditor()
     self:SetStatus("Teleporter ready")
     form.centerScreen()
+    if _G.ui then
+        local activeTheme = nil
+        local ok = false
+        if type(ui.GetActiveThemeData) == "function" then
+            ok, activeTheme = pcall(function()
+                return ui:GetActiveThemeData()
+            end)
+        elseif type(ui.GetTheme) == "function" and ui.ActiveTheme then
+            ok, activeTheme = pcall(function()
+                return ui:GetTheme(ui.ActiveTheme)
+            end)
+        end
+        if ok and type(activeTheme) == "table" and type(ui.ApplyThemeToTeleporter) == "function" then
+            ui:ApplyThemeToTeleporter(self, activeTheme)
+        end
+    end
+
     return form
 end
 registerLuaFunctionHighlight('InitTeleporterUI')
