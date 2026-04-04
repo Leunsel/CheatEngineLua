@@ -1,662 +1,1126 @@
 -=== Running Manifold Unit Tests ===- 
-Time	: 2025-04-16 22:30:56 
-Process	: None 
-CE Version	: 7.5 
-===========================
+Time         : 2026-04-05 01:40:20 
+Process      : None 
+CE Version   : 7.5 
+====================================
  
-[PASS] Module loads: Manifold.AutoAssembler 
-[PASS] Manifold.AutoAssembler contains key: __index 
-[PASS] Manifold.AutoAssembler member type is valid: __index 
-[PASS] Manifold.AutoAssembler contains key: BreakOnError 
-[PASS] Manifold.AutoAssembler member type is valid: BreakOnError 
-[PASS] Manifold.AutoAssembler contains key: New 
-[PASS] Manifold.AutoAssembler member type is valid: New 
-[PASS] Manifold.AutoAssembler contains key: LoadFile 
-[PASS] Manifold.AutoAssembler member type is valid: LoadFile 
-[PASS] Manifold.AutoAssembler contains key: PrintErrors 
-[PASS] Manifold.AutoAssembler member type is valid: PrintErrors 
-[PASS] Manifold.AutoAssembler contains key: PerformAutoAssemble 
-[PASS] Manifold.AutoAssembler member type is valid: PerformAutoAssemble 
-[PASS] Manifold.AutoAssembler contains key: FileExtension 
-[PASS] Manifold.AutoAssembler member type is valid: FileExtension 
-[PASS] Manifold.AutoAssembler contains key: GetFilePath 
-[PASS] Manifold.AutoAssembler member type is valid: GetFilePath 
-[PASS] Manifold.AutoAssembler contains key: GetModuleInfo 
-[PASS] Manifold.AutoAssembler member type is valid: GetModuleInfo 
-[PASS] Manifold.AutoAssembler contains key: States 
-[PASS] Manifold.AutoAssembler member type is valid: States 
-[PASS] Manifold.AutoAssembler contains key: LocalFilesFolder 
-[PASS] Manifold.AutoAssembler member type is valid: LocalFilesFolder 
-[PASS] Manifold.AutoAssembler contains key: GetStateKey 
-[PASS] Manifold.AutoAssembler member type is valid: GetStateKey 
-[PASS] Manifold.AutoAssembler contains key: UpdateState 
-[PASS] Manifold.AutoAssembler member type is valid: UpdateState 
-[PASS] Manifold.AutoAssembler contains key: EnsureDirectoriesExist 
-[PASS] Manifold.AutoAssembler member type is valid: EnsureDirectoriesExist 
-[PASS] Manifold.AutoAssembler contains key: ValidateProcess 
-[PASS] Manifold.AutoAssembler member type is valid: ValidateProcess 
-[PASS] Manifold.AutoAssembler contains key: FormatFileName 
-[PASS] Manifold.AutoAssembler member type is valid: FormatFileName 
-[PASS] Manifold.AutoAssembler contains key: AutoAssemble 
-[PASS] Manifold.AutoAssembler member type is valid: AutoAssemble 
-[PASS] Manifold.AutoAssembler contains key: LogSymbolsAndAllocations 
-[PASS] Manifold.AutoAssembler member type is valid: LogSymbolsAndAllocations 
-[PASS] Manifold.AutoAssembler contains key: CheckDependencies 
-[PASS] Manifold.AutoAssembler member type is valid: CheckDependencies 
-[PASS] Manifold.AutoAssembler contains key: GameModuleIndex 
-[PASS] Manifold.AutoAssembler member type is valid: GameModuleIndex 
-[PASS] Manifold.AutoAssembler contains key: RequiredProcess 
-[PASS] Manifold.AutoAssembler member type is valid: RequiredProcess 
-[PASS] Manifold.AutoAssembler contains key: SetProcessName 
-[PASS] Manifold.AutoAssembler member type is valid: SetProcessName 
-[PASS] Module loads: Manifold.CustomIO 
-[PASS] Manifold.CustomIO contains key: __index 
-[PASS] Manifold.CustomIO member type is valid: __index 
-[PASS] Manifold.CustomIO contains key: DirectoryExists 
-[PASS] Manifold.CustomIO member type is valid: DirectoryExists 
-[PASS] Manifold.CustomIO contains key: New 
-[PASS] Manifold.CustomIO member type is valid: New 
-[PASS] Manifold.CustomIO contains key: BuildPath 
-[PASS] Manifold.CustomIO member type is valid: BuildPath 
-[PASS] Manifold.CustomIO contains key: WriteToTableFile 
-[PASS] Manifold.CustomIO member type is valid: WriteToTableFile 
-[PASS] Manifold.CustomIO contains key: AppendToFile 
-[PASS] Manifold.CustomIO member type is valid: AppendToFile 
-[PASS] Manifold.CustomIO contains key: WriteToFileAsJson 
-[PASS] Manifold.CustomIO member type is valid: WriteToFileAsJson 
-[PASS] Manifold.CustomIO contains key: ReadFromTableFileAsJson 
-[PASS] Manifold.CustomIO member type is valid: ReadFromTableFileAsJson 
-[PASS] Manifold.CustomIO contains key: GetModuleInfo 
-[PASS] Manifold.CustomIO member type is valid: GetModuleInfo 
-[PASS] Manifold.CustomIO contains key: ReadFromFile 
-[PASS] Manifold.CustomIO member type is valid: ReadFromFile 
-[PASS] Manifold.CustomIO contains key: OpenDirectory 
-[PASS] Manifold.CustomIO member type is valid: OpenDirectory 
-[PASS] Manifold.CustomIO contains key: EnsureDataDirectory 
-[PASS] Manifold.CustomIO member type is valid: EnsureDataDirectory 
-[PASS] Manifold.CustomIO contains key: WriteToFile 
-[PASS] Manifold.CustomIO member type is valid: WriteToFile 
-[PASS] Manifold.CustomIO contains key: ReadFromFileAsJson 
-[PASS] Manifold.CustomIO member type is valid: ReadFromFileAsJson 
-[PASS] Manifold.CustomIO contains key: WriteToTableFileAsJson 
-[PASS] Manifold.CustomIO member type is valid: WriteToTableFileAsJson 
-[PASS] Manifold.CustomIO contains key: FileExists 
-[PASS] Manifold.CustomIO member type is valid: FileExists 
-[PASS] Manifold.CustomIO contains key: CreateDirectory 
-[PASS] Manifold.CustomIO member type is valid: CreateDirectory 
-[PASS] Manifold.CustomIO contains key: ReadFromTableFile 
-[PASS] Manifold.CustomIO member type is valid: ReadFromTableFile 
-[PASS] Manifold.CustomIO contains key: DeleteFile 
-[PASS] Manifold.CustomIO member type is valid: DeleteFile 
-[PASS] Manifold.CustomIO contains key: ReadCSV 
-[PASS] Manifold.CustomIO member type is valid: ReadCSV 
-[PASS] Manifold.CustomIO contains key: EnsureDirectoryExists 
-[PASS] Manifold.CustomIO member type is valid: EnsureDirectoryExists 
-[PASS] Manifold.CustomIO contains key: WriteCSV 
-[PASS] Manifold.CustomIO member type is valid: WriteCSV 
-[PASS] Manifold.CustomIO contains key: StripExt 
-[PASS] Manifold.CustomIO member type is valid: StripExt 
-[PASS] Manifold.CustomIO contains key: CheckDependencies 
-[PASS] Manifold.CustomIO member type is valid: CheckDependencies 
-[PASS] Module loads: Manifold.Helper 
-[PASS] Manifold.Helper contains key: __index 
-[PASS] Manifold.Helper member type is valid: __index 
-[PASS] Manifold.Helper contains key: GetGameModuleName 
-[PASS] Manifold.Helper member type is valid: GetGameModuleName 
-[PASS] Manifold.Helper contains key: GetGameModulePathToFile 
-[PASS] Manifold.Helper member type is valid: GetGameModulePathToFile 
-[PASS] Manifold.Helper contains key: GetProcess 
-[PASS] Manifold.Helper member type is valid: GetProcess 
-[PASS] Manifold.Helper contains key: GetGameModule 
-[PASS] Manifold.Helper member type is valid: GetGameModule 
-[PASS] Manifold.Helper contains key: GetGameModuleIs64Bit 
-[PASS] Manifold.Helper member type is valid: GetGameModuleIs64Bit 
-[PASS] Manifold.Helper contains key: GetProcessTrimmed 
-[PASS] Manifold.Helper member type is valid: GetProcessTrimmed 
-[PASS] Manifold.Helper contains key: GetRegistrySizeStr 
-[PASS] Manifold.Helper member type is valid: GetRegistrySizeStr 
-[PASS] Manifold.Helper contains key: GetModuleInfo 
-[PASS] Manifold.Helper member type is valid: GetModuleInfo 
-[PASS] Manifold.Helper contains key: GetGameModuleAddress 
-[PASS] Manifold.Helper member type is valid: GetGameModuleAddress 
-[PASS] Manifold.Helper contains key: New 
-[PASS] Manifold.Helper member type is valid: New 
-[PASS] Module loads: Manifold.Json 
-[PASS] Manifold.Json contains key: encode 
-[PASS] Manifold.Json member type is valid: encode 
-[PASS] Manifold.Json contains key: onEncodeError 
-[PASS] Manifold.Json member type is valid: onEncodeError 
-[PASS] Manifold.Json contains key: onDecodeOfNilError 
-[PASS] Manifold.Json member type is valid: onDecodeOfNilError 
-[PASS] Manifold.Json contains key: VERSION 
-[PASS] Manifold.Json member type is valid: VERSION 
-[PASS] Manifold.Json contains key: forceString 
-[PASS] Manifold.Json member type is valid: forceString 
-[PASS] Manifold.Json contains key: decode 
-[PASS] Manifold.Json member type is valid: decode 
-[PASS] Manifold.Json contains key: asNumber 
-[PASS] Manifold.Json member type is valid: asNumber 
-[PASS] Manifold.Json contains key: AUTHOR_NOTE 
-[PASS] Manifold.Json member type is valid: AUTHOR_NOTE 
-[PASS] Manifold.Json contains key: onDecodeError 
-[PASS] Manifold.Json member type is valid: onDecodeError 
-[PASS] Manifold.Json contains key: newObject 
-[PASS] Manifold.Json member type is valid: newObject 
-[PASS] Manifold.Json contains key: new 
-[PASS] Manifold.Json member type is valid: new 
-[PASS] Manifold.Json contains key: newArray 
-[PASS] Manifold.Json member type is valid: newArray 
-[PASS] Manifold.Json contains key: onTrailingGarbage 
-[PASS] Manifold.Json member type is valid: onTrailingGarbage 
-[PASS] Manifold.Json contains key: onDecodeOfHTMLError 
-[PASS] Manifold.Json member type is valid: onDecodeOfHTMLError 
-[PASS] Manifold.Json contains key: encode_pretty 
-[PASS] Manifold.Json member type is valid: encode_pretty 
-[PASS] Manifold.Json contains key: forceNumber 
-[PASS] Manifold.Json member type is valid: forceNumber 
-[PASS] Manifold.Json contains key: __index 
-[PASS] Manifold.Json member type is valid: __index 
-[PASS] Manifold.Json contains key: __tostring 
-[PASS] Manifold.Json member type is valid: __tostring 
-[PASS] Module loads: Manifold.Logger 
-[PASS] Manifold.Logger contains key: LevelNames 
-[PASS] Manifold.Logger member type is valid: LevelNames 
-[PASS] Manifold.Logger contains key: ForceError 
-[PASS] Manifold.Logger member type is valid: ForceError 
-[PASS] Manifold.Logger contains key: ForceLog 
-[PASS] Manifold.Logger member type is valid: ForceLog 
-[PASS] Manifold.Logger contains key: ForceInfoF 
-[PASS] Manifold.Logger member type is valid: ForceInfoF 
-[PASS] Manifold.Logger contains key: GetModuleInfo 
-[PASS] Manifold.Logger member type is valid: GetModuleInfo 
-[PASS] Manifold.Logger contains key: ForceErrorF 
-[PASS] Manifold.Logger member type is valid: ForceErrorF 
-[PASS] Manifold.Logger contains key: SetLogFileName 
-[PASS] Manifold.Logger member type is valid: SetLogFileName 
-[PASS] Manifold.Logger contains key: Level 
-[PASS] Manifold.Logger member type is valid: Level 
-[PASS] Manifold.Logger contains key: SetLevel 
-[PASS] Manifold.Logger member type is valid: SetLevel 
-[PASS] Manifold.Logger contains key: ForceWarning 
-[PASS] Manifold.Logger member type is valid: ForceWarning 
-[PASS] Manifold.Logger contains key: InfoF 
-[PASS] Manifold.Logger member type is valid: InfoF 
-[PASS] Manifold.Logger contains key: ForceDebugF 
-[PASS] Manifold.Logger member type is valid: ForceDebugF 
-[PASS] Manifold.Logger contains key: Debug 
-[PASS] Manifold.Logger member type is valid: Debug 
-[PASS] Manifold.Logger contains key: Warning 
-[PASS] Manifold.Logger member type is valid: Warning 
-[PASS] Manifold.Logger contains key: ForceCriticalF 
-[PASS] Manifold.Logger member type is valid: ForceCriticalF 
-[PASS] Manifold.Logger contains key: New 
-[PASS] Manifold.Logger member type is valid: New 
-[PASS] Manifold.Logger contains key: Error 
-[PASS] Manifold.Logger member type is valid: Error 
-[PASS] Manifold.Logger contains key: Info 
-[PASS] Manifold.Logger member type is valid: Info 
-[PASS] Manifold.Logger contains key: Log 
-[PASS] Manifold.Logger member type is valid: Log 
-[PASS] Manifold.Logger contains key: Stringify 
-[PASS] Manifold.Logger member type is valid: Stringify 
-[PASS] Manifold.Logger contains key: ErrorF 
-[PASS] Manifold.Logger member type is valid: ErrorF 
-[PASS] Manifold.Logger contains key: __index 
-[PASS] Manifold.Logger member type is valid: __index 
-[PASS] Manifold.Logger contains key: ForceWarningF 
-[PASS] Manifold.Logger member type is valid: ForceWarningF 
-[PASS] Manifold.Logger contains key: WarningF 
-[PASS] Manifold.Logger member type is valid: WarningF 
-[PASS] Manifold.Logger contains key: ForceInfo 
-[PASS] Manifold.Logger member type is valid: ForceInfo 
-[PASS] Manifold.Logger contains key: Levels 
-[PASS] Manifold.Logger member type is valid: Levels 
-[PASS] Manifold.Logger contains key: ForceCritical 
-[PASS] Manifold.Logger member type is valid: ForceCritical 
-[PASS] Manifold.Logger contains key: ForceDebug 
-[PASS] Manifold.Logger member type is valid: ForceDebug 
-[PASS] Manifold.Logger contains key: CriticalF 
-[PASS] Manifold.Logger member type is valid: CriticalF 
-[PASS] Manifold.Logger contains key: Critical 
-[PASS] Manifold.Logger member type is valid: Critical 
-[PASS] Manifold.Logger contains key: ClearLogFile 
-[PASS] Manifold.Logger member type is valid: ClearLogFile 
-[PASS] Manifold.Logger contains key: SetOutput 
-[PASS] Manifold.Logger member type is valid: SetOutput 
-[PASS] Manifold.Logger contains key: DebugF 
-[PASS] Manifold.Logger member type is valid: DebugF 
-[PASS] Module loads: Manifold.Memory 
-[PASS] Manifold.Memory contains key: __index 
-[PASS] Manifold.Memory member type is valid: __index 
-[PASS] Manifold.Memory contains key: SafeWriteInteger 
-[PASS] Manifold.Memory member type is valid: SafeWriteInteger 
-[PASS] Manifold.Memory contains key: New 
-[PASS] Manifold.Memory member type is valid: New 
-[PASS] Manifold.Memory contains key: SafeReadInteger 
-[PASS] Manifold.Memory member type is valid: SafeReadInteger 
-[PASS] Manifold.Memory contains key: SafeAddByte 
-[PASS] Manifold.Memory member type is valid: SafeAddByte 
-[PASS] Manifold.Memory contains key: SafeWriteFloat 
-[PASS] Manifold.Memory member type is valid: SafeWriteFloat 
-[PASS] Manifold.Memory contains key: SafeReadByte 
-[PASS] Manifold.Memory member type is valid: SafeReadByte 
-[PASS] Manifold.Memory contains key: SafeAddInteger 
-[PASS] Manifold.Memory member type is valid: SafeAddInteger 
-[PASS] Manifold.Memory contains key: GetModuleInfo 
-[PASS] Manifold.Memory member type is valid: GetModuleInfo 
-[PASS] Manifold.Memory contains key: SafeAddDouble 
-[PASS] Manifold.Memory member type is valid: SafeAddDouble 
-[PASS] Manifold.Memory contains key: SafeGetAddress 
-[PASS] Manifold.Memory member type is valid: SafeGetAddress 
-[PASS] Manifold.Memory contains key: SafeWriteWord 
-[PASS] Manifold.Memory member type is valid: SafeWriteWord 
-[PASS] Manifold.Memory contains key: SafeReadFloat 
-[PASS] Manifold.Memory member type is valid: SafeReadFloat 
-[PASS] Manifold.Memory contains key: SafeWriteQWord 
-[PASS] Manifold.Memory member type is valid: SafeWriteQWord 
-[PASS] Manifold.Memory contains key: SafeWriteDouble 
-[PASS] Manifold.Memory member type is valid: SafeWriteDouble 
-[PASS] Manifold.Memory contains key: SafeReadDouble 
-[PASS] Manifold.Memory member type is valid: SafeReadDouble 
-[PASS] Manifold.Memory contains key: SafeAddFloat 
-[PASS] Manifold.Memory member type is valid: SafeAddFloat 
-[PASS] Manifold.Memory contains key: SafeAddQWord 
-[PASS] Manifold.Memory member type is valid: SafeAddQWord 
-[PASS] Manifold.Memory contains key: SafeWriteByte 
-[PASS] Manifold.Memory member type is valid: SafeWriteByte 
-[PASS] Manifold.Memory contains key: SafeReadQWord 
-[PASS] Manifold.Memory member type is valid: SafeReadQWord 
-[PASS] Manifold.Memory contains key: SafeReadWord 
-[PASS] Manifold.Memory member type is valid: SafeReadWord 
-[PASS] Manifold.Memory contains key: SafeAddWord 
-[PASS] Manifold.Memory member type is valid: SafeAddWord 
-[PASS] Module loads: Manifold.ProcessHandler 
-[PASS] Manifold.ProcessHandler contains key: __index 
-[PASS] Manifold.ProcessHandler member type is valid: __index 
-[PASS] Manifold.ProcessHandler contains key: CloseProcess 
-[PASS] Manifold.ProcessHandler member type is valid: CloseProcess 
-[PASS] Manifold.ProcessHandler contains key: New 
-[PASS] Manifold.ProcessHandler member type is valid: New 
-[PASS] Manifold.ProcessHandler contains key: ShouldStopAutoAttach 
-[PASS] Manifold.ProcessHandler member type is valid: ShouldStopAutoAttach 
-[PASS] Manifold.ProcessHandler contains key: AutoAttachTimerTicks 
-[PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerTicks 
-[PASS] Manifold.ProcessHandler contains key: StartAutoAttachTimer 
-[PASS] Manifold.ProcessHandler member type is valid: StartAutoAttachTimer 
-[PASS] Manifold.ProcessHandler contains key: AutoAttachTimerInterval 
-[PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerInterval 
-[PASS] Manifold.ProcessHandler contains key: GetAttachedProcessName 
-[PASS] Manifold.ProcessHandler member type is valid: GetAttachedProcessName 
-[PASS] Manifold.ProcessHandler contains key: GetModuleInfo 
-[PASS] Manifold.ProcessHandler member type is valid: GetModuleInfo 
-[PASS] Manifold.ProcessHandler contains key: TryAttachToProcess 
-[PASS] Manifold.ProcessHandler member type is valid: TryAttachToProcess 
-[PASS] Manifold.ProcessHandler contains key: OpenLink 
-[PASS] Manifold.ProcessHandler member type is valid: OpenLink 
-[PASS] Manifold.ProcessHandler contains key: AutoAttachTimerTickMax 
-[PASS] Manifold.ProcessHandler member type is valid: AutoAttachTimerTickMax 
-[PASS] Manifold.ProcessHandler contains key: AutoAttach 
-[PASS] Manifold.ProcessHandler member type is valid: AutoAttach 
-[PASS] Manifold.ProcessHandler contains key: AttachToProcessByName 
-[PASS] Manifold.ProcessHandler member type is valid: AttachToProcessByName 
-[PASS] Manifold.ProcessHandler contains key: PerformPostAttachTasks 
-[PASS] Manifold.ProcessHandler member type is valid: PerformPostAttachTasks 
-[PASS] Manifold.ProcessHandler contains key: IsProcessAttached 
-[PASS] Manifold.ProcessHandler member type is valid: IsProcessAttached 
-[PASS] Manifold.ProcessHandler contains key: HandleProcessMismatch 
-[PASS] Manifold.ProcessHandler member type is valid: HandleProcessMismatch 
-[PASS] Manifold.ProcessHandler contains key: CheckDependencies 
-[PASS] Manifold.ProcessHandler member type is valid: CheckDependencies 
-[PASS] Module loads: Manifold.State 
-[PASS] Manifold.State contains key: __index 
-[PASS] Manifold.State member type is valid: __index 
-[PASS] Manifold.State contains key: RestoreState 
-[PASS] Manifold.State member type is valid: RestoreState 
-[PASS] Manifold.State contains key: New 
-[PASS] Manifold.State member type is valid: New 
-[PASS] Manifold.State contains key: GetProcessName 
-[PASS] Manifold.State member type is valid: GetProcessName 
-[PASS] Manifold.State contains key: WriteStateFile 
-[PASS] Manifold.State member type is valid: WriteStateFile 
-[PASS] Manifold.State contains key: RestoreOriginalState 
-[PASS] Manifold.State member type is valid: RestoreOriginalState 
-[PASS] Manifold.State contains key: SaveTableState 
-[PASS] Manifold.State member type is valid: SaveTableState 
-[PASS] Manifold.State contains key: LoadTableState 
-[PASS] Manifold.State member type is valid: LoadTableState 
-[PASS] Manifold.State contains key: ReadStateFile 
-[PASS] Manifold.State member type is valid: ReadStateFile 
-[PASS] Manifold.State contains key: EnsureStateDirectory 
-[PASS] Manifold.State member type is valid: EnsureStateDirectory 
-[PASS] Manifold.State contains key: GetIndexedAddressList 
-[PASS] Manifold.State member type is valid: GetIndexedAddressList 
-[PASS] Manifold.State contains key: SetMemoryRecordState 
-[PASS] Manifold.State member type is valid: SetMemoryRecordState 
-[PASS] Manifold.State contains key: CreateLookupTables 
-[PASS] Manifold.State member type is valid: CreateLookupTables 
-[PASS] Manifold.State contains key: GetModuleInfo 
-[PASS] Manifold.State member type is valid: GetModuleInfo 
-[PASS] Manifold.State contains key: GetStateFilePath 
-[PASS] Manifold.State member type is valid: GetStateFilePath 
-[PASS] Manifold.State contains key: CheckDependencies 
-[PASS] Manifold.State member type is valid: CheckDependencies 
-[PASS] Module loads: Manifold.Teleporter 
-[PASS] Manifold.Teleporter contains key: __index 
-[PASS] Manifold.Teleporter member type is valid: __index 
-[PASS] Manifold.Teleporter contains key: CalculateSymbolOffsets 
-[PASS] Manifold.Teleporter member type is valid: CalculateSymbolOffsets 
-[PASS] Manifold.Teleporter contains key: TeleportToCoordinates 
-[PASS] Manifold.Teleporter member type is valid: TeleportToCoordinates 
-[PASS] Manifold.Teleporter contains key: Additional 
-[PASS] Manifold.Teleporter member type is valid: Additional 
-[PASS] Manifold.Teleporter contains key: LogDistanceTraveled 
-[PASS] Manifold.Teleporter member type is valid: LogDistanceTraveled 
-[PASS] Manifold.Teleporter contains key: SaveFileName 
-[PASS] Manifold.Teleporter member type is valid: SaveFileName 
-[PASS] Manifold.Teleporter contains key: CreateTeleporterSaves 
-[PASS] Manifold.Teleporter member type is valid: CreateTeleporterSaves 
-[PASS] Manifold.Teleporter contains key: CheckDependencies 
-[PASS] Manifold.Teleporter member type is valid: CheckDependencies 
-[PASS] Manifold.Teleporter contains key: WriteSavesToDataDir 
-[PASS] Manifold.Teleporter member type is valid: WriteSavesToDataDir 
-[PASS] Manifold.Teleporter contains key: DeleteSave 
-[PASS] Manifold.Teleporter member type is valid: DeleteSave 
-[PASS] Manifold.Teleporter contains key: GetSaveFilePath 
-[PASS] Manifold.Teleporter member type is valid: GetSaveFilePath 
-[PASS] Manifold.Teleporter contains key: EnsureTeleporterDir 
-[PASS] Manifold.Teleporter member type is valid: EnsureTeleporterDir 
-[PASS] Manifold.Teleporter contains key: SaveLookup 
-[PASS] Manifold.Teleporter member type is valid: SaveLookup 
-[PASS] Manifold.Teleporter contains key: GetSavedPosition 
-[PASS] Manifold.Teleporter member type is valid: GetSavedPosition 
-[PASS] Manifold.Teleporter contains key: SaveCurrentPosition 
-[PASS] Manifold.Teleporter member type is valid: SaveCurrentPosition 
-[PASS] Manifold.Teleporter contains key: New 
-[PASS] Manifold.Teleporter member type is valid: New 
-[PASS] Manifold.Teleporter contains key: ResolveAddress 
-[PASS] Manifold.Teleporter member type is valid: ResolveAddress 
-[PASS] Manifold.Teleporter contains key: ReadPositionFromMemory 
-[PASS] Manifold.Teleporter member type is valid: ReadPositionFromMemory 
-[PASS] Manifold.Teleporter contains key: LoadSavedPosition 
-[PASS] Manifold.Teleporter member type is valid: LoadSavedPosition 
-[PASS] Manifold.Teleporter contains key: Transform 
-[PASS] Manifold.Teleporter member type is valid: Transform 
-[PASS] Manifold.Teleporter contains key: WritePositionToMemory 
-[PASS] Manifold.Teleporter member type is valid: WritePositionToMemory 
-[PASS] Manifold.Teleporter contains key: InitTeleporterUI 
-[PASS] Manifold.Teleporter member type is valid: InitTeleporterUI 
-[PASS] Manifold.Teleporter contains key: PrintSaves 
-[PASS] Manifold.Teleporter member type is valid: PrintSaves 
-[PASS] Manifold.Teleporter contains key: RenameSave 
-[PASS] Manifold.Teleporter member type is valid: RenameSave 
-[PASS] Manifold.Teleporter contains key: TeleportToWaypoint 
-[PASS] Manifold.Teleporter member type is valid: TeleportToWaypoint 
-[PASS] Manifold.Teleporter contains key: GetCurrentPosition 
-[PASS] Manifold.Teleporter member type is valid: GetCurrentPosition 
-[PASS] Manifold.Teleporter contains key: ClearSubrecords 
-[PASS] Manifold.Teleporter member type is valid: ClearSubrecords 
-[PASS] Manifold.Teleporter contains key: Settings 
-[PASS] Manifold.Teleporter member type is valid: Settings 
-[PASS] Manifold.Teleporter contains key: SaveMemoryRecordName 
-[PASS] Manifold.Teleporter member type is valid: SaveMemoryRecordName 
-[PASS] Manifold.Teleporter contains key: TeleportToSave 
-[PASS] Manifold.Teleporter member type is valid: TeleportToSave 
-[PASS] Manifold.Teleporter contains key: GetModuleInfo 
-[PASS] Manifold.Teleporter member type is valid: GetModuleInfo 
-[PASS] Manifold.Teleporter contains key: AddSave 
-[PASS] Manifold.Teleporter member type is valid: AddSave 
-[PASS] Manifold.Teleporter contains key: LoadBackupPosition 
-[PASS] Manifold.Teleporter member type is valid: LoadBackupPosition 
-[PASS] Manifold.Teleporter contains key: GetBackupPosition 
-[PASS] Manifold.Teleporter member type is valid: GetBackupPosition 
-[PASS] Manifold.Teleporter contains key: SetValueType 
-[PASS] Manifold.Teleporter member type is valid: SetValueType 
-[PASS] Manifold.Teleporter contains key: Saves 
-[PASS] Manifold.Teleporter member type is valid: Saves 
-[PASS] Manifold.Teleporter contains key: WriteSavesToTableFile 
-[PASS] Manifold.Teleporter member type is valid: WriteSavesToTableFile 
-[PASS] Manifold.Teleporter contains key: Waypoint 
-[PASS] Manifold.Teleporter member type is valid: Waypoint 
-[PASS] Manifold.Teleporter contains key: Symbols 
-[PASS] Manifold.Teleporter member type is valid: Symbols 
-[PASS] Module loads: Manifold.UI 
-[PASS] Manifold.UI contains key: GlitchText 
-[PASS] Manifold.UI member type is valid: GlitchText 
-[PASS] Manifold.UI contains key: DisableHeaderSorting 
-[PASS] Manifold.UI member type is valid: DisableHeaderSorting 
-[PASS] Manifold.UI contains key: BGR2RGB 
-[PASS] Manifold.UI member type is valid: BGR2RGB 
-[PASS] Manifold.UI contains key: GetColorsAndTokensFromListView 
-[PASS] Manifold.UI member type is valid: GetColorsAndTokensFromListView 
-[PASS] Manifold.UI contains key: LoadThemes 
-[PASS] Manifold.UI member type is valid: LoadThemes 
-[PASS] Manifold.UI contains key: GetModuleInfo 
-[PASS] Manifold.UI member type is valid: GetModuleInfo 
-[PASS] Manifold.UI contains key: GetThemeTokens 
-[PASS] Manifold.UI member type is valid: GetThemeTokens 
-[PASS] Manifold.UI contains key: ApplyThemeToMainForm 
-[PASS] Manifold.UI member type is valid: ApplyThemeToMainForm 
-[PASS] Manifold.UI contains key: UpdateTextLabel 
-[PASS] Manifold.UI member type is valid: UpdateTextLabel 
-[PASS] Manifold.UI contains key: ApplyTheme 
-[PASS] Manifold.UI member type is valid: ApplyTheme 
-[PASS] Manifold.UI contains key: TokenColor 
-[PASS] Manifold.UI member type is valid: TokenColor 
-[PASS] Manifold.UI contains key: LoadThemeData 
-[PASS] Manifold.UI member type is valid: LoadThemeData 
-[PASS] Manifold.UI contains key: GetJsonThemesFromTableMenu 
-[PASS] Manifold.UI member type is valid: GetJsonThemesFromTableMenu 
-[PASS] Manifold.UI contains key: ApplyThemeToAddressList 
-[PASS] Manifold.UI member type is valid: ApplyThemeToAddressList 
-[PASS] Manifold.UI contains key: MatrixReveal 
-[PASS] Manifold.UI member type is valid: MatrixReveal 
-[PASS] Manifold.UI contains key: ToggleCompactMode 
-[PASS] Manifold.UI member type is valid: ToggleCompactMode 
-[PASS] Manifold.UI contains key: EnableCompactMode 
-[PASS] Manifold.UI member type is valid: EnableCompactMode 
-[PASS] Manifold.UI contains key: InitializeTableMenu 
-[PASS] Manifold.UI member type is valid: InitializeTableMenu 
-[PASS] Manifold.UI contains key: ThemeTokens 
-[PASS] Manifold.UI member type is valid: ThemeTokens 
-[PASS] Manifold.UI contains key: DeleteSubrecords 
-[PASS] Manifold.UI member type is valid: DeleteSubrecords 
-[PASS] Manifold.UI contains key: PromptThemeFile 
-[PASS] Manifold.UI member type is valid: PromptThemeFile 
-[PASS] Manifold.UI contains key: CreateStyledEdit 
-[PASS] Manifold.UI member type is valid: CreateStyledEdit 
-[PASS] Manifold.UI contains key: TokenSearch 
-[PASS] Manifold.UI member type is valid: TokenSearch 
-[PASS] Manifold.UI contains key: GetRecordColor 
-[PASS] Manifold.UI member type is valid: GetRecordColor 
-[PASS] Manifold.UI contains key: PopulateListView 
-[PASS] Manifold.UI member type is valid: PopulateListView 
-[PASS] Manifold.UI contains key: RGB2BGR 
-[PASS] Manifold.UI member type is valid: RGB2BGR 
-[PASS] Manifold.UI contains key: TypingEffect 
-[PASS] Manifold.UI member type is valid: TypingEffect 
-[PASS] Manifold.UI contains key: Theme 
-[PASS] Manifold.UI member type is valid: Theme 
-[PASS] Manifold.UI contains key: CreateThemeCreatorForm 
-[PASS] Manifold.UI member type is valid: CreateThemeCreatorForm 
-[PASS] Manifold.UI contains key: HideSignatureStr 
-[PASS] Manifold.UI member type is valid: HideSignatureStr 
-[PASS] Manifold.UI contains key: StartTextAnimation 
-[PASS] Manifold.UI member type is valid: StartTextAnimation 
-[PASS] Manifold.UI contains key: UpdateColorLabels 
-[PASS] Manifold.UI member type is valid: UpdateColorLabels 
-[PASS] Manifold.UI contains key: CreateSloganStr 
-[PASS] Manifold.UI member type is valid: CreateSloganStr 
-[PASS] Manifold.UI contains key: __index 
-[PASS] Manifold.UI member type is valid: __index 
-[PASS] Manifold.UI contains key: RevealEffect 
-[PASS] Manifold.UI member type is valid: RevealEffect 
-[PASS] Manifold.UI contains key: SetControlVisibility 
-[PASS] Manifold.UI member type is valid: SetControlVisibility 
-[PASS] Manifold.UI contains key: DestroyTextLabel 
-[PASS] Manifold.UI member type is valid: DestroyTextLabel 
-[PASS] Manifold.UI contains key: TokenDescriptions 
-[PASS] Manifold.UI member type is valid: TokenDescriptions 
-[PASS] Manifold.UI contains key: FinalizeThemes 
-[PASS] Manifold.UI member type is valid: FinalizeThemes 
-[PASS] Manifold.UI contains key: InitializeForm 
-[PASS] Manifold.UI member type is valid: InitializeForm 
-[PASS] Manifold.UI contains key: ToggleSignatureControls 
-[PASS] Manifold.UI member type is valid: ToggleSignatureControls 
-[PASS] Manifold.UI contains key: SetupExportButton 
-[PASS] Manifold.UI member type is valid: SetupExportButton 
-[PASS] Manifold.UI contains key: ThemeList 
-[PASS] Manifold.UI member type is valid: ThemeList 
-[PASS] Manifold.UI contains key: UpdateThemeSelector 
-[PASS] Manifold.UI member type is valid: UpdateThemeSelector 
-[PASS] Manifold.UI contains key: CreateOrUpdateLabel 
-[PASS] Manifold.UI member type is valid: CreateOrUpdateLabel 
-[PASS] Manifold.UI contains key: SignatureStr 
-[PASS] Manifold.UI member type is valid: SignatureStr 
-[PASS] Manifold.UI contains key: InitializeThemeCreator 
-[PASS] Manifold.UI member type is valid: InitializeThemeCreator 
-[PASS] Manifold.UI contains key: SetupApplyButton 
-[PASS] Manifold.UI member type is valid: SetupApplyButton 
-[PASS] Manifold.UI contains key: LoadJsonThemesFromDataDir 
-[PASS] Manifold.UI member type is valid: LoadJsonThemesFromDataDir 
-[PASS] Manifold.UI contains key: ApplyThemeObject 
-[PASS] Manifold.UI member type is valid: ApplyThemeObject 
-[PASS] Manifold.UI contains key: CreateSignatureStr 
-[PASS] Manifold.UI member type is valid: CreateSignatureStr 
-[PASS] Manifold.UI contains key: PopulateThemeUI 
-[PASS] Manifold.UI member type is valid: PopulateThemeUI 
-[PASS] Manifold.UI contains key: ScrollText 
-[PASS] Manifold.UI member type is valid: ScrollText 
-[PASS] Manifold.UI contains key: RebuildImageList 
-[PASS] Manifold.UI member type is valid: RebuildImageList 
-[PASS] Manifold.UI contains key: LoadTheme 
-[PASS] Manifold.UI member type is valid: LoadTheme 
-[PASS] Manifold.UI contains key: NormalizeTheme 
-[PASS] Manifold.UI member type is valid: NormalizeTheme 
-[PASS] Manifold.UI contains key: New 
-[PASS] Manifold.UI member type is valid: New 
-[PASS] Manifold.UI contains key: SetupLoadButton 
-[PASS] Manifold.UI member type is valid: SetupLoadButton 
-[PASS] Manifold.UI contains key: HandleColorSelection 
-[PASS] Manifold.UI member type is valid: HandleColorSelection 
-[PASS] Manifold.UI contains key: DestroySloganStr 
-[PASS] Manifold.UI member type is valid: DestroySloganStr 
-[PASS] Manifold.UI contains key: CreateTokenPreviewPanel 
-[PASS] Manifold.UI member type is valid: CreateTokenPreviewPanel 
-[PASS] Manifold.UI contains key: GetTheme 
-[PASS] Manifold.UI member type is valid: GetTheme 
-[PASS] Manifold.UI contains key: UpdateSelectedToken 
-[PASS] Manifold.UI member type is valid: UpdateSelectedToken 
-[PASS] Manifold.UI contains key: OnListViewSelectItem 
-[PASS] Manifold.UI member type is valid: OnListViewSelectItem 
-[PASS] Manifold.UI contains key: ApplyThemeToAddressRecords 
-[PASS] Manifold.UI member type is valid: ApplyThemeToAddressRecords 
-[PASS] Manifold.UI contains key: OnListViewDblClick 
-[PASS] Manifold.UI member type is valid: OnListViewDblClick 
-[PASS] Manifold.UI contains key: CreateButtonPanel 
-[PASS] Manifold.UI member type is valid: CreateButtonPanel 
-[PASS] Manifold.UI contains key: GetActiveThemeData 
-[PASS] Manifold.UI member type is valid: GetActiveThemeData 
-[PASS] Manifold.UI contains key: CreateTimer 
-[PASS] Manifold.UI member type is valid: CreateTimer 
-[PASS] Manifold.UI contains key: CreateStyledLabel 
-[PASS] Manifold.UI member type is valid: CreateStyledLabel 
-[PASS] Manifold.UI contains key: ProcessThemeData 
-[PASS] Manifold.UI member type is valid: ProcessThemeData 
-[PASS] Manifold.UI contains key: CreateThemeInfoPanel 
-[PASS] Manifold.UI member type is valid: CreateThemeInfoPanel 
-[PASS] Manifold.UI contains key: RunInMainThread 
-[PASS] Manifold.UI member type is valid: RunInMainThread 
-[PASS] Manifold.UI contains key: CreateStyledButton 
-[PASS] Manifold.UI member type is valid: CreateStyledButton 
-[PASS] Manifold.UI contains key: CheckDependencies 
-[PASS] Manifold.UI member type is valid: CheckDependencies 
-[PASS] Manifold.UI contains key: CreateListViewControl 
-[PASS] Manifold.UI member type is valid: CreateListViewControl 
-[PASS] Manifold.UI contains key: ToggleControlVisibility 
-[PASS] Manifold.UI member type is valid: ToggleControlVisibility 
-[PASS] Manifold.UI contains key: DisableCompactMode 
-[PASS] Manifold.UI member type is valid: DisableCompactMode 
-[PASS] Manifold.UI contains key: SloganStr 
-[PASS] Manifold.UI member type is valid: SloganStr 
-[PASS] Manifold.UI contains key: DisableDragDrop 
-[PASS] Manifold.UI member type is valid: DisableDragDrop 
-[PASS] Manifold.UI contains key: EnsureThemeDirectory 
-[PASS] Manifold.UI member type is valid: EnsureThemeDirectory 
-[PASS] Manifold.UI contains key: CreateCopyButton 
-[PASS] Manifold.UI member type is valid: CreateCopyButton 
-[PASS] Manifold.UI contains key: CompactMode 
-[PASS] Manifold.UI member type is valid: CompactMode 
-[PASS] Manifold.UI contains key: HideAddresslistBevel 
-[PASS] Manifold.UI member type is valid: HideAddresslistBevel 
-[PASS] Manifold.UI contains key: ApplyThemeToTreeView 
-[PASS] Manifold.UI member type is valid: ApplyThemeToTreeView 
-[PASS] Manifold.UI contains key: HideSignatureControls 
-[PASS] Manifold.UI member type is valid: HideSignatureControls 
-[PASS] Module loads: Manifold.Utils 
-[PASS] Manifold.Utils contains key: __index 
-[PASS] Manifold.Utils member type is valid: __index 
-[PASS] Manifold.Utils contains key: InitializeTable 
-[PASS] Manifold.Utils member type is valid: InitializeTable 
-[PASS] Manifold.Utils contains key: New 
-[PASS] Manifold.Utils member type is valid: New 
-[PASS] Manifold.Utils contains key: RegisterDecryptionType 
-[PASS] Manifold.Utils member type is valid: RegisterDecryptionType 
-[PASS] Manifold.Utils contains key: GetTarget 
-[PASS] Manifold.Utils member type is valid: GetTarget 
-[PASS] Manifold.Utils contains key: GetTargetNoExt 
-[PASS] Manifold.Utils member type is valid: GetTargetNoExt 
-[PASS] Manifold.Utils contains key: AutoDisableTimerInterval 
-[PASS] Manifold.Utils member type is valid: AutoDisableTimerInterval 
-[PASS] Manifold.Utils contains key: ShowInfo 
-[PASS] Manifold.Utils member type is valid: ShowInfo 
-[PASS] Manifold.Utils contains key: VerifyMD5 
-[PASS] Manifold.Utils member type is valid: VerifyMD5 
-[PASS] Manifold.Utils contains key: AppVersion 
-[PASS] Manifold.Utils member type is valid: AppVersion 
-[PASS] Manifold.Utils contains key: MD5Hash 
-[PASS] Manifold.Utils member type is valid: MD5Hash 
-[PASS] Manifold.Utils contains key: Version 
-[PASS] Manifold.Utils member type is valid: Version 
-[PASS] Manifold.Utils contains key: Author 
-[PASS] Manifold.Utils member type is valid: Author 
-[PASS] Manifold.Utils contains key: GetModuleInfo 
-[PASS] Manifold.Utils member type is valid: GetModuleInfo 
-[PASS] Manifold.Utils contains key: ExecuteTableLuaScript 
-[PASS] Manifold.Utils member type is valid: ExecuteTableLuaScript 
-[PASS] Manifold.Utils contains key: FormatTitle 
-[PASS] Manifold.Utils member type is valid: FormatTitle 
-[PASS] Manifold.Utils contains key: GetTitleComponents 
-[PASS] Manifold.Utils member type is valid: GetTitleComponents 
-[PASS] Manifold.Utils contains key: SetTitle 
-[PASS] Manifold.Utils member type is valid: SetTitle 
-[PASS] Manifold.Utils contains key: TargetStr 
-[PASS] Manifold.Utils member type is valid: TargetStr 
-[PASS] Manifold.Utils contains key: AppID 
-[PASS] Manifold.Utils member type is valid: AppID 
-[PASS] Manifold.Utils contains key: RegisterTimeTypes 
-[PASS] Manifold.Utils member type is valid: RegisterTimeTypes 
-[PASS] Manifold.Utils contains key: ResolvePointerPath 
-[PASS] Manifold.Utils member type is valid: ResolvePointerPath 
-[PASS] Manifold.Utils contains key: ShowError 
-[PASS] Manifold.Utils member type is valid: ShowError 
-[PASS] Manifold.Utils contains key: RemoveTableFilesByExtension 
-[PASS] Manifold.Utils member type is valid: RemoveTableFilesByExtension 
-[PASS] Manifold.Utils contains key: ShowConfirmation 
-[PASS] Manifold.Utils member type is valid: ShowConfirmation 
-[PASS] Manifold.Utils contains key: Target 
-[PASS] Manifold.Utils member type is valid: Target 
-[PASS] Manifold.Utils contains key: ShowWarning 
-[PASS] Manifold.Utils member type is valid: ShowWarning 
-[PASS] Manifold.Utils contains key: SetAllScriptsToNotAsync 
-[PASS] Manifold.Utils member type is valid: SetAllScriptsToNotAsync 
-[PASS] Manifold.Utils contains key: AutoDisable 
-[PASS] Manifold.Utils member type is valid: AutoDisable 
-[PASS] Manifold.Utils contains key: SetAllScriptsToAsync 
-[PASS] Manifold.Utils member type is valid: SetAllScriptsToAsync 
-[PASS] Manifold.Utils contains key: VerifyFileHash 
-[PASS] Manifold.Utils member type is valid: VerifyFileHash 
-[PASS] Manifold.Utils contains key: OpenLuaEngineWindow 
-[PASS] Manifold.Utils member type is valid: OpenLuaEngineWindow 
 
-Test Summary: 653 passed, 0 failed 
-=== Test complete at 2025-04-16 22:30:56 === 
+--- Testing Manifold.Logger --- 
+[PASS] [Manifold.Logger] Module loads 
+[PASS] [Manifold.Logger] Module returns table 
+[PASS] [Manifold.Logger] Export key is string: ForceCritical 
+[PASS] [Manifold.Logger] Export value type valid: ForceCritical -> function 
+[PASS] [Manifold.Logger] Export key is string: DebugF 
+[PASS] [Manifold.Logger] Export value type valid: DebugF -> function 
+[PASS] [Manifold.Logger] Export key is string: ForceWarning 
+[PASS] [Manifold.Logger] Export value type valid: ForceWarning -> function 
+[PASS] [Manifold.Logger] Export key is string: GetModuleInfo 
+[PASS] [Manifold.Logger] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.Logger] Export key is string: InfoF 
+[PASS] [Manifold.Logger] Export value type valid: InfoF -> function 
+[PASS] [Manifold.Logger] Export key is string: LevelNames 
+[PASS] [Manifold.Logger] Export value type valid: LevelNames -> table 
+[PASS] [Manifold.Logger] Export key is string: ForceDebugF 
+[PASS] [Manifold.Logger] Export value type valid: ForceDebugF -> function 
+[PASS] [Manifold.Logger] Export key is string: New 
+[PASS] [Manifold.Logger] Export value type valid: New -> function 
+[PASS] [Manifold.Logger] Export key is string: CriticalF 
+[PASS] [Manifold.Logger] Export value type valid: CriticalF -> function 
+[PASS] [Manifold.Logger] Export key is string: ClearLogFile 
+[PASS] [Manifold.Logger] Export value type valid: ClearLogFile -> function 
+[PASS] [Manifold.Logger] Export key is string: WarningF 
+[PASS] [Manifold.Logger] Export value type valid: WarningF -> function 
+[PASS] [Manifold.Logger] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.Logger] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.Logger] Export key is string: Level 
+[PASS] [Manifold.Logger] Export value type valid: Level -> number 
+[PASS] [Manifold.Logger] Export key is string: ForceDebug 
+[PASS] [Manifold.Logger] Export value type valid: ForceDebug -> function 
+[PASS] [Manifold.Logger] Export key is string: Levels 
+[PASS] [Manifold.Logger] Export value type valid: Levels -> table 
+[PASS] [Manifold.Logger] Export key is string: ForceWarningF 
+[PASS] [Manifold.Logger] Export value type valid: ForceWarningF -> function 
+[PASS] [Manifold.Logger] Export key is string: ForceCriticalF 
+[PASS] [Manifold.Logger] Export value type valid: ForceCriticalF -> function 
+[PASS] [Manifold.Logger] Export key is string: SetOutput 
+[PASS] [Manifold.Logger] Export value type valid: SetOutput -> function 
+[PASS] [Manifold.Logger] Export key is string: Error 
+[PASS] [Manifold.Logger] Export value type valid: Error -> function 
+[PASS] [Manifold.Logger] Export key is string: Stringify 
+[PASS] [Manifold.Logger] Export value type valid: Stringify -> function 
+[PASS] [Manifold.Logger] Export key is string: Info 
+[PASS] [Manifold.Logger] Export value type valid: Info -> function 
+[PASS] [Manifold.Logger] Export key is string: ForceErrorF 
+[PASS] [Manifold.Logger] Export value type valid: ForceErrorF -> function 
+[PASS] [Manifold.Logger] Export key is string: SetLogFileName 
+[PASS] [Manifold.Logger] Export value type valid: SetLogFileName -> function 
+[PASS] [Manifold.Logger] Export key is string: ForceInfo 
+[PASS] [Manifold.Logger] Export value type valid: ForceInfo -> function 
+[PASS] [Manifold.Logger] Export key is string: ForceInfoF 
+[PASS] [Manifold.Logger] Export value type valid: ForceInfoF -> function 
+[PASS] [Manifold.Logger] Export key is string: ErrorF 
+[PASS] [Manifold.Logger] Export value type valid: ErrorF -> function 
+[PASS] [Manifold.Logger] Export key is string: ForceError 
+[PASS] [Manifold.Logger] Export value type valid: ForceError -> function 
+[PASS] [Manifold.Logger] Export key is string: Debug 
+[PASS] [Manifold.Logger] Export value type valid: Debug -> function 
+[PASS] [Manifold.Logger] Export key is string: Critical 
+[PASS] [Manifold.Logger] Export value type valid: Critical -> function 
+[PASS] [Manifold.Logger] Export key is string: SetLevel 
+[PASS] [Manifold.Logger] Export value type valid: SetLevel -> function 
+[PASS] [Manifold.Logger] Export key is string: Warning 
+[PASS] [Manifold.Logger] Export value type valid: Warning -> function 
+[PASS] [Manifold.Logger] Export key is string: Log 
+[PASS] [Manifold.Logger] Export value type valid: Log -> function 
+[PASS] [Manifold.Logger] Export key is string: __index 
+[PASS] [Manifold.Logger] Export value type valid: __index -> table 
+[PASS] [Manifold.Logger] Export key is string: ForceLog 
+[PASS] [Manifold.Logger] Export value type valid: ForceLog -> function 
+[PASS] [Manifold.Logger] Error is function (got function) 
+[PASS] [Manifold.Logger] ForceCritical is function (got function) 
+[PASS] [Manifold.Logger] ForceError is function (got function) 
+[PASS] [Manifold.Logger] Warning is function (got function) 
+[PASS] [Manifold.Logger] Levels is table (got table) 
+[PASS] [Manifold.Logger] LevelNames is table (got table) 
+[PASS] [Manifold.Logger] ForceWarning is function (got function) 
+[PASS] [Manifold.Logger] Logger.Levels.DEBUG exists 
+[PASS] [Manifold.Logger] Logger.Levels.INFO exists 
+[PASS] [Manifold.Logger] Logger.Levels.WARNING exists 
+[PASS] [Manifold.Logger] Logger.Levels.ERROR exists 
+[PASS] [Manifold.Logger] Logger.Levels.CRITICAL exists 
+[PASS] [Manifold.Logger] Logger:Warning callable 
+[Logger Error]: Failed to output log - attempt to call a nil value 
+[PASS] [Manifold.Logger] Logger:Error callable 
+[Logger Error]: Failed to output forced log - attempt to call a nil value 
+[PASS] [Manifold.Logger] Logger:ForceWarning callable 
+[Logger Error]: Failed to output forced log - attempt to call a nil value 
+[PASS] [Manifold.Logger] Logger:ForceError callable 
+[Logger Error]: Failed to output forced log - attempt to call a nil value 
+[PASS] [Manifold.Logger] Logger:ForceCritical callable 
+
+--- Testing Manifold.Utils --- 
+[PASS] [Manifold.Utils] Module loads 
+[PASS] [Manifold.Utils] Module returns table 
+[PASS] [Manifold.Utils] Export key is string: Author 
+[PASS] [Manifold.Utils] Export value type valid: Author -> string 
+[PASS] [Manifold.Utils] Export key is string: GetTitleComponents 
+[PASS] [Manifold.Utils] Export value type valid: GetTitleComponents -> function 
+[PASS] [Manifold.Utils] Export key is string: RegisterDecryptionType 
+[PASS] [Manifold.Utils] Export value type valid: RegisterDecryptionType -> function 
+[PASS] [Manifold.Utils] Export key is string: TargetStr 
+[PASS] [Manifold.Utils] Export value type valid: TargetStr -> string 
+[PASS] [Manifold.Utils] Export key is string: GetModuleInfo 
+[PASS] [Manifold.Utils] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.Utils] Export key is string: Version 
+[PASS] [Manifold.Utils] Export value type valid: Version -> string 
+[PASS] [Manifold.Utils] Export key is string: GetTargetNoExt 
+[PASS] [Manifold.Utils] Export value type valid: GetTargetNoExt -> function 
+[PASS] [Manifold.Utils] Export key is string: New 
+[PASS] [Manifold.Utils] Export value type valid: New -> function 
+[PASS] [Manifold.Utils] Export key is string: VerifyMD5 
+[PASS] [Manifold.Utils] Export value type valid: VerifyMD5 -> boolean 
+[PASS] [Manifold.Utils] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.Utils] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.Utils] Export key is string: AppVersion 
+[PASS] [Manifold.Utils] Export value type valid: AppVersion -> string 
+[PASS] [Manifold.Utils] Export key is string: ExecuteTableLuaScript 
+[PASS] [Manifold.Utils] Export value type valid: ExecuteTableLuaScript -> function 
+[PASS] [Manifold.Utils] Export key is string: RegisterTimeTypes 
+[PASS] [Manifold.Utils] Export value type valid: RegisterTimeTypes -> function 
+[PASS] [Manifold.Utils] Export key is string: InitializeTable 
+[PASS] [Manifold.Utils] Export value type valid: InitializeTable -> function 
+[PASS] [Manifold.Utils] Export key is string: FormatTitle 
+[PASS] [Manifold.Utils] Export value type valid: FormatTitle -> function 
+[PASS] [Manifold.Utils] Export key is string: GetTarget 
+[PASS] [Manifold.Utils] Export value type valid: GetTarget -> function 
+[PASS] [Manifold.Utils] Export key is string: SetAllScriptsToNotAsync 
+[PASS] [Manifold.Utils] Export value type valid: SetAllScriptsToNotAsync -> function 
+[PASS] [Manifold.Utils] Export key is string: SetTitle 
+[PASS] [Manifold.Utils] Export value type valid: SetTitle -> function 
+[PASS] [Manifold.Utils] Export key is string: OpenLuaEngineWindow 
+[PASS] [Manifold.Utils] Export value type valid: OpenLuaEngineWindow -> function 
+[PASS] [Manifold.Utils] Export key is string: RegisterPlaytimeMilitaryType 
+[PASS] [Manifold.Utils] Export value type valid: RegisterPlaytimeMilitaryType -> function 
+[PASS] [Manifold.Utils] Export key is string: ResolvePointerPath 
+[PASS] [Manifold.Utils] Export value type valid: ResolvePointerPath -> function 
+[PASS] [Manifold.Utils] Export key is string: AutoDisable 
+[PASS] [Manifold.Utils] Export value type valid: AutoDisable -> function 
+[PASS] [Manifold.Utils] Export key is string: ShowConfirmation 
+[PASS] [Manifold.Utils] Export value type valid: ShowConfirmation -> function 
+[PASS] [Manifold.Utils] Export key is string: ShowWarning 
+[PASS] [Manifold.Utils] Export value type valid: ShowWarning -> function 
+[PASS] [Manifold.Utils] Export key is string: AutoDisableTimerInterval 
+[PASS] [Manifold.Utils] Export value type valid: AutoDisableTimerInterval -> number 
+[PASS] [Manifold.Utils] Export key is string: ShowError 
+[PASS] [Manifold.Utils] Export value type valid: ShowError -> function 
+[PASS] [Manifold.Utils] Export key is string: VerifyFileHash 
+[PASS] [Manifold.Utils] Export value type valid: VerifyFileHash -> function 
+[PASS] [Manifold.Utils] Export key is string: SetAllScriptsToAsync 
+[PASS] [Manifold.Utils] Export value type valid: SetAllScriptsToAsync -> function 
+[PASS] [Manifold.Utils] Export key is string: RemoveTableFilesByExtension 
+[PASS] [Manifold.Utils] Export value type valid: RemoveTableFilesByExtension -> function 
+[PASS] [Manifold.Utils] Export key is string: IsRelease 
+[PASS] [Manifold.Utils] Export value type valid: IsRelease -> boolean 
+[PASS] [Manifold.Utils] Export key is string: EnsureCompatibleCEVersion 
+[PASS] [Manifold.Utils] Export value type valid: EnsureCompatibleCEVersion -> function 
+[PASS] [Manifold.Utils] Export key is string: ShowInfo 
+[PASS] [Manifold.Utils] Export value type valid: ShowInfo -> function 
+[PASS] [Manifold.Utils] Export key is string: AppID 
+[PASS] [Manifold.Utils] Export value type valid: AppID -> string 
+[PASS] [Manifold.Utils] Export key is string: MD5Hash 
+[PASS] [Manifold.Utils] Export value type valid: MD5Hash -> string 
+[PASS] [Manifold.Utils] Export key is string: __index 
+[PASS] [Manifold.Utils] Export value type valid: __index -> table 
+[PASS] [Manifold.Utils] Export key is string: Target 
+[PASS] [Manifold.Utils] Export value type valid: Target -> string 
+[SKIP] [Manifold.Utils] No explicit export contract defined 
+[SKIP] [Manifold.Utils] Behavior test skipped (utility contract not pinned yet) 
+
+--- Testing Manifold.UI --- 
+[PASS] [Manifold.UI] Module loads 
+[PASS] [Manifold.UI] Module returns table 
+[PASS] [Manifold.UI] Export key is string: HideSignatureStr 
+[PASS] [Manifold.UI] Export value type valid: HideSignatureStr -> function 
+[PASS] [Manifold.UI] Export key is string: NormalizeTheme 
+[PASS] [Manifold.UI] Export value type valid: NormalizeTheme -> function 
+[PASS] [Manifold.UI] Export key is string: CreateStyledButton 
+[PASS] [Manifold.UI] Export value type valid: CreateStyledButton -> function 
+[PASS] [Manifold.UI] Export key is string: EnsureThemeDirectory 
+[PASS] [Manifold.UI] Export value type valid: EnsureThemeDirectory -> function 
+[PASS] [Manifold.UI] Export key is string: GetModuleInfo 
+[PASS] [Manifold.UI] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.UI] Export key is string: TokenDescriptions 
+[PASS] [Manifold.UI] Export value type valid: TokenDescriptions -> table 
+[PASS] [Manifold.UI] Export key is string: ScrollText 
+[PASS] [Manifold.UI] Export value type valid: ScrollText -> function 
+[PASS] [Manifold.UI] Export key is string: CompactMode 
+[PASS] [Manifold.UI] Export value type valid: CompactMode -> boolean 
+[PASS] [Manifold.UI] Export key is string: SetControlVisibility 
+[PASS] [Manifold.UI] Export value type valid: SetControlVisibility -> function 
+[PASS] [Manifold.UI] Export key is string: HandleColorSelection 
+[PASS] [Manifold.UI] Export value type valid: HandleColorSelection -> function 
+[PASS] [Manifold.UI] Export key is string: UpdateSelectedToken 
+[PASS] [Manifold.UI] Export value type valid: UpdateSelectedToken -> function 
+[PASS] [Manifold.UI] Export key is string: HideSignatureControls 
+[PASS] [Manifold.UI] Export value type valid: HideSignatureControls -> function 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeToMainForm 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeToMainForm -> function 
+[PASS] [Manifold.UI] Export key is string: GetTheme 
+[PASS] [Manifold.UI] Export value type valid: GetTheme -> function 
+[PASS] [Manifold.UI] Export key is string: SetTeleporterControlColors 
+[PASS] [Manifold.UI] Export value type valid: SetTeleporterControlColors -> function 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeToLuaEngineControls 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeToLuaEngineControls -> function 
+[PASS] [Manifold.UI] Export key is string: HideAddresslistBevel 
+[PASS] [Manifold.UI] Export value type valid: HideAddresslistBevel -> function 
+[PASS] [Manifold.UI] Export key is string: FinalizeThemes 
+[PASS] [Manifold.UI] Export value type valid: FinalizeThemes -> function 
+[PASS] [Manifold.UI] Export key is string: UpdateColorLabels 
+[PASS] [Manifold.UI] Export value type valid: UpdateColorLabels -> function 
+[PASS] [Manifold.UI] Export key is string: CreateOrUpdateLabel 
+[PASS] [Manifold.UI] Export value type valid: CreateOrUpdateLabel -> function 
+[PASS] [Manifold.UI] Export key is string: ProcessThemeData 
+[PASS] [Manifold.UI] Export value type valid: ProcessThemeData -> function 
+[PASS] [Manifold.UI] Export key is string: SetupApplyButton 
+[PASS] [Manifold.UI] Export value type valid: SetupApplyButton -> function 
+[PASS] [Manifold.UI] Export key is string: GlitchText 
+[PASS] [Manifold.UI] Export value type valid: GlitchText -> function 
+[PASS] [Manifold.UI] Export key is string: LoadThemes 
+[PASS] [Manifold.UI] Export value type valid: LoadThemes -> function 
+[PASS] [Manifold.UI] Export key is string: TokenColor 
+[PASS] [Manifold.UI] Export value type valid: TokenColor -> function 
+[PASS] [Manifold.UI] Export key is string: CreateListViewControl 
+[PASS] [Manifold.UI] Export value type valid: CreateListViewControl -> function 
+[PASS] [Manifold.UI] Export key is string: RunInMainThread 
+[PASS] [Manifold.UI] Export value type valid: RunInMainThread -> function 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeObject 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeObject -> function 
+[PASS] [Manifold.UI] Export key is string: SetupLoadButton 
+[PASS] [Manifold.UI] Export value type valid: SetupLoadButton -> function 
+[PASS] [Manifold.UI] Export key is string: __index 
+[PASS] [Manifold.UI] Export value type valid: __index -> table 
+[PASS] [Manifold.UI] Export key is string: CreateStyledEdit 
+[PASS] [Manifold.UI] Export value type valid: CreateStyledEdit -> function 
+[PASS] [Manifold.UI] Export key is string: EnableCompactMode 
+[PASS] [Manifold.UI] Export value type valid: EnableCompactMode -> function 
+[PASS] [Manifold.UI] Export key is string: CreateSloganStr 
+[PASS] [Manifold.UI] Export value type valid: CreateSloganStr -> function 
+[PASS] [Manifold.UI] Export key is string: DisableHeaderSorting 
+[PASS] [Manifold.UI] Export value type valid: DisableHeaderSorting -> function 
+[PASS] [Manifold.UI] Export key is string: PromptThemeFile 
+[PASS] [Manifold.UI] Export value type valid: PromptThemeFile -> function 
+[PASS] [Manifold.UI] Export key is string: SetupExportButton 
+[PASS] [Manifold.UI] Export value type valid: SetupExportButton -> function 
+[PASS] [Manifold.UI] Export key is string: PopulateThemeUI 
+[PASS] [Manifold.UI] Export value type valid: PopulateThemeUI -> function 
+[PASS] [Manifold.UI] Export key is string: LoadThemeData 
+[PASS] [Manifold.UI] Export value type valid: LoadThemeData -> function 
+[PASS] [Manifold.UI] Export key is string: CreateOrUpdateLuaEngineExecutePanel 
+[PASS] [Manifold.UI] Export value type valid: CreateOrUpdateLuaEngineExecutePanel -> function 
+[PASS] [Manifold.UI] Export key is string: InitializeThemeCreator 
+[PASS] [Manifold.UI] Export value type valid: InitializeThemeCreator -> function 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeToAddressRecords 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeToAddressRecords -> function 
+[PASS] [Manifold.UI] Export key is string: ToggleCompactMode 
+[PASS] [Manifold.UI] Export value type valid: ToggleCompactMode -> function 
+[PASS] [Manifold.UI] Export key is string: CreateCopyButton 
+[PASS] [Manifold.UI] Export value type valid: CreateCopyButton -> function 
+[PASS] [Manifold.UI] Export key is string: OnListViewSelectItem 
+[PASS] [Manifold.UI] Export value type valid: OnListViewSelectItem -> function 
+[PASS] [Manifold.UI] Export key is string: OnListViewDblClick 
+[PASS] [Manifold.UI] Export value type valid: OnListViewDblClick -> function 
+[PASS] [Manifold.UI] Export key is string: ToggleControlVisibility 
+[PASS] [Manifold.UI] Export value type valid: ToggleControlVisibility -> function 
+[PASS] [Manifold.UI] Export key is string: New 
+[PASS] [Manifold.UI] Export value type valid: New -> function 
+[PASS] [Manifold.UI] Export key is string: DisableDragDrop 
+[PASS] [Manifold.UI] Export value type valid: DisableDragDrop -> function 
+[PASS] [Manifold.UI] Export key is string: ApplyTheme 
+[PASS] [Manifold.UI] Export value type valid: ApplyTheme -> function 
+[PASS] [Manifold.UI] Export key is string: BGR2RGB 
+[PASS] [Manifold.UI] Export value type valid: BGR2RGB -> function 
+[PASS] [Manifold.UI] Export key is string: DeleteSubrecords 
+[PASS] [Manifold.UI] Export value type valid: DeleteSubrecords -> function 
+[PASS] [Manifold.UI] Export key is string: GetRecordColor 
+[PASS] [Manifold.UI] Export value type valid: GetRecordColor -> function 
+[PASS] [Manifold.UI] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.UI] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.UI] Export key is string: GetColorsAndTokensFromListView 
+[PASS] [Manifold.UI] Export value type valid: GetColorsAndTokensFromListView -> function 
+[PASS] [Manifold.UI] Export key is string: ToggleSignatureControls 
+[PASS] [Manifold.UI] Export value type valid: ToggleSignatureControls -> function 
+[PASS] [Manifold.UI] Export key is string: PopulateListView 
+[PASS] [Manifold.UI] Export value type valid: PopulateListView -> function 
+[PASS] [Manifold.UI] Export key is string: InitializeTableMenu 
+[PASS] [Manifold.UI] Export value type valid: InitializeTableMenu -> function 
+[PASS] [Manifold.UI] Export key is string: RevealEffect 
+[PASS] [Manifold.UI] Export value type valid: RevealEffect -> function 
+[PASS] [Manifold.UI] Export key is string: UpdateThemeSelector 
+[PASS] [Manifold.UI] Export value type valid: UpdateThemeSelector -> function 
+[PASS] [Manifold.UI] Export key is string: CreateButtonPanel 
+[PASS] [Manifold.UI] Export value type valid: CreateButtonPanel -> function 
+[PASS] [Manifold.UI] Export key is string: DestroySloganStr 
+[PASS] [Manifold.UI] Export value type valid: DestroySloganStr -> function 
+[PASS] [Manifold.UI] Export key is string: TokenSearch 
+[PASS] [Manifold.UI] Export value type valid: TokenSearch -> function 
+[PASS] [Manifold.UI] Export key is string: CreateThemeInfoPanel 
+[PASS] [Manifold.UI] Export value type valid: CreateThemeInfoPanel -> function 
+[PASS] [Manifold.UI] Export key is string: CreateThemeCreatorForm 
+[PASS] [Manifold.UI] Export value type valid: CreateThemeCreatorForm -> function 
+[PASS] [Manifold.UI] Export key is string: RGB2BGR 
+[PASS] [Manifold.UI] Export value type valid: RGB2BGR -> function 
+[PASS] [Manifold.UI] Export key is string: ThemeList 
+[PASS] [Manifold.UI] Export value type valid: ThemeList -> table 
+[PASS] [Manifold.UI] Export key is string: LoadTheme 
+[PASS] [Manifold.UI] Export value type valid: LoadTheme -> function 
+[PASS] [Manifold.UI] Export key is string: InitializeForm 
+[PASS] [Manifold.UI] Export value type valid: InitializeForm -> function 
+[PASS] [Manifold.UI] Export key is string: MatrixReveal 
+[PASS] [Manifold.UI] Export value type valid: MatrixReveal -> function 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeToTreeView 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeToTreeView -> function 
+[PASS] [Manifold.UI] Export key is string: ThemeTokens 
+[PASS] [Manifold.UI] Export value type valid: ThemeTokens -> table 
+[PASS] [Manifold.UI] Export key is string: GetActiveThemeData 
+[PASS] [Manifold.UI] Export value type valid: GetActiveThemeData -> function 
+[PASS] [Manifold.UI] Export key is string: CreateTimer 
+[PASS] [Manifold.UI] Export value type valid: CreateTimer -> function 
+[PASS] [Manifold.UI] Export key is string: StartTextAnimation 
+[PASS] [Manifold.UI] Export value type valid: StartTextAnimation -> function 
+[PASS] [Manifold.UI] Export key is string: TypingEffect 
+[PASS] [Manifold.UI] Export value type valid: TypingEffect -> function 
+[PASS] [Manifold.UI] Export key is string: CreateSignatureStr 
+[PASS] [Manifold.UI] Export value type valid: CreateSignatureStr -> function 
+[PASS] [Manifold.UI] Export key is string: SloganStr 
+[PASS] [Manifold.UI] Export value type valid: SloganStr -> string 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeToLuaEngine 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeToLuaEngine -> function 
+[PASS] [Manifold.UI] Export key is string: CreateStyledLabel 
+[PASS] [Manifold.UI] Export value type valid: CreateStyledLabel -> function 
+[PASS] [Manifold.UI] Export key is string: CheckDependencies 
+[PASS] [Manifold.UI] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.UI] Export key is string: DestroyTextLabel 
+[PASS] [Manifold.UI] Export value type valid: DestroyTextLabel -> function 
+[PASS] [Manifold.UI] Export key is string: GetThemeTokens 
+[PASS] [Manifold.UI] Export value type valid: GetThemeTokens -> function 
+[PASS] [Manifold.UI] Export key is string: UpdateTextLabel 
+[PASS] [Manifold.UI] Export value type valid: UpdateTextLabel -> function 
+[PASS] [Manifold.UI] Export key is string: LoadJsonThemesFromDataDir 
+[PASS] [Manifold.UI] Export value type valid: LoadJsonThemesFromDataDir -> function 
+[PASS] [Manifold.UI] Export key is string: CreateTokenPreviewPanel 
+[PASS] [Manifold.UI] Export value type valid: CreateTokenPreviewPanel -> function 
+[PASS] [Manifold.UI] Export key is string: DisableCompactMode 
+[PASS] [Manifold.UI] Export value type valid: DisableCompactMode -> function 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeToTeleporter 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeToTeleporter -> function 
+[PASS] [Manifold.UI] Export key is string: Theme 
+[PASS] [Manifold.UI] Export value type valid: Theme -> string 
+[PASS] [Manifold.UI] Export key is string: RebuildImageList 
+[PASS] [Manifold.UI] Export value type valid: RebuildImageList -> function 
+[PASS] [Manifold.UI] Export key is string: GetJsonThemesFromTableMenu 
+[PASS] [Manifold.UI] Export value type valid: GetJsonThemesFromTableMenu -> function 
+[PASS] [Manifold.UI] Export key is string: SignatureStr 
+[PASS] [Manifold.UI] Export value type valid: SignatureStr -> string 
+[PASS] [Manifold.UI] Export key is string: ApplyThemeToAddressList 
+[PASS] [Manifold.UI] Export value type valid: ApplyThemeToAddressList -> function 
+[SKIP] [Manifold.UI] No explicit export contract defined 
+[SKIP] [Manifold.UI] Behavior test skipped (GUI/theme runtime dependent) 
+
+--- Testing Manifold.Teleporter --- 
+[PASS] [Manifold.Teleporter] Module loads 
+[PASS] [Manifold.Teleporter] Module returns table 
+[PASS] [Manifold.Teleporter] Export key is string: EnsureTeleporterDir 
+[PASS] [Manifold.Teleporter] Export value type valid: EnsureTeleporterDir -> function 
+[PASS] [Manifold.Teleporter] Export key is string: RenameSave 
+[PASS] [Manifold.Teleporter] Export value type valid: RenameSave -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CreateEditorPanel 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateEditorPanel -> function 
+[PASS] [Manifold.Teleporter] Export key is string: Settings 
+[PASS] [Manifold.Teleporter] Export value type valid: Settings -> table 
+[PASS] [Manifold.Teleporter] Export key is string: CreateSaveFromCurrentPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateSaveFromCurrentPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: AddSave 
+[PASS] [Manifold.Teleporter] Export value type valid: AddSave -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetAdjustedTargetPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: GetAdjustedTargetPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: Additional 
+[PASS] [Manifold.Teleporter] Export value type valid: Additional -> table 
+[PASS] [Manifold.Teleporter] Export key is string: SaveFileName 
+[PASS] [Manifold.Teleporter] Export value type valid: SaveFileName -> string 
+[PASS] [Manifold.Teleporter] Export key is string: TryGetEditorPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: TryGetEditorPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: Waypoint 
+[PASS] [Manifold.Teleporter] Export value type valid: Waypoint -> table 
+[PASS] [Manifold.Teleporter] Export key is string: SetSelectedSaveName 
+[PASS] [Manifold.Teleporter] Export value type valid: SetSelectedSaveName -> function 
+[PASS] [Manifold.Teleporter] Export key is string: ReadPositionFromMemory 
+[PASS] [Manifold.Teleporter] Export value type valid: ReadPositionFromMemory -> function 
+[PASS] [Manifold.Teleporter] Export key is string: PauseGame 
+[PASS] [Manifold.Teleporter] Export value type valid: PauseGame -> function 
+[PASS] [Manifold.Teleporter] Export key is string: TeleportToCoordinates 
+[PASS] [Manifold.Teleporter] Export value type valid: TeleportToCoordinates -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetSelectedSaveName 
+[PASS] [Manifold.Teleporter] Export value type valid: GetSelectedSaveName -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CreateTeleporterSaves 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateTeleporterSaves -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetSavedPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: GetSavedPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: SetValueType 
+[PASS] [Manifold.Teleporter] Export value type valid: SetValueType -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetBackupPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: GetBackupPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: OnThemeApplied 
+[PASS] [Manifold.Teleporter] Export value type valid: OnThemeApplied -> function 
+[PASS] [Manifold.Teleporter] Export key is string: EnsureUiState 
+[PASS] [Manifold.Teleporter] Export value type valid: EnsureUiState -> function 
+[PASS] [Manifold.Teleporter] Export key is string: TeleportToWaypoint 
+[PASS] [Manifold.Teleporter] Export value type valid: TeleportToWaypoint -> function 
+[PASS] [Manifold.Teleporter] Export key is string: ClearEditor 
+[PASS] [Manifold.Teleporter] Export value type valid: ClearEditor -> function 
+[PASS] [Manifold.Teleporter] Export key is string: __index 
+[PASS] [Manifold.Teleporter] Export value type valid: __index -> table 
+[PASS] [Manifold.Teleporter] Export key is string: CreateHeader 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateHeader -> function 
+[PASS] [Manifold.Teleporter] Export key is string: TeleportToSave 
+[PASS] [Manifold.Teleporter] Export value type valid: TeleportToSave -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetCurrentAuthor 
+[PASS] [Manifold.Teleporter] Export value type valid: GetCurrentAuthor -> function 
+[PASS] [Manifold.Teleporter] Export key is string: LoadSaveIntoEditor 
+[PASS] [Manifold.Teleporter] Export value type valid: LoadSaveIntoEditor -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetSaveFilePath 
+[PASS] [Manifold.Teleporter] Export value type valid: GetSaveFilePath -> function 
+[PASS] [Manifold.Teleporter] Export key is string: SetStatus 
+[PASS] [Manifold.Teleporter] Export value type valid: SetStatus -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CheckDependencies 
+[PASS] [Manifold.Teleporter] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.Teleporter] Export key is string: PersistSaves 
+[PASS] [Manifold.Teleporter] Export value type valid: PersistSaves -> function 
+[PASS] [Manifold.Teleporter] Export key is string: Transform 
+[PASS] [Manifold.Teleporter] Export value type valid: Transform -> table 
+[PASS] [Manifold.Teleporter] Export key is string: WriteSavesToDataDir 
+[PASS] [Manifold.Teleporter] Export value type valid: WriteSavesToDataDir -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GenerateUniqueCopyName 
+[PASS] [Manifold.Teleporter] Export value type valid: GenerateUniqueCopyName -> function 
+[PASS] [Manifold.Teleporter] Export key is string: DuplicateSelectedSave 
+[PASS] [Manifold.Teleporter] Export value type valid: DuplicateSelectedSave -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CountSaves 
+[PASS] [Manifold.Teleporter] Export value type valid: CountSaves -> function 
+[PASS] [Manifold.Teleporter] Export key is string: InitTeleporterUI 
+[PASS] [Manifold.Teleporter] Export value type valid: InitTeleporterUI -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetAuthors 
+[PASS] [Manifold.Teleporter] Export value type valid: GetAuthors -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetCurrentPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: GetCurrentPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: EnsureAuthorsAndCategories 
+[PASS] [Manifold.Teleporter] Export value type valid: EnsureAuthorsAndCategories -> function 
+[PASS] [Manifold.Teleporter] Export key is string: LoadSavedPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: LoadSavedPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: PrintSaves 
+[PASS] [Manifold.Teleporter] Export value type valid: PrintSaves -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CreateTreeContextMenu 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateTreeContextMenu -> function 
+[PASS] [Manifold.Teleporter] Export key is string: RefreshUi 
+[PASS] [Manifold.Teleporter] Export value type valid: RefreshUi -> function 
+[PASS] [Manifold.Teleporter] Export key is string: Symbols 
+[PASS] [Manifold.Teleporter] Export value type valid: Symbols -> table 
+[PASS] [Manifold.Teleporter] Export key is string: WriteSavesToTableFile 
+[PASS] [Manifold.Teleporter] Export value type valid: WriteSavesToTableFile -> function 
+[PASS] [Manifold.Teleporter] Export key is string: SaveCurrentPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: SaveCurrentPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CreateMenuStrip 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateMenuStrip -> function 
+[PASS] [Manifold.Teleporter] Export key is string: ResolveAddress 
+[PASS] [Manifold.Teleporter] Export value type valid: ResolveAddress -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CreateTreePanel 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateTreePanel -> function 
+[PASS] [Manifold.Teleporter] Export key is string: DeleteSave 
+[PASS] [Manifold.Teleporter] Export value type valid: DeleteSave -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CalculateSymbolOffsets 
+[PASS] [Manifold.Teleporter] Export value type valid: CalculateSymbolOffsets -> function 
+[PASS] [Manifold.Teleporter] Export key is string: GetModuleInfo 
+[PASS] [Manifold.Teleporter] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.Teleporter] Export key is string: LoadBackupPosition 
+[PASS] [Manifold.Teleporter] Export value type valid: LoadBackupPosition -> function 
+[PASS] [Manifold.Teleporter] Export key is string: CreateStatusBar 
+[PASS] [Manifold.Teleporter] Export value type valid: CreateStatusBar -> function 
+[PASS] [Manifold.Teleporter] Export key is string: SaveMemoryRecordName 
+[PASS] [Manifold.Teleporter] Export value type valid: SaveMemoryRecordName -> string 
+[PASS] [Manifold.Teleporter] Export key is string: LogDistanceTraveled 
+[PASS] [Manifold.Teleporter] Export value type valid: LogDistanceTraveled -> function 
+[PASS] [Manifold.Teleporter] Export key is string: New 
+[PASS] [Manifold.Teleporter] Export value type valid: New -> function 
+[PASS] [Manifold.Teleporter] Export key is string: Saves 
+[PASS] [Manifold.Teleporter] Export value type valid: Saves -> table 
+[PASS] [Manifold.Teleporter] Export key is string: UpdateSelectedSaveFromEditor 
+[PASS] [Manifold.Teleporter] Export value type valid: UpdateSelectedSaveFromEditor -> function 
+[PASS] [Manifold.Teleporter] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.Teleporter] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.Teleporter] Export key is string: SaveLookup 
+[PASS] [Manifold.Teleporter] Export value type valid: SaveLookup -> function 
+[PASS] [Manifold.Teleporter] Export key is string: ClearSubrecords 
+[PASS] [Manifold.Teleporter] Export value type valid: ClearSubrecords -> function 
+[PASS] [Manifold.Teleporter] Export key is string: ResumeGame 
+[PASS] [Manifold.Teleporter] Export value type valid: ResumeGame -> function 
+[PASS] [Manifold.Teleporter] Export key is string: WritePositionToMemory 
+[PASS] [Manifold.Teleporter] Export value type valid: WritePositionToMemory -> function 
+[SKIP] [Manifold.Teleporter] No explicit export contract defined 
+[SKIP] [Manifold.Teleporter] Behavior test skipped (3D game/runtime/UI dependent) 
+
+--- Testing Manifold.State --- 
+[PASS] [Manifold.State] Module loads 
+[PASS] [Manifold.State] Module returns table 
+[PASS] [Manifold.State] Export key is string: _RunOnMainThread 
+[PASS] [Manifold.State] Export value type valid: _RunOnMainThread -> function 
+[PASS] [Manifold.State] Export key is string: LoadTableState 
+[PASS] [Manifold.State] Export value type valid: LoadTableState -> function 
+[PASS] [Manifold.State] Export key is string: GetIndexedAddressList 
+[PASS] [Manifold.State] Export value type valid: GetIndexedAddressList -> function 
+[PASS] [Manifold.State] Export key is string: GetModuleInfo 
+[PASS] [Manifold.State] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.State] Export key is string: GetProcessName 
+[PASS] [Manifold.State] Export value type valid: GetProcessName -> function 
+[PASS] [Manifold.State] Export key is string: ReadStateFile 
+[PASS] [Manifold.State] Export value type valid: ReadStateFile -> function 
+[PASS] [Manifold.State] Export key is string: RestoreState 
+[PASS] [Manifold.State] Export value type valid: RestoreState -> function 
+[PASS] [Manifold.State] Export key is string: New 
+[PASS] [Manifold.State] Export value type valid: New -> function 
+[PASS] [Manifold.State] Export key is string: EnsureStateDirectory 
+[PASS] [Manifold.State] Export value type valid: EnsureStateDirectory -> function 
+[PASS] [Manifold.State] Export key is string: SetMemoryRecordState 
+[PASS] [Manifold.State] Export value type valid: SetMemoryRecordState -> function 
+[PASS] [Manifold.State] Export key is string: CheckDependencies 
+[PASS] [Manifold.State] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.State] Export key is string: CreateLookupTables 
+[PASS] [Manifold.State] Export value type valid: CreateLookupTables -> function 
+[PASS] [Manifold.State] Export key is string: SaveTableState 
+[PASS] [Manifold.State] Export value type valid: SaveTableState -> function 
+[PASS] [Manifold.State] Export key is string: GetStateFilePath 
+[PASS] [Manifold.State] Export value type valid: GetStateFilePath -> function 
+[PASS] [Manifold.State] Export key is string: RestoreOriginalState 
+[PASS] [Manifold.State] Export value type valid: RestoreOriginalState -> function 
+[PASS] [Manifold.State] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.State] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.State] Export key is string: __index 
+[PASS] [Manifold.State] Export value type valid: __index -> table 
+[PASS] [Manifold.State] Export key is string: WriteStateFile 
+[PASS] [Manifold.State] Export value type valid: WriteStateFile -> function 
+[PASS] [Manifold.State] GetStateFilePath is function (got function) 
+[PASS] [Manifold.State] SaveTableState is function (got function) 
+[PASS] [Manifold.State] New is function (got function) 
+[PASS] [Manifold.State] ReadStateFile is function (got function) 
+[PASS] [Manifold.State] State:New returns table 
+[01:40:20] [ERROR] [State] Invalid file path! 
+[PASS] [Manifold.State] State:ReadStateFile(nil) returns nil 
+[PASS] [Manifold.State] Deep State setup JSON write succeeded 
+[FAIL] [Manifold.State] Behavior test crashed -> [string "-- -*- coding: utf-8 -*-
+..."]:191: JSON:decode must be called in method format 
+
+--- Testing Manifold.AutoAssembler --- 
+[PASS] [Manifold.AutoAssembler] Module loads 
+[PASS] [Manifold.AutoAssembler] Module returns table 
+[PASS] [Manifold.AutoAssembler] Export key is string: AutoAssemble 
+[PASS] [Manifold.AutoAssembler] Export value type valid: AutoAssemble -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: BreakOnError 
+[PASS] [Manifold.AutoAssembler] Export value type valid: BreakOnError -> boolean 
+[PASS] [Manifold.AutoAssembler] Export key is string: GetInstance 
+[PASS] [Manifold.AutoAssembler] Export value type valid: GetInstance -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: States 
+[PASS] [Manifold.AutoAssembler] Export value type valid: States -> table 
+[PASS] [Manifold.AutoAssembler] Export key is string: LocalFilesFolder 
+[PASS] [Manifold.AutoAssembler] Export value type valid: LocalFilesFolder -> string 
+[PASS] [Manifold.AutoAssembler] Export key is string: GetFilePath 
+[PASS] [Manifold.AutoAssembler] Export value type valid: GetFilePath -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: FormatFileName 
+[PASS] [Manifold.AutoAssembler] Export value type valid: FormatFileName -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _checkProcessChangedOrThrow 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _checkProcessChangedOrThrow -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _currentPid 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _currentPid -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: GetModuleInfo 
+[PASS] [Manifold.AutoAssembler] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _txCommit 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _txCommit -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _txBegin 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _txBegin -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _txDepth 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _txDepth -> number 
+[PASS] [Manifold.AutoAssembler] Export key is string: _markProcessChangedAndThrow 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _markProcessChangedAndThrow -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _getOrCreateState 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _getOrCreateState -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: DisableAllWithoutExecute 
+[PASS] [Manifold.AutoAssembler] Export value type valid: DisableAllWithoutExecute -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: New 
+[PASS] [Manifold.AutoAssembler] Export value type valid: New -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _loadScriptText 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _loadScriptText -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: RequiredProcess 
+[PASS] [Manifold.AutoAssembler] Export value type valid: RequiredProcess -> string 
+[PASS] [Manifold.AutoAssembler] Export key is string: Disable 
+[PASS] [Manifold.AutoAssembler] Export value type valid: Disable -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: CheckDependencies 
+[PASS] [Manifold.AutoAssembler] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: EnsureDirectoriesExist 
+[PASS] [Manifold.AutoAssembler] Export value type valid: EnsureDirectoriesExist -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _txRollback 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _txRollback -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _stateKey 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _stateKey -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: SetProcessName 
+[PASS] [Manifold.AutoAssembler] Export value type valid: SetProcessName -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _validateProcessOrThrow 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _validateProcessOrThrow -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: _txRememberEnable 
+[PASS] [Manifold.AutoAssembler] Export value type valid: _txRememberEnable -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: Reset 
+[PASS] [Manifold.AutoAssembler] Export value type valid: Reset -> function 
+[PASS] [Manifold.AutoAssembler] Export key is string: __index 
+[PASS] [Manifold.AutoAssembler] Export value type valid: __index -> table 
+[PASS] [Manifold.AutoAssembler] Export key is string: FileExtension 
+[PASS] [Manifold.AutoAssembler] Export value type valid: FileExtension -> string 
+[SKIP] [Manifold.AutoAssembler] No explicit export contract defined 
+[SKIP] [Manifold.AutoAssembler] Behavior test skipped (AA environment dependent) 
+
+--- Testing Manifold.AssemblerCommands --- 
+[PASS] [Manifold.AssemblerCommands] Module loads 
+[PASS] [Manifold.AssemblerCommands] Module returns table 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _requireArg 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _requireArg -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _readBytes 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _readBytes -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _parseBytesPattern 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _parseBytesPattern -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _stripQuotes 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _stripQuotes -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: LOG_SIG_MAX_INFO 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: LOG_SIG_MAX_INFO -> number 
+[PASS] [Manifold.AssemblerCommands] Export key is string: RegisterCoreCommands 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: RegisterCoreCommands -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: DEFAULT_RESOLVE_STATIC_DISP_OFFSET 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: DEFAULT_RESOLVE_STATIC_DISP_OFFSET -> number 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _sigId 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _sigId -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _cmd_resolveStatic 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _cmd_resolveStatic -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _cmd_manifoldAssert 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _cmd_manifoldAssert -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _splitArgs 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _splitArgs -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _requireSymbolArg 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _requireSymbolArg -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _resolveAddress 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _resolveAddress -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _cmd_aobScanModule 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _cmd_aobScanModule -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _isValidSymbolName 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _isValidSymbolName -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _aobScanModuleUnique 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _aobScanModuleUnique -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: New 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: New -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _fmtBytes 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _fmtBytes -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _parseNumber 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _parseNumber -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _sigSummary 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _sigSummary -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: CheckDependencies 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _commandError 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _commandError -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _fmtArgDump 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _fmtArgDump -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _parseOptionalNumberArg 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _parseOptionalNumberArg -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: LOG_SIG_MAX_DEBUG 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: LOG_SIG_MAX_DEBUG -> number 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _shorten 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _shorten -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _isBlank 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _isBlank -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: _trim 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: _trim -> function 
+[PASS] [Manifold.AssemblerCommands] Export key is string: __index 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: __index -> table 
+[PASS] [Manifold.AssemblerCommands] Export key is string: DEFAULT_RESOLVE_STATIC_INSTR_LENGTH 
+[PASS] [Manifold.AssemblerCommands] Export value type valid: DEFAULT_RESOLVE_STATIC_INSTR_LENGTH -> number 
+[SKIP] [Manifold.AssemblerCommands] No explicit export contract defined 
+[SKIP] [Manifold.AssemblerCommands] Behavior test skipped (Auto Assembler / CE command registration context dependent) 
+
+--- Testing Manifold.ProcessHandler --- 
+[PASS] [Manifold.ProcessHandler] Module loads 
+[PASS] [Manifold.ProcessHandler] Module returns table 
+[PASS] [Manifold.ProcessHandler] Export key is string: AttachToProcessByName 
+[PASS] [Manifold.ProcessHandler] Export value type valid: AttachToProcessByName -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: AutoAttachTimerTicks 
+[PASS] [Manifold.ProcessHandler] Export value type valid: AutoAttachTimerTicks -> number 
+[PASS] [Manifold.ProcessHandler] Export key is string: CloseProcess 
+[PASS] [Manifold.ProcessHandler] Export value type valid: CloseProcess -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: ShouldStopAutoAttach 
+[PASS] [Manifold.ProcessHandler] Export value type valid: ShouldStopAutoAttach -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: GetModuleInfo 
+[PASS] [Manifold.ProcessHandler] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: StartAutoAttachTimer 
+[PASS] [Manifold.ProcessHandler] Export value type valid: StartAutoAttachTimer -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: New 
+[PASS] [Manifold.ProcessHandler] Export value type valid: New -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: AutoAttach 
+[PASS] [Manifold.ProcessHandler] Export value type valid: AutoAttach -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: OpenLink 
+[PASS] [Manifold.ProcessHandler] Export value type valid: OpenLink -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: CheckDependencies 
+[PASS] [Manifold.ProcessHandler] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: AutoAttachTimerInterval 
+[PASS] [Manifold.ProcessHandler] Export value type valid: AutoAttachTimerInterval -> number 
+[PASS] [Manifold.ProcessHandler] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.ProcessHandler] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: IsProcessAttached 
+[PASS] [Manifold.ProcessHandler] Export value type valid: IsProcessAttached -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: PerformPostAttachTasks 
+[PASS] [Manifold.ProcessHandler] Export value type valid: PerformPostAttachTasks -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: GetAttachedProcessName 
+[PASS] [Manifold.ProcessHandler] Export value type valid: GetAttachedProcessName -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: HandleProcessMismatch 
+[PASS] [Manifold.ProcessHandler] Export value type valid: HandleProcessMismatch -> function 
+[PASS] [Manifold.ProcessHandler] Export key is string: AutoAttachTimerTickMax 
+[PASS] [Manifold.ProcessHandler] Export value type valid: AutoAttachTimerTickMax -> number 
+[PASS] [Manifold.ProcessHandler] Export key is string: __index 
+[PASS] [Manifold.ProcessHandler] Export value type valid: __index -> table 
+[PASS] [Manifold.ProcessHandler] Export key is string: TryAttachToProcess 
+[PASS] [Manifold.ProcessHandler] Export value type valid: TryAttachToProcess -> function 
+[SKIP] [Manifold.ProcessHandler] No explicit export contract defined 
+[SKIP] [Manifold.ProcessHandler] Behavior test skipped (attached process dependent) 
+
+--- Testing Manifold.Json --- 
+[PASS] [Manifold.Json] Module loads 
+[PASS] [Manifold.Json] Module returns table 
+[PASS] [Manifold.Json] Export key is string: forceString 
+[PASS] [Manifold.Json] Export value type valid: forceString -> function 
+[PASS] [Manifold.Json] Export key is string: decode 
+[PASS] [Manifold.Json] Export value type valid: decode -> function 
+[PASS] [Manifold.Json] Export key is string: encode_pretty 
+[PASS] [Manifold.Json] Export value type valid: encode_pretty -> function 
+[PASS] [Manifold.Json] Export key is string: onDecodeOfHTMLError 
+[PASS] [Manifold.Json] Export value type valid: onDecodeOfHTMLError -> function 
+[PASS] [Manifold.Json] Export key is string: onEncodeError 
+[PASS] [Manifold.Json] Export value type valid: onEncodeError -> function 
+[PASS] [Manifold.Json] Export key is string: newObject 
+[PASS] [Manifold.Json] Export value type valid: newObject -> function 
+[PASS] [Manifold.Json] Export key is string: AUTHOR_NOTE 
+[PASS] [Manifold.Json] Export value type valid: AUTHOR_NOTE -> string 
+[PASS] [Manifold.Json] Export key is string: new 
+[PASS] [Manifold.Json] Export value type valid: new -> function 
+[PASS] [Manifold.Json] Export key is string: encode 
+[PASS] [Manifold.Json] Export value type valid: encode -> function 
+[PASS] [Manifold.Json] Export key is string: __index 
+[PASS] [Manifold.Json] Export value type valid: __index -> table 
+[PASS] [Manifold.Json] Export key is string: newArray 
+[PASS] [Manifold.Json] Export value type valid: newArray -> function 
+[PASS] [Manifold.Json] Export key is string: onDecodeError 
+[PASS] [Manifold.Json] Export value type valid: onDecodeError -> function 
+[PASS] [Manifold.Json] Export key is string: asNumber 
+[PASS] [Manifold.Json] Export value type valid: asNumber -> function 
+[PASS] [Manifold.Json] Export key is string: __tostring 
+[PASS] [Manifold.Json] Export value type valid: __tostring -> function 
+[PASS] [Manifold.Json] Export key is string: VERSION 
+[PASS] [Manifold.Json] Export value type valid: VERSION -> string 
+[PASS] [Manifold.Json] Export key is string: onDecodeOfNilError 
+[PASS] [Manifold.Json] Export value type valid: onDecodeOfNilError -> function 
+[PASS] [Manifold.Json] Export key is string: onTrailingGarbage 
+[PASS] [Manifold.Json] Export value type valid: onTrailingGarbage -> function 
+[PASS] [Manifold.Json] Export key is string: forceNumber 
+[PASS] [Manifold.Json] Export value type valid: forceNumber -> function 
+[PASS] [Manifold.Json] newArray is function (got function) 
+[PASS] [Manifold.Json] newObject is function (got function) 
+[PASS] [Manifold.Json] new is function (got function) 
+[PASS] [Manifold.Json] VERSION is string (got string) 
+[PASS] [Manifold.Json] encode is function (got function) 
+[PASS] [Manifold.Json] decode is function (got function) 
+[PASS] [Manifold.Json] JSON:encode returns string 
+[PASS] [Manifold.Json] JSON:decode returns table 
+[PASS] [Manifold.Json] JSON roundtrip preserves name 
+[PASS] [Manifold.Json] JSON roundtrip preserves count 
+[PASS] [Manifold.Json] JSON roundtrip preserves enabled 
+[PASS] [Manifold.Json] JSON:newArray returns table 
+[PASS] [Manifold.Json] JSON:newObject returns table 
+[PASS] [Manifold.Json] JSON:new returns table 
+[PASS] [Manifold.Json] JSON:new sets metatable 
+
+--- Testing Manifold.CustomIO --- 
+[PASS] [Manifold.CustomIO] Module loads 
+[PASS] [Manifold.CustomIO] Module returns table 
+[PASS] [Manifold.CustomIO] Export key is string: WriteToFile 
+[PASS] [Manifold.CustomIO] Export value type valid: WriteToFile -> function 
+[PASS] [Manifold.CustomIO] Export key is string: AppendToFile 
+[PASS] [Manifold.CustomIO] Export value type valid: AppendToFile -> function 
+[PASS] [Manifold.CustomIO] Export key is string: DeleteFile 
+[PASS] [Manifold.CustomIO] Export value type valid: DeleteFile -> function 
+[PASS] [Manifold.CustomIO] Export key is string: EnsureDirectoryExists 
+[PASS] [Manifold.CustomIO] Export value type valid: EnsureDirectoryExists -> function 
+[PASS] [Manifold.CustomIO] Export key is string: ReadFromTableFileAsJson 
+[PASS] [Manifold.CustomIO] Export value type valid: ReadFromTableFileAsJson -> function 
+[PASS] [Manifold.CustomIO] Export key is string: GetModuleInfo 
+[PASS] [Manifold.CustomIO] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.CustomIO] Export key is string: BuildPath 
+[PASS] [Manifold.CustomIO] Export value type valid: BuildPath -> function 
+[PASS] [Manifold.CustomIO] Export key is string: EnsureDataDirectory 
+[PASS] [Manifold.CustomIO] Export value type valid: EnsureDataDirectory -> function 
+[PASS] [Manifold.CustomIO] Export key is string: CreateDirectory 
+[PASS] [Manifold.CustomIO] Export value type valid: CreateDirectory -> function 
+[PASS] [Manifold.CustomIO] Export key is string: WriteCSV 
+[PASS] [Manifold.CustomIO] Export value type valid: WriteCSV -> function 
+[PASS] [Manifold.CustomIO] Export key is string: ReadCSV 
+[PASS] [Manifold.CustomIO] Export value type valid: ReadCSV -> function 
+[PASS] [Manifold.CustomIO] Export key is string: New 
+[PASS] [Manifold.CustomIO] Export value type valid: New -> function 
+[PASS] [Manifold.CustomIO] Export key is string: DirectoryExists 
+[PASS] [Manifold.CustomIO] Export value type valid: DirectoryExists -> function 
+[PASS] [Manifold.CustomIO] Export key is string: ReadFromFileAsJson 
+[PASS] [Manifold.CustomIO] Export value type valid: ReadFromFileAsJson -> function 
+[PASS] [Manifold.CustomIO] Export key is string: ReadFromFile 
+[PASS] [Manifold.CustomIO] Export value type valid: ReadFromFile -> function 
+[PASS] [Manifold.CustomIO] Export key is string: CheckDependencies 
+[PASS] [Manifold.CustomIO] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.CustomIO] Export key is string: WriteToTableFileAsJson 
+[PASS] [Manifold.CustomIO] Export value type valid: WriteToTableFileAsJson -> function 
+[PASS] [Manifold.CustomIO] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.CustomIO] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.CustomIO] Export key is string: WriteToTableFile 
+[PASS] [Manifold.CustomIO] Export value type valid: WriteToTableFile -> function 
+[PASS] [Manifold.CustomIO] Export key is string: ReadFromTableFile 
+[PASS] [Manifold.CustomIO] Export value type valid: ReadFromTableFile -> function 
+[PASS] [Manifold.CustomIO] Export key is string: WriteToFileAsJson 
+[PASS] [Manifold.CustomIO] Export value type valid: WriteToFileAsJson -> function 
+[PASS] [Manifold.CustomIO] Export key is string: OpenDirectory 
+[PASS] [Manifold.CustomIO] Export value type valid: OpenDirectory -> function 
+[PASS] [Manifold.CustomIO] Export key is string: FileExists 
+[PASS] [Manifold.CustomIO] Export value type valid: FileExists -> function 
+[PASS] [Manifold.CustomIO] Export key is string: __index 
+[PASS] [Manifold.CustomIO] Export value type valid: __index -> table 
+[PASS] [Manifold.CustomIO] Export key is string: StripExt 
+[PASS] [Manifold.CustomIO] Export value type valid: StripExt -> function 
+[PASS] [Manifold.CustomIO] WriteToFile is function (got function) 
+[PASS] [Manifold.CustomIO] EnsureDataDirectory is function (got function) 
+[PASS] [Manifold.CustomIO] DeleteFile is function (got function) 
+[PASS] [Manifold.CustomIO] FileExists is function (got function) 
+[PASS] [Manifold.CustomIO] ReadFromFile is function (got function) 
+[PASS] [Manifold.CustomIO] WriteToFileAsJson is function (got function) 
+[PASS] [Manifold.CustomIO] ReadFromFileAsJson is function (got function) 
+[PASS] [Manifold.CustomIO] CustomIO:WriteToFile succeeds 
+[PASS] [Manifold.CustomIO] CustomIO:ReadFromFile returns string 
+[PASS] [Manifold.CustomIO] CustomIO text roundtrip matches 
+[PASS] [Manifold.CustomIO] CustomIO:WriteToFileAsJson succeeds 
+[FAIL] [Manifold.CustomIO] Behavior test crashed -> [string "-- -*- coding: utf-8 -*-
+..."]:191: JSON:decode must be called in method format 
+
+--- Testing Manifold.Helper --- 
+[PASS] [Manifold.Helper] Module loads 
+[PASS] [Manifold.Helper] Module returns table 
+[PASS] [Manifold.Helper] Export key is string: GetGameModule 
+[PASS] [Manifold.Helper] Export value type valid: GetGameModule -> function 
+[PASS] [Manifold.Helper] Export key is string: GetProcessTrimmed 
+[PASS] [Manifold.Helper] Export value type valid: GetProcessTrimmed -> function 
+[PASS] [Manifold.Helper] Export key is string: GetGameModuleName 
+[PASS] [Manifold.Helper] Export value type valid: GetGameModuleName -> function 
+[PASS] [Manifold.Helper] Export key is string: GetProcess 
+[PASS] [Manifold.Helper] Export value type valid: GetProcess -> function 
+[PASS] [Manifold.Helper] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.Helper] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.Helper] Export key is string: GetRegistrySizeStr 
+[PASS] [Manifold.Helper] Export value type valid: GetRegistrySizeStr -> function 
+[PASS] [Manifold.Helper] Export key is string: GetGameModuleAddress 
+[PASS] [Manifold.Helper] Export value type valid: GetGameModuleAddress -> function 
+[PASS] [Manifold.Helper] Export key is string: GetModuleInfo 
+[PASS] [Manifold.Helper] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.Helper] Export key is string: New 
+[PASS] [Manifold.Helper] Export value type valid: New -> function 
+[PASS] [Manifold.Helper] Export key is string: GetGameModuleIs64Bit 
+[PASS] [Manifold.Helper] Export value type valid: GetGameModuleIs64Bit -> function 
+[PASS] [Manifold.Helper] Export key is string: __index 
+[PASS] [Manifold.Helper] Export value type valid: __index -> table 
+[PASS] [Manifold.Helper] Export key is string: GetGameModulePathToFile 
+[PASS] [Manifold.Helper] Export value type valid: GetGameModulePathToFile -> function 
+[SKIP] [Manifold.Helper] No explicit export contract defined 
+[SKIP] [Manifold.Helper] Behavior test skipped (helper API contract not pinned yet) 
+
+--- Testing Manifold.Memory --- 
+[PASS] [Manifold.Memory] Module loads 
+[PASS] [Manifold.Memory] Module returns table 
+[PASS] [Manifold.Memory] Export key is string: SafeReadByte 
+[PASS] [Manifold.Memory] Export value type valid: SafeReadByte -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeWriteQWord 
+[PASS] [Manifold.Memory] Export value type valid: SafeWriteQWord -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeAddInteger 
+[PASS] [Manifold.Memory] Export value type valid: SafeAddInteger -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeAddWord 
+[PASS] [Manifold.Memory] Export value type valid: SafeAddWord -> function 
+[PASS] [Manifold.Memory] Export key is string: GetModuleInfo 
+[PASS] [Manifold.Memory] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeAddDouble 
+[PASS] [Manifold.Memory] Export value type valid: SafeAddDouble -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeWriteInteger 
+[PASS] [Manifold.Memory] Export value type valid: SafeWriteInteger -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeReadDouble 
+[PASS] [Manifold.Memory] Export value type valid: SafeReadDouble -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeWriteDouble 
+[PASS] [Manifold.Memory] Export value type valid: SafeWriteDouble -> function 
+[PASS] [Manifold.Memory] Export key is string: New 
+[PASS] [Manifold.Memory] Export value type valid: New -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeReadWord 
+[PASS] [Manifold.Memory] Export value type valid: SafeReadWord -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeGetAddress 
+[PASS] [Manifold.Memory] Export value type valid: SafeGetAddress -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeWriteWord 
+[PASS] [Manifold.Memory] Export value type valid: SafeWriteWord -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeAddFloat 
+[PASS] [Manifold.Memory] Export value type valid: SafeAddFloat -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeWriteFloat 
+[PASS] [Manifold.Memory] Export value type valid: SafeWriteFloat -> function 
+[PASS] [Manifold.Memory] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.Memory] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeReadFloat 
+[PASS] [Manifold.Memory] Export value type valid: SafeReadFloat -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeWriteByte 
+[PASS] [Manifold.Memory] Export value type valid: SafeWriteByte -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeReadInteger 
+[PASS] [Manifold.Memory] Export value type valid: SafeReadInteger -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeAddQWord 
+[PASS] [Manifold.Memory] Export value type valid: SafeAddQWord -> function 
+[PASS] [Manifold.Memory] Export key is string: SafeReadQWord 
+[PASS] [Manifold.Memory] Export value type valid: SafeReadQWord -> function 
+[PASS] [Manifold.Memory] Export key is string: __index 
+[PASS] [Manifold.Memory] Export value type valid: __index -> table 
+[PASS] [Manifold.Memory] Export key is string: SafeAddByte 
+[PASS] [Manifold.Memory] Export value type valid: SafeAddByte -> function 
+[SKIP] [Manifold.Memory] No explicit export contract defined 
+[SKIP] [Manifold.Memory] Behavior test skipped (memory/process dependent) 
+
+--- Testing Manifold.Callbacks --- 
+[PASS] [Manifold.Callbacks] Module loads 
+[PASS] [Manifold.Callbacks] Module returns table 
+[PASS] [Manifold.Callbacks] Export key is string: GetDisableTypeChange 
+[PASS] [Manifold.Callbacks] Export value type valid: GetDisableTypeChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: ToggleDisableAutoAssemblerEdits 
+[PASS] [Manifold.Callbacks] Export value type valid: ToggleDisableAutoAssemblerEdits -> function 
+[PASS] [Manifold.Callbacks] Export key is string: ToggleDisableTypeChange 
+[PASS] [Manifold.Callbacks] Export value type valid: ToggleDisableTypeChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: SetDisableAutoAssemblerEdits 
+[PASS] [Manifold.Callbacks] Export value type valid: SetDisableAutoAssemblerEdits -> function 
+[PASS] [Manifold.Callbacks] Export key is string: DisableDescriptionChange 
+[PASS] [Manifold.Callbacks] Export value type valid: DisableDescriptionChange -> boolean 
+[PASS] [Manifold.Callbacks] Export key is string: SetDisableDescriptionChange 
+[PASS] [Manifold.Callbacks] Export value type valid: SetDisableDescriptionChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: GetModuleInfo 
+[PASS] [Manifold.Callbacks] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.Callbacks] Export key is string: DisableTypeChange 
+[PASS] [Manifold.Callbacks] Export value type valid: DisableTypeChange -> boolean 
+[PASS] [Manifold.Callbacks] Export key is string: GetDisableAutoAssemblerEdits 
+[PASS] [Manifold.Callbacks] Export value type valid: GetDisableAutoAssemblerEdits -> function 
+[PASS] [Manifold.Callbacks] Export key is string: New 
+[PASS] [Manifold.Callbacks] Export value type valid: New -> function 
+[PASS] [Manifold.Callbacks] Export key is string: SetDisableTypeChange 
+[PASS] [Manifold.Callbacks] Export value type valid: SetDisableTypeChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: ToggleDisableAddressChange 
+[PASS] [Manifold.Callbacks] Export value type valid: ToggleDisableAddressChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.Callbacks] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.Callbacks] Export key is string: DisableAutoAssemblerEdits 
+[PASS] [Manifold.Callbacks] Export value type valid: DisableAutoAssemblerEdits -> boolean 
+[PASS] [Manifold.Callbacks] Export key is string: DisableAddressChange 
+[PASS] [Manifold.Callbacks] Export value type valid: DisableAddressChange -> boolean 
+[PASS] [Manifold.Callbacks] Export key is string: GetDisableAddressChange 
+[PASS] [Manifold.Callbacks] Export value type valid: GetDisableAddressChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: ToggleDisableDescriptionChange 
+[PASS] [Manifold.Callbacks] Export value type valid: ToggleDisableDescriptionChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: GetDisableDescriptionChange 
+[PASS] [Manifold.Callbacks] Export value type valid: GetDisableDescriptionChange -> function 
+[PASS] [Manifold.Callbacks] Export key is string: __index 
+[PASS] [Manifold.Callbacks] Export value type valid: __index -> table 
+[PASS] [Manifold.Callbacks] Export key is string: SetDisableAddressChange 
+[PASS] [Manifold.Callbacks] Export value type valid: SetDisableAddressChange -> function 
+[SKIP] [Manifold.Callbacks] No explicit export contract defined 
+[SKIP] [Manifold.Callbacks] Behavior test skipped (callback registration is CE runtime dependent) 
+
+--- Testing Manifold.Patcher --- 
+[PASS] [Manifold.Patcher] Module loads 
+[PASS] [Manifold.Patcher] Module returns table 
+[PASS] [Manifold.Patcher] Export key is string: SaveConfig 
+[PASS] [Manifold.Patcher] Export value type valid: SaveConfig -> function 
+[PASS] [Manifold.Patcher] Export key is string: ShouldCheckForPatches 
+[PASS] [Manifold.Patcher] Export value type valid: ShouldCheckForPatches -> boolean 
+[PASS] [Manifold.Patcher] Export key is string: GetModuleInfo 
+[PASS] [Manifold.Patcher] Export value type valid: GetModuleInfo -> function 
+[PASS] [Manifold.Patcher] Export key is string: Version 
+[PASS] [Manifold.Patcher] Export value type valid: Version -> string 
+[PASS] [Manifold.Patcher] Export key is string: StrictTargetResolution 
+[PASS] [Manifold.Patcher] Export value type valid: StrictTargetResolution -> boolean 
+[PASS] [Manifold.Patcher] Export key is string: CheckAndApply 
+[PASS] [Manifold.Patcher] Export value type valid: CheckAndApply -> function 
+[PASS] [Manifold.Patcher] Export key is string: _ReadOffsets 
+[PASS] [Manifold.Patcher] Export value type valid: _ReadOffsets -> function 
+[PASS] [Manifold.Patcher] Export key is string: ConfigDefaults 
+[PASS] [Manifold.Patcher] Export value type valid: ConfigDefaults -> table 
+[PASS] [Manifold.Patcher] Export key is string: ConfigFileName 
+[PASS] [Manifold.Patcher] Export value type valid: ConfigFileName -> string 
+[PASS] [Manifold.Patcher] Export key is string: CheckDependencies 
+[PASS] [Manifold.Patcher] Export value type valid: CheckDependencies -> function 
+[PASS] [Manifold.Patcher] Export key is string: _ReadDropDownList 
+[PASS] [Manifold.Patcher] Export value type valid: _ReadDropDownList -> function 
+[PASS] [Manifold.Patcher] Export key is string: PrintModuleInfo 
+[PASS] [Manifold.Patcher] Export value type valid: PrintModuleInfo -> function 
+[PASS] [Manifold.Patcher] Export key is string: ResolveTarget 
+[PASS] [Manifold.Patcher] Export value type valid: ResolveTarget -> function 
+[PASS] [Manifold.Patcher] Export key is string: Snapshots 
+[PASS] [Manifold.Patcher] Export value type valid: Snapshots -> table 
+[PASS] [Manifold.Patcher] Export key is string: ToggleStrictTargetResolution 
+[PASS] [Manifold.Patcher] Export value type valid: ToggleStrictTargetResolution -> function 
+[PASS] [Manifold.Patcher] Export key is string: TableHash 
+[PASS] [Manifold.Patcher] Export value type valid: TableHash -> string 
+[PASS] [Manifold.Patcher] Export key is string: CreateSnapshot 
+[PASS] [Manifold.Patcher] Export value type valid: CreateSnapshot -> function 
+[PASS] [Manifold.Patcher] Export key is string: AppliedPatches 
+[PASS] [Manifold.Patcher] Export value type valid: AppliedPatches -> table 
+[PASS] [Manifold.Patcher] Export key is string: RevertPatches 
+[PASS] [Manifold.Patcher] Export value type valid: RevertPatches -> function 
+[PASS] [Manifold.Patcher] Export key is string: ApplyPatch 
+[PASS] [Manifold.Patcher] Export value type valid: ApplyPatch -> function 
+[PASS] [Manifold.Patcher] Export key is string: CoerceAndSet 
+[PASS] [Manifold.Patcher] Export value type valid: CoerceAndSet -> function 
+[PASS] [Manifold.Patcher] Export key is string: SerializeRecord 
+[PASS] [Manifold.Patcher] Export value type valid: SerializeRecord -> function 
+[PASS] [Manifold.Patcher] Export key is string: New 
+[PASS] [Manifold.Patcher] Export value type valid: New -> function 
+[PASS] [Manifold.Patcher] Export key is string: GetConfigFilePath 
+[PASS] [Manifold.Patcher] Export value type valid: GetConfigFilePath -> function 
+[PASS] [Manifold.Patcher] Export key is string: GenerateTableHash 
+[PASS] [Manifold.Patcher] Export value type valid: GenerateTableHash -> function 
+[PASS] [Manifold.Patcher] Export key is string: BuildTableFingerprint 
+[PASS] [Manifold.Patcher] Export value type valid: BuildTableFingerprint -> function 
+[PASS] [Manifold.Patcher] Export key is string: ApplyConfig 
+[PASS] [Manifold.Patcher] Export value type valid: ApplyConfig -> function 
+[PASS] [Manifold.Patcher] Export key is string: Start 
+[PASS] [Manifold.Patcher] Export value type valid: Start -> function 
+[PASS] [Manifold.Patcher] Export key is string: NormalizePatch 
+[PASS] [Manifold.Patcher] Export value type valid: NormalizePatch -> function 
+[PASS] [Manifold.Patcher] Export key is string: DefaultScriptReplaceMode 
+[PASS] [Manifold.Patcher] Export value type valid: DefaultScriptReplaceMode -> string 
+[PASS] [Manifold.Patcher] Export key is string: PatchScript 
+[PASS] [Manifold.Patcher] Export value type valid: PatchScript -> function 
+[PASS] [Manifold.Patcher] Export key is string: TableSnapshots 
+[PASS] [Manifold.Patcher] Export value type valid: TableSnapshots -> table 
+[PASS] [Manifold.Patcher] Export key is string: GeneratePatchFromSnapshot 
+[PASS] [Manifold.Patcher] Export value type valid: GeneratePatchFromSnapshot -> function 
+[PASS] [Manifold.Patcher] Export key is string: ClearSnapshots 
+[PASS] [Manifold.Patcher] Export value type valid: ClearSnapshots -> function 
+[PASS] [Manifold.Patcher] Export key is string: SafeMode 
+[PASS] [Manifold.Patcher] Export value type valid: SafeMode -> boolean 
+[PASS] [Manifold.Patcher] Export key is string: Debug 
+[PASS] [Manifold.Patcher] Export value type valid: Debug -> boolean 
+[PASS] [Manifold.Patcher] Export key is string: TakeTableSnapshot 
+[PASS] [Manifold.Patcher] Export value type valid: TakeTableSnapshot -> function 
+[PASS] [Manifold.Patcher] Export key is string: TogglePatcher 
+[PASS] [Manifold.Patcher] Export value type valid: TogglePatcher -> function 
+[PASS] [Manifold.Patcher] Export key is string: LoadConfig 
+[PASS] [Manifold.Patcher] Export value type valid: LoadConfig -> function 
+[PASS] [Manifold.Patcher] Export key is string: _ReadRecordState 
+[PASS] [Manifold.Patcher] Export value type valid: _ReadRecordState -> function 
+[PASS] [Manifold.Patcher] Export key is string: __index 
+[PASS] [Manifold.Patcher] Export value type valid: __index -> table 
+[PASS] [Manifold.Patcher] Export key is string: RequestPatches 
+[PASS] [Manifold.Patcher] Export value type valid: RequestPatches -> function 
+[SKIP] [Manifold.Patcher] No explicit export contract defined 
+[SKIP] [Manifold.Patcher] Behavior test skipped (patching is target/runtime dependent) 
+
+==================================== 
+Test Summary 
+==================================== 
+Passed       : 1010 
+Failed       : 2 
+Skipped      : 20 
+
+Per Module: 
+  Manifold.Logger            PASS: 87   FAIL: 0    SKIP: 0    
+  Manifold.AutoAssembler     PASS: 62   FAIL: 0    SKIP: 2    
+  Manifold.Callbacks         PASS: 42   FAIL: 0    SKIP: 2    
+  Manifold.Json              PASS: 53   FAIL: 0    SKIP: 0    
+  Manifold.Helper            PASS: 26   FAIL: 0    SKIP: 2    
+  Manifold.State             PASS: 45   FAIL: 1    SKIP: 0    
+  Manifold.AssemblerCommands PASS: 62   FAIL: 0    SKIP: 2    
+  Manifold.ProcessHandler    PASS: 40   FAIL: 0    SKIP: 2    
+  Manifold.Utils             PASS: 74   FAIL: 0    SKIP: 2    
+  Manifold.CustomIO          PASS: 63   FAIL: 1    SKIP: 0    
+  Manifold.Teleporter        PASS: 136  FAIL: 0    SKIP: 2    
+  Manifold.Memory            PASS: 48   FAIL: 0    SKIP: 2    
+  Manifold.UI                PASS: 186  FAIL: 0    SKIP: 2    
+  Manifold.Patcher           PASS: 86   FAIL: 0    SKIP: 2    
+
+Failures: 
+  1. [Manifold.State] Behavior test crashed -> [string "-- -*- coding: utf-8 -*-
+..."]:191: JSON:decode must be called in method format 
+  2. [Manifold.CustomIO] Behavior test crashed -> [string "-- -*- coding: utf-8 -*-
+..."]:191: JSON:decode must be called in method format 
+
+Skipped: 
+  1. [Manifold.Utils] No explicit export contract defined 
+  2. [Manifold.Utils] Behavior test skipped (utility contract not pinned yet) 
+  3. [Manifold.UI] No explicit export contract defined 
+  4. [Manifold.UI] Behavior test skipped (GUI/theme runtime dependent) 
+  5. [Manifold.Teleporter] No explicit export contract defined 
+  6. [Manifold.Teleporter] Behavior test skipped (3D game/runtime/UI dependent) 
+  7. [Manifold.AutoAssembler] No explicit export contract defined 
+  8. [Manifold.AutoAssembler] Behavior test skipped (AA environment dependent) 
+  9. [Manifold.AssemblerCommands] No explicit export contract defined 
+  10. [Manifold.AssemblerCommands] Behavior test skipped (Auto Assembler / CE command registration context dependent) 
+  11. [Manifold.ProcessHandler] No explicit export contract defined 
+  12. [Manifold.ProcessHandler] Behavior test skipped (attached process dependent) 
+  13. [Manifold.Helper] No explicit export contract defined 
+  14. [Manifold.Helper] Behavior test skipped (helper API contract not pinned yet) 
+  15. [Manifold.Memory] No explicit export contract defined 
+  16. [Manifold.Memory] Behavior test skipped (memory/process dependent) 
+  17. [Manifold.Callbacks] No explicit export contract defined 
+  18. [Manifold.Callbacks] Behavior test skipped (callback registration is CE runtime dependent) 
+  19. [Manifold.Patcher] No explicit export contract defined 
+  20. [Manifold.Patcher] Behavior test skipped (patching is target/runtime dependent) 
+
+=== Test complete at 2026-04-05 01:40:21 === 
