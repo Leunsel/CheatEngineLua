@@ -50,6 +50,7 @@ local DESCRIPTION = "Manifold Framework Teleporter"
 
     ∂ v1.1.3 (2026-04-04)
         Manifold.UI Themes now properly apply to the Teleporter UI at runtime, eliminating the need for a bruteforced UI Restart.
+        Minor Adjustment towards the TreeHost Constraints to prevent it from going off the screen.
 ]]--
 
 Teleporter = {
@@ -2146,7 +2147,7 @@ function Teleporter:InitTeleporterUI()
     body.BorderSpacing.Bottom = 6
     local editorHost = UiCreatePanel(body, "alClient", nil, theme.COLOR_BG)
     uiState.EditorHost = editorHost
-    editorHost.Constraints.MinWidth = 420
+    editorHost.Constraints.MinWidth = 400
     editorHost.Width = form.Width / 2
     local splitter = createSplitter(body)
     uiState.Splitter = splitter
