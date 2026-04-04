@@ -1,6 +1,6 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.4"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
@@ -17,6 +17,10 @@ local DESCRIPTION = "Manifold Framework UI"
 
     ∂ v1.0.3 (2026-04-02)
         Added "support" for theming the Teleporter UI.
+    
+    ∂ v1.0.4 (2026-04-04)
+        Manifold.UI now properly handles the Teleporter UI theming at runtime, eliminating
+        the need for a bruteforced UI Restart.
 ]] 
 
 UI = {
@@ -809,6 +813,186 @@ function UI:ApplyThemeToAddressRecords(theme)
 end
 
 --
+--- ∑ Sets all Teleporter UI control colors/fonts from host theme tokens.
+---   All Teleporter theming is centralized here so themes can be reapplied live.
+--- @param uiState table # The Teleporter UI state.
+--- @param theme table # The processed theme token table.
+--
+function UI:SetTeleporterControlColors(uiState, theme)
+    if not uiState or type(theme) ~= "table" then
+        return
+    end
+    local mainBg = theme["MainForm.Color"]
+    local panelBg = theme["MainForm.Foundlist3.Color"] or mainBg
+    local headerBg = theme["AddressList.Header.Canvas.Brush.Color"] or panelBg
+    local borderColor = theme["AddressList.Header.Canvas.Pen.Color"] or theme["MainForm.Panel4.BevelColor"]
+    local inputBg = theme["AddressList.List.BackgroundColor"] or panelBg
+    local inputText = theme["TreeView.Font.Color"] or theme["AddressList.Header.Font.Color"] or theme["Memrec.DefaultForeground.Color"]
+    local labelText = theme["Memrec.DefaultForeground.Color"] or theme["AddressList.Header.Font.Color"]
+    local mutedText = theme["Memrec.GroupHeader.Color"] or labelText
+    local buttonBg = headerBg
+    local buttonHover = theme["AddressList.CheckboxActiveColor"] or borderColor or buttonBg
+    local buttonText = labelText
+    local buttonHoverText = mainBg or buttonText
+    local function repaintControl(control)
+        if not control then return end
+        if control.repaint then
+            control:repaint()
+        elseif control.Repaint then
+            control:Repaint()
+        end
+    end
+    local function applyFont(control, color, size, style)
+        if not control or not control.Font then return end
+        control.Font.Name = "Consolas"
+        control.Font.Size = size or 10
+        if color ~= nil then control.Font.Color = color end
+        if style ~= nil then control.Font.Style = style end
+    end
+    local function setBevel(control, outer, color, width)
+        if not control then return end
+        if outer ~= nil then control.BevelOuter = outer end
+        if color ~= nil and control.BevelColor ~= nil then control.BevelColor = color end
+        if width ~= nil and control.BevelWidth ~= nil then control.BevelWidth = width end
+    end
+    local function setPanel(control, color)
+        if not control then return end
+        control.ParentColor = false
+        if color ~= nil then control.Color = color end
+        repaintControl(control)
+    end
+    local function setLabel(control, color, size, style)
+        if not control then return end
+        applyFont(control, color, size, style)
+        repaintControl(control)
+    end
+    local function setEdit(control)
+        if not control then return end
+        control.ParentColor = false
+        control.Color = inputBg or control.Color
+        control.BorderStyle = "bsNone"
+        applyFont(control, inputText, 10)
+        repaintControl(control)
+    end
+    local function setMemo(control)
+        if not control then return end
+        control.ParentColor = false
+        control.Color = inputBg or control.Color
+        control.BorderStyle = "bsNone"
+        applyFont(control, inputText, 10)
+        repaintControl(control)
+    end
+    local function setButton(control)
+        if not control then return end
+        control.ParentColor = false
+        control.Color = buttonBg or control.Color
+        setBevel(control, "bvRaised", borderColor, 1)
+        if control._theme and type(control._theme) == "table" then
+            control._theme.COLOR_BTN = buttonBg
+            control._theme.COLOR_BTN_HOVER = buttonHover
+            control._theme.COLOR_BTN_TEXT = buttonText
+            control._theme.COLOR_BG = buttonHoverText
+            control._theme.COLOR_BORDER = borderColor
+        end
+        applyFont(control, buttonText, 10, "[fsBold]")
+        if control._label then
+            applyFont(control._label, buttonText, 10, "[fsBold]")
+        end
+        repaintControl(control)
+    end
+    setPanel(uiState.Form, mainBg)
+    setPanel(uiState.RootPanel, mainBg)
+    setPanel(uiState.ToolbarPanel, panelBg)
+    setPanel(uiState.StatusPanel, borderColor)
+    setPanel(uiState.StatusInnerPanel, panelBg)
+    setPanel(uiState.LeftPanel, borderColor)
+    setPanel(uiState.LeftInnerPanel, panelBg)
+    setPanel(uiState.LeftHeaderPanel, headerBg)
+    setBevel(uiState.LeftHeaderPanel, "bvLowered", borderColor, 1)
+    setPanel(uiState.LeftContentPanel, panelBg)
+    setPanel(uiState.RightPanel, borderColor)
+    setPanel(uiState.RightInnerPanel, panelBg)
+    setPanel(uiState.RightHeaderPanel, headerBg)
+    setBevel(uiState.RightHeaderPanel, "bvLowered", borderColor, 1)
+    setPanel(uiState.RightContentPanel, panelBg)
+    setPanel(uiState.EditorPanel, borderColor)
+    setPanel(uiState.TreePanel, borderColor)
+    setPanel(uiState.SearchPanel, borderColor)
+    setBevel(uiState.SearchPanel, "bvRaised", borderColor, 1)
+    setPanel(uiState.SearchFillPanel, inputBg)
+    setPanel(uiState.SearchInnerPanel, inputBg)
+    setPanel(uiState.TreeBorderPanel, borderColor)
+    setBevel(uiState.TreeBorderPanel, "bvRaised", borderColor, 1)
+    setPanel(uiState.TreeHostPanel, inputBg)
+    setPanel(uiState.FieldsHostPanel, panelBg)
+    setPanel(uiState.TopGroupPanel, panelBg)
+    setPanel(uiState.BottomGroupPanel, panelBg)
+    setPanel(uiState.FooterPanel, panelBg)
+    setBevel(uiState.FooterPanel, "bvLowered", borderColor, 1)
+    setPanel(uiState.MemoBorderPanel, borderColor)
+    setBevel(uiState.MemoBorderPanel, "bvRaised", borderColor, 1)
+    setPanel(uiState.MemoPanel, inputBg)
+    setBevel(uiState.MemoPanel, "bvLowered", borderColor, 1)
+    setPanel(uiState.MemoInnerPanel, inputBg)
+    for _, key in ipairs({"Name","Author","Category","X","Y","Z"}) do
+        setPanel(uiState[key .. "Row"], panelBg)
+        setPanel(uiState[key .. "Border"], borderColor)
+        setBevel(uiState[key .. "Border"], "bvRaised", borderColor, 1)
+        setPanel(uiState[key .. "Fill"], inputBg)
+        setPanel(uiState[key .. "Inner"], inputBg)
+    end
+    setLabel(uiState.StatusLabel, labelText, 10)
+    setLabel(uiState.TreeStatsLabel, mutedText, 9)
+    setLabel(uiState.TreeHeaderLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.EditorHeaderLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.SearchLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.NameLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.AuthorLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.CategoryLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.XLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.YLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.ZLabel, labelText, 10, "[fsBold]")
+    setLabel(uiState.DescriptionLabel, labelText, 10, "[fsBold]")
+    setEdit(uiState.NameEdit)
+    setEdit(uiState.AuthorEdit)
+    setEdit(uiState.CategoryEdit)
+    setEdit(uiState.XEdit)
+    setEdit(uiState.YEdit)
+    setEdit(uiState.ZEdit)
+    setEdit(uiState.SearchEdit)
+    setMemo(uiState.DescriptionEdit)
+    for _, key in ipairs({"SaveButton","LoadButton","DeleteButton","RefreshButton","WaypointButton","AddButton","DuplicateButton","TeleportButton","UpdateButton","ClearButton","RenameButton","UseCurrentPositionButton"}) do
+        setButton(uiState[key])
+    end
+    if uiState.TreeView then
+        uiState.TreeView.ParentColor = false
+        uiState.TreeView.Color = theme["TreeView.Color"] or inputBg or uiState.TreeView.Color
+        applyFont(uiState.TreeView, inputText, 10)
+        repaintControl(uiState.TreeView)
+    end
+end
+registerLuaFunctionHighlight("SetTeleporterControlColors")
+
+--
+--- ∑ Applies the processed host theme directly to the Teleporter UI controls.
+---   This enables live theme updates without rebuilding the Teleporter window.
+--- @param teleporter table # The Teleporter instance.
+--- @param theme table # The processed theme token table.
+--
+function UI:ApplyThemeToTeleporter(teleporter, theme)
+    if not teleporter or type(teleporter.EnsureUiState) ~= "function" then return end
+    local uiState = teleporter:EnsureUiState()
+    if not uiState or not uiState.Form then return end
+    self:SetTeleporterControlColors(uiState, theme)
+    if uiState.Form.repaint then
+        uiState.Form:repaint()
+    elseif uiState.Form.Repaint then
+        uiState.Form:Repaint()
+    end
+end
+registerLuaFunctionHighlight("ApplyThemeToTeleporter")
+
+--
 --- ∑ Applies a specified theme to all UI components.
 --- @param themeName string # The name of the theme to apply.
 --- @param allowReapply boolean # (Optional) If true, forces reapplication even if the theme is already active.
@@ -831,8 +1015,8 @@ function UI:ApplyTheme(themeName, allowReapply)
     self:ApplyThemeToLuaEngine(theme)
     MainForm.repaint()
     self.ActiveTheme = themeName
-    if teleporter and type(teleporter.OnThemeApplied) == "function" then
-        teleporter:OnThemeApplied(themeName, theme)
+    if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
+        self:ApplyThemeToTeleporter(teleporter, theme)
     end
     logger:Info("[UI] Theme '" .. themeName .. "' applied.")
 end
@@ -1968,6 +2152,9 @@ function UI:ApplyThemeObject(themeObj)
     self:ApplyThemeToMainForm(builtTheme)
     self:ApplyThemeToAddressRecords(builtTheme)
     self:ApplyThemeToLuaEngine(builtTheme)
+    if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
+        self:ApplyThemeToTeleporter(teleporter, builtTheme)
+    end
 end
 
 --
