@@ -1,7 +1,7 @@
 local Settings = {
     InSubMenu = true,
-    SubMenuName = "[5] x86/x64 — Byte Patch Hooks",
-    Caption = "Byte Replacement Hook",
+    SubMenuName = "[1] x86/x64 — Pointer Hooks",
+    Caption = "Pointer Hook — Multiplier",
     Shortcut = "",
     AskForInjectionAddress = true,
     AskForHookName = true,

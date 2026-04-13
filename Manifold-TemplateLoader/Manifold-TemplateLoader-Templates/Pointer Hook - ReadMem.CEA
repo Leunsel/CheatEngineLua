@@ -8,32 +8,32 @@ ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
 
 ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
-label(o_<< HookName >> r_<< HookName >>)
-label(<< HookName >>Ptr << HookName >>Multiplier)
+label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
+label(<< HookName >>Ptr)
 
 n_<< HookName >>:
   mov [<< HookName >>Ptr],<< BaseAddressRegister >>
-  
+
 o_<< HookName >>:
-<< OriginalOpcodes >>
-    mulss reg,[<< HookName >>Multiplier]
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
   jmp r_<< HookName >>
   
-<< HookName >>Ptr:
- << PointerType >> 0
-<< HookName >>Multiplier:
- dd (float)3.00
+z_<< HookName >>:
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
 
-<< HookNameParsed >><< AoBOffset>>:
+<< HookName >>Ptr:
+  << PointerType >> 0
+
+<< HookNameParsed >><< AoBOffset >>:
   << JumpType >> n_<< HookName >>
   << NopPadding >>
 r_<< HookName >>:
-registersymbol(<< HookNameParsed >> << HookName >>Ptr << HookName >>Multiplier)
+registersymbol(<< HookNameParsed >> z_<< HookName >> << HookName >>Ptr)
 
 [DISABLE]
 
-<< HookNameParsed >><< AoBOffset>>:
-  db << OriginalBytes >>
+<< HookNameParsed >><< AoBOffset >>:
+  readMem(z_<< HookName >>,<< JumpSize >>)
 
 unregisterSymbol(*)
 dealloc(*)

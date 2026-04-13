@@ -8,23 +8,28 @@ ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
 
 ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
-label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
+label(o_<< HookName >> r_<< HookName >>)
+label(<< HookName >>Ptr)
 
 n_<< HookName >>:
+  mov [<< HookName >>Ptr],<< BaseAddressRegister >>
 
 o_<< HookName >>:
 << OriginalOpcodes >>
   jmp r_<< HookName >>
+  
+<< HookName >>Ptr:
+  << PointerType >> 0
 
-<< HookNameParsed >><< AoBOffset>>:
+<< HookNameParsed >><< AoBOffset >>:
   << JumpType >> n_<< HookName >>
   << NopPadding >>
 r_<< HookName >>:
-registersymbol(<< HookNameParsed >>)
+registersymbol(<< HookNameParsed >> << HookName >>Ptr)
 
 [DISABLE]
 
-<< HookNameParsed >><< AoBOffset>>:
+<< HookNameParsed >><< AoBOffset >>:
   db << OriginalBytes >>
 
 unregisterSymbol(*)

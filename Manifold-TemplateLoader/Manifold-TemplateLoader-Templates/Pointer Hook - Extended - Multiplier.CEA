@@ -9,20 +9,22 @@ ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
 ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
 label(o_<< HookName >> r_<< HookName >>)
-label(<< HookName >>Ptr)
-label(Player Entity)
+label(<< HookName >>Ptr << HookName >>Multiplier)
+label(Increase Decrease)
 
 n_<< HookName >>:
-  /* Compare Here */
-  je Player
-  jmp Entity
-
-Player:
+  // Compare
+  ja Increase
+  jmp Decrease
+  
+Increase:
   mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+  mulss reg,[<< HookName >>Multiplier]
   jmp o_<< HookName >>
 
-Entity:
-  mov [<< HookName >>Ptr+<< PointerSize >>],<< BaseAddressRegister >>
+Decrease:
+  mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+  mulss reg,[<< HookName >>Multiplier+4]
   jmp o_<< HookName >>
 
 o_<< HookName >>:
@@ -30,18 +32,20 @@ o_<< HookName >>:
   jmp r_<< HookName >>
   
 << HookName >>Ptr:
- << PointerType >> 0
- << PointerType >> 0
+  << PointerType >> 0
+<< HookName >>Multiplier:
+  dd (float)3.00
+  dd (float)0.25
 
 << HookNameParsed >><< AoBOffset>>:
   << JumpType >> n_<< HookName >>
   << NopPadding >>
 r_<< HookName >>:
-registersymbol(<< HookNameParsed >> << HookName >>Ptr)
+registersymbol(<< HookNameParsed >> << HookName >>Ptr << HookName >>Multiplier)
 
 [DISABLE]
 
-<< HookNameParsed >>:
+<< HookNameParsed >><< AoBOffset>>:
   db << OriginalBytes >>
 
 unregisterSymbol(*)

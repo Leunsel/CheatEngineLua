@@ -18,12 +18,12 @@ n_<< HookName >>:
 
   cmp byte ptr [<< HookName >>Flag],1    // Feature
   jne @f
-      jmp o_<< HookName >>
+    jmp o_<< HookName >>
   
   @@:
   cmp byte ptr [<< HookName >>Flag],2    // Multiplier (Default)
   jne @f
-      jmp o_<< HookName >>
+    jmp o_<< HookName >>
   
   @@:
   mov byte ptr [<< HookName >>Flag],0    // Unhandled Case
@@ -34,15 +34,15 @@ o_<< HookName >>:
   jmp r_<< HookName >>
 
 << HookName >>Ptr:
-    << PointerType >> 0
+  << PointerType >> 0
 << HookName >>Flag:
-    db 2
+  db 2
 << HookName >>Multiplier:
-    dd (float)0.25
+  dd (float)0.25
 
 << HookNameParsed >><< AoBOffset>>:
-    << JumpType >> n_<< HookName >>
-    << NopPadding >>
+  << JumpType >> n_<< HookName >>
+  << NopPadding >>
 r_<< HookName >>:
 registersymbol(<< HookNameParsed >> << HookName >>Ptr << HookName >>Flag << HookName >>Multiplier)
 

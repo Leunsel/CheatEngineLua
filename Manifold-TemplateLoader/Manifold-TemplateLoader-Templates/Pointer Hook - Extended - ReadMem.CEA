@@ -10,9 +10,20 @@ ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
 label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
 label(<< HookName >>Ptr)
+label(Player Entity)
 
 n_<< HookName >>:
+  // Compare
+  je Player
+  jmp Entity
+  
+Player:
   mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+  jmp o_<< HookName >>
+
+Entity:
+  mov [<< HookName >>Ptr+<< PointerSize >>],<< BaseAddressRegister >>
+  jmp o_<< HookName >>
 
 o_<< HookName >>:
   readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
@@ -22,7 +33,8 @@ z_<< HookName >>:
   readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
 
 << HookName >>Ptr:
- << PointerType >> 0
+  << PointerType >> 0
+  << PointerType >> 0
 
 << HookNameParsed >><< AoBOffset >>:
   << JumpType >> n_<< HookName >>
