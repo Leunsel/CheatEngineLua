@@ -8,45 +8,49 @@ ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
 
 ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
-label(o_<< HookName >> r_<< HookName >>)
+label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
 label(<< HookName >>Ptr << HookName >>Multiplier)
-label(Increase Decrease)
+label(Player Entity)
 
 n_<< HookName >>:
   // Compare
-  ja Increase
-  jmp Decrease
+  je Player
+  jmp Entity
   
-Increase:
+Player:
   mov [<< HookName >>Ptr],<< BaseAddressRegister >>
   mulss reg,[<< HookName >>Multiplier]
   jmp o_<< HookName >>
 
-Decrease:
-  mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+Entity:
+  mov [<< HookName >>Ptr+<< PointerSize >>],<< BaseAddressRegister >>
   mulss reg,[<< HookName >>Multiplier+4]
   jmp o_<< HookName >>
 
 o_<< HookName >>:
-<< OriginalOpcodes >>
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
   jmp r_<< HookName >>
   
-<< HookName >>Ptr:
- << PointerType >> 0
-<< HookName >>Multiplier:
- dd (float)3.00
- dd (float)0.25
+z_<< HookName >>:
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
 
-<< HookNameParsed >><< AoBOffset>>:
+<< HookName >>Ptr:
+  << PointerType >> 0
+  << PointerType >> 0
+<< HookName >>Multiplier:
+  dd (float)3.00
+  dd (float)3.00
+
+<< HookNameParsed >><< AoBOffset >>:
   << JumpType >> n_<< HookName >>
   << NopPadding >>
 r_<< HookName >>:
-registersymbol(<< HookNameParsed >> << HookName >>Ptr << HookName >>Multiplier)
+registersymbol(<< HookNameParsed >> z_<< HookName >> << HookName >>Ptr << HookName >>Multiplier)
 
 [DISABLE]
 
-<< HookNameParsed >><< AoBOffset>>:
-  db << OriginalBytes >>
+<< HookNameParsed >><< AoBOffset >>:
+  readMem(z_<< HookName >>,<< JumpSize >>)
 
 unregisterSymbol(*)
 dealloc(*)

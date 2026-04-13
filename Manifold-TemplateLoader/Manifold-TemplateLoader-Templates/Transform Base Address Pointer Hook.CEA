@@ -8,43 +8,45 @@ ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
 
 ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
 
-label(o_<< HookName >> r_<< HookName >>)
-label(<< HookName >>Ptr)
-label(<< HookName >>Offsets SavedPositionFlt BackupPositionFlt)
+label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
+label(<< HookName >>Ptr SavedPositionFlt BackupPositionFlt)
 
 n_<< HookName >>:
   mov [<< HookName >>Ptr],<< BaseAddressRegister >>
 
 o_<< HookName >>:
-<< OriginalOpcodes >>
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
   jmp r_<< HookName >>
   
+z_<< HookName >>:
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
+
 << HookName >>Ptr:
- << PointerType >> 0
+  << PointerType >> 0
 << HookName >>Offsets:
- dd 08
- dd 0C
- dd 10
+  dd 08
+  dd 0C
+  dd 10
 SavedPositionFlt:
- dd (float)0
- dd (float)0
- dd (float)0
+  dd (float)0
+  dd (float)0
+  dd (float)0
 BackupPositionFlt:
- dd (float)0
- dd (float)0
- dd (float)0
+  dd (float)0
+  dd (float)0
+  dd (float)0
 
 << HookNameParsed >><< AoBOffset >>:
   << JumpType >> n_<< HookName >>
   << NopPadding >>
 r_<< HookName >>:
-registersymbol(<< HookNameParsed >> << HookName >>Ptr)
+registersymbol(<< HookNameParsed >> z_<< HookName >> << HookName >>Ptr)
 registersymbol(<< HookName >>Offsets SavedPositionFlt BackupPositionFlt)
 
 [DISABLE]
 
 << HookNameParsed >><< AoBOffset >>:
-  db << OriginalBytes >>
+  readMem(z_<< HookName >>,<< JumpSize >>)
 
 unregisterSymbol(*)
 dealloc(*)

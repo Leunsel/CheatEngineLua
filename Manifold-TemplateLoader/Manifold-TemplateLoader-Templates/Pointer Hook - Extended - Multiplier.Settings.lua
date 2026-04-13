@@ -1,7 +1,7 @@
 local Settings = {
     InSubMenu = true,
     SubMenuName = "[1] x86/x64 — Pointer Hooks",
-    Caption = "Base Address Pointer Hook — Read Memory",
+    Caption = "Pointer Hook — Extended — Multiplier",
     Shortcut = "",
     AskForInjectionAddress = true,
     AskForHookName = true,
