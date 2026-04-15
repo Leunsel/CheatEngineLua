@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.4"
+local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -22,13 +22,20 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
         Adjusted logger calls to use structured formatting and included more debug info on errors.
         Added a few utility functions for argument parsing and validation to reduce code duplication and improve maintainability.
         Added some usage example comments.
+
+    ∂ v1.0.5 (2026-04-15)
+        Adjusted Logging.
+        Added ManifoldPatch command for runtime patching with detailed logging of before/after bytes.
+        Added ManifoldNop command for applying NOP patches with verification and logging.
 ]]--
 
 AssemblerCommands = {
     LOG_SIG_MAX_INFO  = 32, -- max chars shown in INFO for signatures
     LOG_SIG_MAX_DEBUG = 64, -- max chars shown in DEBUG for signatures
     DEFAULT_RESOLVE_STATIC_DISP_OFFSET = 3,
-    DEFAULT_RESOLVE_STATIC_INSTR_LENGTH = 7
+    DEFAULT_RESOLVE_STATIC_INSTR_LENGTH = 7,
+    ---------------------------------------
+    ActivePatches = nil -- stores active patches for ManifoldPatch command
 }
 AssemblerCommands.__index = AssemblerCommands
 
@@ -300,6 +307,9 @@ end
 
 --
 --- ∑ Parses a byte pattern with wildcard support.
+---   Supported formats:
+---     - Exact byte: "7B", "0x7B", "$7B"
+---     - Wildcards: "?", "??", "*", "?*", "*?"
 --- @param pattern any
 --- @return table|nil
 --- @return string|nil
@@ -311,7 +321,7 @@ function AssemblerCommands:_parseBytesPattern(pattern)
     local out = {}
     for tok in pattern:gmatch("%S+") do
         tok = tok:upper()
-        if tok == "??" or tok == "**" or tok == "?*" or tok == "*?" then
+        if tok == "?" or tok == "??" or tok == "**" or tok == "?*" or tok == "*?" then
             out[#out + 1] = nil
         elseif tok:match("^[0-9A-F][0-9A-F]$") then
             out[#out + 1] = tonumber(tok, 16)
@@ -337,6 +347,137 @@ function AssemblerCommands:_readBytes(addr, count)
     if not ok then return nil, tostring(t) end
     if type(t) ~= "table" then return nil, "readBytes returned non-table" end
     return t, nil
+end
+
+--
+--- ∑ Writes bytes to memory.
+--- @param addr number
+--- @param bytes table
+--- @return boolean|nil
+--- @return string|nil
+--
+function AssemblerCommands:_writeBytes(addr, bytes)
+    local wb = rawget(_G, "writeBytes")
+    if type(wb) ~= "function" then return nil, "writeBytes not available" end
+    local values = {}
+    for i = 1, #bytes do
+        local b = bytes[i]
+        if b ~= nil then
+            values[#values + 1] = addr + (i - 1)
+            values[#values + 1] = b
+        end
+    end
+    if #values == 0 then return true end
+    local ok, err = pcall(function()
+        for i = 1, #bytes do
+            local b = bytes[i]
+            if b ~= nil then wb(addr + (i - 1), b) end
+        end
+    end)
+    if not ok then return nil, tostring(err) end
+    return true
+end
+
+--
+--- ∑ Builds a final byte array by applying a patch (with nil as wildcard) to actual bytes.
+--- @param actual table # Original bytes read from memory.
+--- @param patch table # Patch bytes with nil for wildcards.
+--- @return table # Returns the resulting byte array after applying the patch.
+--
+function AssemblerCommands:_buildPatchedBytes(actual, patch)
+    local out = {}
+    for i = 1, #patch do
+        if patch[i] == nil then
+            out[i] = actual[i]
+        else
+            out[i] = patch[i]
+        end
+    end
+    return out
+end
+
+--
+--- ∑ Builds an array of NOP bytes (0x90) of the specified count.
+--- @param count number # Number of NOP bytes to generate.
+--- @return table|nil # Returns an array of NOP bytes or nil if count is invalid.
+--
+function AssemblerCommands:_buildNopBytes(count)
+    if type(count) ~= "number" or count < 1 then return nil, "invalid nop byte count" end
+    local out = {}
+    for i = 1, count do out[i] = 0x90 end
+    return out, nil
+end
+
+--
+--- ∑ Applies a byte patch to memory and verifies the operation by reading back the bytes, with detailed logging on failure.
+--- @param commandName string # Name of the command for logging context.
+--- @param addr number # Target memory address to patch.
+--- @param bytesToWrite table # Byte array to write, with nil for wildcards.
+--- @param verifyLength number # Number of bytes to read for verification.
+--- @return table|nil # Returns a table with Before and After byte arrays if successful, or nil on failure.
+--- @return string|nil # Returns an error message if the operation fails.
+--
+function AssemblerCommands:_applyBytesAndVerify(commandName, addr, bytesToWrite, verifyLength)
+    local beforeBytes, beforeErr = self:_readBytes(addr, verifyLength)
+    if not beforeBytes then
+        return nil, string.format("%s: readBytes failed at %s: %s", commandName, getNameFromAddress(addr), tostring(beforeErr))
+    end
+    local okWrite, writeErr = self:_writeBytes(addr, bytesToWrite)
+    if not okWrite then
+        return nil, string.format("%s: writeBytes failed at %s: %s", commandName, getNameFromAddress(addr), tostring(writeErr))
+    end
+    local afterBytes, afterErr = self:_readBytes(addr, verifyLength)
+    if not afterBytes then
+        return nil, string.format("%s: verification read failed at %s: %s", commandName, getNameFromAddress(addr), tostring(afterErr))
+    end
+    return {
+        Before = beforeBytes,
+        After = afterBytes
+    }, nil
+end
+
+--
+--- ∑ Ensures the patch store table exists and returns it.
+--- @return table # Returns the patch store table.
+--
+function AssemblerCommands:_ensurePatchStore()
+    if type(self.ActivePatches) ~= "table" then self.ActivePatches = {} end
+    return self.ActivePatches
+end
+
+--
+--- ∑ Creates a unique key for a patch based on the address and optional expression.
+--- @param addr number
+--- @param addrExpr string|nil
+--- @return string # Returns a unique key for the patch.
+--
+function AssemblerCommands:_makePatchKey(addr, addrExpr)
+    if type(addr) ~= "number" then return "nil" end
+    return string.format("0x%X", addr)
+end
+
+--
+--- ∑ Stores patch information in the ActivePatches table and returns the patch key.
+--- @param addr number
+--- @param addrExpr string|nil
+--- @param originalBytes table
+--- @param patchBytes table
+--- @return string # Returns the patch key used for storage.
+--
+function AssemblerCommands:_storePatch(addr, addrExpr, originalBytes, patchBytes)
+    local store = self:_ensurePatchStore()
+    local key = self:_makePatchKey(addr, addrExpr)
+    if store[key] == nil then
+        store[key] = {
+            Address = addr,
+            Name = getNameFromAddress(addr),
+            Key = key,
+            OriginalBytes = originalBytes,
+            PatchBytes = patchBytes,
+            Length = #originalBytes
+        }
+    end
+    return key
 end
 
 --
@@ -384,6 +525,85 @@ function AssemblerCommands:_fmtBytes(t)
 end
 
 --
+--- ∑ Builds a visual marker string for byte pattern mismatches.
+--- @param index number|nil # 1-based index of the mismatch in the byte pattern
+--- @return string # Returns a string with spaces and a caret (^) pointing to the mismatch.
+--
+function AssemblerCommands:_buildMismatchMarker(index)
+    if type(index) ~= "number" or index < 1 then return "^" end
+    return string.rep("---", index - 1) .. "^"
+end
+
+--
+--- ∑ Applies or restores a stored patch for a resolved address.
+---     If patchBytes is nil, the original bytes are restored.
+---     Otherwise the provided patch bytes are applied and the original bytes are stored.
+--- @param commandName string
+--- @param addrExpr string
+--- @param patchBytes table|nil
+--- @param applyLabel string|nil
+--- @param restoreLabel string|nil
+--- @param extraLogLines table|nil
+--- @return string|nil
+--- @return string|nil
+--
+function AssemblerCommands:_executeStoredPatch(commandName, addrExpr, patchBytes, applyLabel, restoreLabel, extraLogLines)
+    local addr, resolveErr = self:_resolveAddress(addrExpr)
+    if not addr then
+        return self:_commandError(commandName, string.format("%s: cannot resolve address '%s': %s", commandName, tostring(addrExpr), tostring(resolveErr)))
+    end
+    local store = self:_ensurePatchStore()
+    local key = self:_makePatchKey(addr, addrExpr)
+    if patchBytes == nil then
+        local entry = store[key]
+        if not entry then
+            return self:_commandError(commandName, string.format("%s: no stored patch found for %s", commandName, tostring(key)))
+        end
+        local result, restoreErr = self:_applyBytesAndVerify(commandName, addr, entry.OriginalBytes, entry.Length)
+        if not result then
+            return self:_commandError(commandName, string.format("%s: failed to restore patch for %s", commandName, tostring(key)))
+        end
+        logger:Info(string.format("[Commands] %s %s OK", commandName, restoreLabel or "Restore"))
+        logger:InfoF("   Patch Key: %s", tostring(key))
+        logger:InfoF("   Address  : %s", getNameFromAddress(addr))
+        logger:InfoF("   Before   : %s", self:_fmtBytes(result.Before))
+        logger:InfoF("   Restore  : %s", self:_fmtBytes(entry.OriginalBytes))
+        logger:InfoF("   After    : %s", self:_fmtBytes(result.After))
+        store[key] = nil
+        return ""
+    end
+    local actualBefore, readErr = self:_readBytes(addr, #patchBytes)
+    if not actualBefore then
+        return self:_commandError(commandName, string.format("%s: readBytes failed at %s: %s", commandName, getNameFromAddress(addr), tostring(readErr)))
+    end
+    local originalCopy = {}
+    for i = 1, #actualBefore do
+        originalCopy[i] = actualBefore[i]
+    end
+    local patchCopy = {}
+    for i = 1, #patchBytes do
+        patchCopy[i] = patchBytes[i]
+    end
+    local patchKey = self:_storePatch(addr, addrExpr, originalCopy, patchCopy)
+    local result, patchErr = self:_applyBytesAndVerify(commandName, addr, patchBytes, #patchBytes)
+    if not result then
+        return self:_commandError(commandName, patchErr)
+    end
+    logger:Info(string.format("[Commands] %s %s OK", commandName, applyLabel or "Apply"))
+    logger:InfoF("   Patch Key: %s", tostring(patchKey))
+    logger:InfoF("   Address  : %s", getNameFromAddress(addr))
+    if type(extraLogLines) == "table" then
+        for _, line in ipairs(extraLogLines) do
+            logger:InfoF("   %s", tostring(line))
+        end
+    end
+    logger:InfoF("   Before   : %s", self:_fmtBytes(result.Before))
+    logger:InfoF("   Patch    : %s", self:_fmtBytes(patchBytes))
+    logger:InfoF("   After    : %s", self:_fmtBytes(result.After))
+    return ""
+end
+
+--
 --- ∑ Performs a unique AOB scan within a module and returns the resolved address (or an error).
 --- @param moduleName string # Target module name (quotes allowed).
 --- @param signature string # AOB signature/pattern (quotes allowed).
@@ -400,15 +620,15 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     signature = self:_stripQuotes(signature)
     local sigId = self:_sigId(signature)
     logger:Info("[Commands] Scan")
-    logger:InfoF("[Commands]   Module: %s", tostring(moduleName))
-    logger:InfoF("[Commands]   Signature: %s", self:_sigSummary(signature, self.LOG_SIG_MAX_INFO))
+    logger:InfoF("    Module   : %s", tostring(moduleName))
+    logger:InfoF("    Signature: %s", self:_sigSummary(signature, self.LOG_SIG_MAX_INFO))
     logger:Debug("[Commands] Scan Request")
-    logger:DebugF("[Commands]   Module (Raw): %s", tostring(rawModule))
-    logger:DebugF("[Commands]   Signature (Raw): %s", self:_shorten(rawSig, self.LOG_SIG_MAX_DEBUG))
-    logger:DebugF("[Commands]   Signature ID: %s", tostring(sigId))
-    logger:DebugF("[Commands]   Protection: %s", tostring(protectionFlags))
-    logger:DebugF("[Commands]   Alignment Type: %s", tostring(alignmentType))
-    logger:DebugF("[Commands]   Alignment Param: %s", tostring(alignmentParam))
+    logger:DebugF("   Module (Raw)   : %s", tostring(rawModule))
+    logger:DebugF("   Signature (Raw): %s", self:_shorten(rawSig, self.LOG_SIG_MAX_DEBUG))
+    logger:DebugF("   Signature ID   : %s", tostring(sigId))
+    logger:DebugF("   Protection     : %s", tostring(protectionFlags))
+    logger:DebugF("   Alignment Type : %s", tostring(alignmentType))
+    logger:DebugF("   Alignment Param: %s", tostring(alignmentParam))
     if moduleName == "" then return nil, "moduleName empty" end
     if signature == "" then return nil, "signature empty" end
     local fn = rawget(_G, "AOBScanModuleUnique")
@@ -417,9 +637,9 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     if not ok then return nil, "AOBScanModuleUnique exception: " .. tostring(addrOrErr) end
     if not addrOrErr then return nil, "AOB not found or not unique" end
     logger:Info("[Commands] Scan Result")
-    logger:Info("[Commands]   Status: OK")
-    logger:InfoF("[Commands]   Signature ID: %s", tostring(sigId))
-    logger:InfoF("[Commands]   Address: %s", getNameFromAddress(addrOrErr))
+    logger:Info ("   Status      : OK")
+    logger:InfoF("   Signature ID: %s", tostring(sigId))
+    logger:InfoF("   Address     : %s", getNameFromAddress(addrOrErr))
     return addrOrErr, nil
 end
 
@@ -432,7 +652,7 @@ function AssemblerCommands:_cmd_aobScanModule()
         local commandName = "ManifoldScanModule"
         local phase = syntaxcheck and "SYNTAXCHECK" or "EXECUTE"
         logger:Info("[Commands] ManifoldScanModule")
-        logger:InfoF("[Commands]   Phase: %s", phase)
+        logger:InfoF("   Phase: %s", phase)
         local args = self:_splitArgs(parameters)
         local syntaxSymbol = self:_stripQuotes(args[1] or "ManifoldScanModule_Symbol")
         if syntaxcheck then
@@ -462,14 +682,14 @@ function AssemblerCommands:_cmd_aobScanModule()
         if alignParamErr then
             return self:_commandError(commandName, alignParamErr)
         end
-        logger:DebugF("[Commands]   Parameters: %s", tostring(parameters))
-        logger:DebugF("[Commands]   Parsed Args:\n%s", self:_fmtArgDump(args))
+        logger:DebugF("   Parameters: %s", tostring(parameters))
+        logger:DebugF("   Parsed Args:\n%s", self:_fmtArgDump(args))
         local addr, scanErr = self:_aobScanModuleUnique(moduleName, signature, prot, alignType, alignParam)
         if not addr then
             return self:_commandError(commandName, tostring(scanErr))
         end
         local replace = string.format("define(%s, %s)", symbol, getNameFromAddress(addr))
-        logger:InfoF("[Commands]   Replace Line: %s", replace)
+        logger:InfoF("   Replace Line: %s", replace)
         return replace
     end
 end
@@ -491,7 +711,6 @@ end
 ---         define(ExampleHook, SomeGame.exe+1255B5B)
 --
 
-
 --
 --- ∑ Performs a runtime assertion that bytes at a resolved address match an expected pattern, with detailed logging on mismatch.
 --- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
@@ -501,7 +720,7 @@ function AssemblerCommands:_cmd_manifoldAssert()
         local commandName = "ManifoldAssert"
         local phase = syntaxcheck and "SYNTAXCHECK" or "EXECUTE"
         logger:Info("[Commands] ManifoldAssert")
-        logger:InfoF("[Commands]   Phase: %s", phase)
+        logger:InfoF("   Phase: %s", phase)
         if syntaxcheck then return "" end
         local args = self:_splitArgs(parameters)
         local addrExpr, addrErr = self:_requireArg(args, 1, commandName, "address")
@@ -537,16 +756,18 @@ function AssemblerCommands:_cmd_manifoldAssert()
             for i = 1, #expected do
                 actualFmt[i] = actual[i]
             end
+            local marker = self:_buildMismatchMarker(mismatchAt)
             logger:ForceWarning("[Commands] ManifoldAssert mismatch")
-            logger:ForceWarningF("[Commands]   Address: %s", getNameFromAddress(addr))
-            logger:ForceWarningF("[Commands]   Expected: %s", self:_fmtBytes(expected))
-            logger:ForceWarningF("[Commands]   Actual  : %s", self:_fmtBytes(actualFmt))
-            logger:ForceWarningF("[Commands]   First mismatch at +%X (index %d)", mismatchAt - 1, mismatchAt)
+            logger:ForceWarningF("   Address : %s", getNameFromAddress(addr))
+            logger:ForceWarningF("   Expected: %s", self:_fmtBytes(expected))
+            logger:ForceWarningF("   Actual  : %s", self:_fmtBytes(actualFmt))
+            logger:ForceWarningF("   %s%s", string.rep(" ", #"Actual  : "), marker)
+            logger:ForceWarningF("   First mismatch at +%X (index %d)", mismatchAt - 1, mismatchAt)
             return ""
         end
         logger:Info("[Commands] ManifoldAssert OK")
-        logger:InfoF("[Commands]   Address: %s", getNameFromAddress(addr))
-        logger:InfoF("[Commands]   Bytes   : %s", self:_fmtBytes(expected))
+        logger:InfoF("   Address: %s", getNameFromAddress(addr))
+        logger:InfoF("   Bytes  : %s", self:_fmtBytes(expected))
         return ""
     end
 end
@@ -584,6 +805,122 @@ end
 --
 
 --
+--- ∑ Performs a runtime patch by writing bytes to a resolved address, with the ability to restore the original
+---   bytes later, and detailed logging of the operation.
+--- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
+--
+function AssemblerCommands:_cmd_manifoldPatch()
+    return function(parameters, syntaxcheck)
+        local commandName = "ManifoldPatch"
+        local phase = syntaxcheck and "SYNTAXCHECK" or "EXECUTE"
+        logger:Info("[Commands] ManifoldPatch")
+        logger:InfoF("   Phase: %s", phase)
+        if syntaxcheck then return "" end
+        local args = self:_splitArgs(parameters)
+        local addrExpr, addrErr = self:_requireArg(args, 1, commandName, "address")
+        if not addrExpr then
+            return self:_commandError(commandName, addrErr)
+        end
+        local bytesPat = args[2]
+        if self:_isBlank(bytesPat) then
+            return self:_executeStoredPatch(commandName, addrExpr, nil, "Apply", "Restore")
+        end
+        local patchBytes, patternErr = self:_parseBytesPattern(bytesPat)
+        if not patchBytes then
+            return self:_commandError(commandName, string.format("%s: invalid bytes pattern: %s", commandName, tostring(patternErr)))
+        end
+        return self:_executeStoredPatch(commandName, addrExpr, patchBytes, "Apply", "Restore")
+    end
+end
+
+--
+--- ∑ Example usage for ManifoldPatch.
+---
+--- Purpose:
+---     Writes a byte pattern directly to a resolved address or symbol.
+---     This is useful for simple runtime patches such as NOPs, forced returns,
+---     or replacing instruction bytes with a custom sequence.
+---
+--- Example:
+---     Suppose ExampleHook was resolved earlier with:
+---         ManifoldScanModule(ExampleHook, SomeGame.exe, 29 83 F8 07 00 00)
+---         aobScanModule(ExampleHook, SomeGame.exe, 29 83 F8 07 00 00)
+---
+---     Then you can patch the instruction like this:
+---         ManifoldPatch(ExampleHook, 90 90 90 90 90 90)
+---
+---     Result:
+---         29 83 F8 07 00 00   -> original bytes
+---         90 90 90 90 90 90   -> patched with NOPs
+---
+--- Example - Early Return:
+---     ManifoldPatch(SomeFunction, C3)
+---
+---     Result:
+---         C3
+---         ^^
+---         └─ RET
+---
+--- Example with partial wildcard patching:
+---     ManifoldPatch(ExampleHook, 48 8B ?? ?? 90 90)
+---
+---     Concept:
+---         - Non-wildcard bytes are written.
+---         - Wildcard bytes (??) are ignored and left unchanged.
+---
+--- On success:
+---     - The command logs:
+---         * resolved address
+---         * original bytes
+---         * patch bytes
+---         * resulting bytes after patch
+---
+--- Notes:
+---     - This command does not validate original bytes before writing.
+---     - Use ManifoldAssert before ManifoldPatch if you want a safety check.
+---
+--- Typical workflow:
+---     ManifoldScanModule(ExampleHook, SomeGame.exe, 29 83 F8 07 00 00)
+---     ManifoldAssert(ExampleHook, 29 83 F8 07 00 00)
+---     ManifoldPatch(ExampleHook, 90 90 90 90 90 90)
+--
+
+--
+--- ∑ Applies a NOP patch to a resolved address for a given byte count, or restores the original bytes when no count is provided.
+--- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
+--
+function AssemblerCommands:_cmd_manifoldNop()
+    return function(parameters, syntaxcheck)
+        local commandName = "ManifoldNop"
+        local phase = syntaxcheck and "SYNTAXCHECK" or "EXECUTE"
+        logger:Info("[Commands] ManifoldNop")
+        logger:InfoF("   Phase: %s", phase)
+        if syntaxcheck then return "" end
+        local args = self:_splitArgs(parameters)
+        local addrExpr, addrErr = self:_requireArg(args, 1, commandName, "address")
+        if not addrExpr then
+            return self:_commandError(commandName, addrErr)
+        end
+        local countRaw = args[2]
+        if self:_isBlank(countRaw) then
+            return self:_executeStoredPatch(commandName, addrExpr, nil, "Apply", "Restore")
+        end
+        local byteCount, countErr = self:_parseOptionalNumberArg(args, 2, commandName, "byte count", nil)
+        if countErr then
+            return self:_commandError(commandName, countErr)
+        end
+        if type(byteCount) ~= "number" or byteCount < 1 then
+            return self:_commandError(commandName, string.format("%s: byte count must be >= 1", commandName))
+        end
+        local nopBytes, nopErr = self:_buildNopBytes(byteCount)
+        if not nopBytes then
+            return self:_commandError(commandName, string.format("%s: %s", commandName, tostring(nopErr)))
+        end
+        return self:_executeStoredPatch(commandName, addrExpr, nopBytes, "Apply", "Restore", { string.format("ByteCount: %d", byteCount) })
+    end
+end
+
+--
 --- ∑ Resolves a RIP-relative static target from an instruction and emits a define() for Auto Assembler.
 --- @return function # Returns a handler function(parameters, syntaxcheck) used by registerAutoAssemblerCommand.
 --
@@ -592,7 +929,7 @@ function AssemblerCommands:_cmd_resolveStatic()
         local commandName = "ManifoldResolveStatic"
         local phase = syntaxcheck and "SYNTAXCHECK" or "EXECUTE"
         logger:Info("[Commands] ManifoldResolveStatic")
-        logger:InfoF("[Commands]   Phase: %s", phase)
+        logger:InfoF("   Phase: %s", phase)
         local args = self:_splitArgs(parameters)
         local syntaxSymbol = self:_stripQuotes(args[1] or "ManifoldResolveStatic_Symbol")
         if syntaxcheck then
@@ -634,10 +971,10 @@ function AssemblerCommands:_cmd_resolveStatic()
         local targetName = getNameFromAddress(target)
         local replace = string.format("define(%s, %s)", symbol, targetName)
         logger:Info("[Commands] ManifoldResolveStatic OK")
-        logger:InfoF("[Commands]   Base Address: %s", getNameFromAddress(baseAddr))
-        logger:InfoF("[Commands]   Disp32      : %d", disp)
-        logger:InfoF("[Commands]   Target      : %s", targetName)
-        logger:InfoF("[Commands]   Replace Line: %s", replace)
+        logger:InfoF("   Base Address: %s", getNameFromAddress(baseAddr))
+        logger:InfoF("   Disp32      : %d", disp)
+        logger:InfoF("   Target      : %s", targetName)
+        logger:InfoF("   Replace Line: %s", replace)
         return replace
     end
 end
@@ -701,6 +1038,8 @@ function AssemblerCommands:RegisterCoreCommands()
     local commands = {
         { name = "ManifoldScanModule",    handler = self:_cmd_aobScanModule() },
         { name = "ManifoldAssert",        handler = self:_cmd_manifoldAssert() },
+        { name = "ManifoldPatch",         handler = self:_cmd_manifoldPatch() },
+        { name = "ManifoldNop",           handler = self:_cmd_manifoldNop() },
         { name = "ManifoldResolveStatic", handler = self:_cmd_resolveStatic() }
     }
     for _, cmd in ipairs(commands) do
