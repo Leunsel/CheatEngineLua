@@ -1,6 +1,6 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.1"
+local VERSION = "2.0.2"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
@@ -19,6 +19,9 @@ local DESCRIPTION = "Manifold Framework Auto-Assembler"
     ∂ v2.0.1 (2026-02-13)
         Fixed a minor inconvenience that caused a forced log message about resetting after a process change, though not
         necessary.
+
+    ∂ v2.0.2 (2026-02-13)
+        Adjusted Logging for AutoAssemble Failures.
 ]]--
 
 AutoAssembler = {
@@ -509,7 +512,7 @@ function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
         end
         local success, disableInfo = autoAssemble(scriptText, ts, st.DisableInfo)
         if not success then
-            error("[Auto-Assembler] The script could not be applied. Please try again or report this script.", 0)
+            error("[Auto-Assembler] The script could not be applied. (" .. tostring(fileOrText) .. ") Please try again or report this script.", 0)
         end
         st.DisableInfo = disableInfo
         st.Active = (disableInfo ~= nil)
@@ -604,6 +607,11 @@ function MainForm.OnProcessOpened()
         inst:DisableAllWithoutExecute()
         inst:Reset("New game session opened")
         logger:Info("[Auto-Assembler] Everything was reset. Please run the script again.")
+        -- Clear the active patches to avoid confusion.
+        -- This is rather vague given the instance needs to be called exactly "assemblerCommands" and the patch list needs to be exactly
+        -- "ActivePatches", but it's better than nothing for now.
+        assemblerCommands.ActivePatches = {}
+        logger:Info("[Auto-Assembler] Cleared active patches list to avoid confusion after process change.")
     end
     if _o_MainForm_OnProcessOpened then
         _o_MainForm_OnProcessOpened()
