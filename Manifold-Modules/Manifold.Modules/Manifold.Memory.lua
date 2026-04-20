@@ -1,6 +1,6 @@
 local NAME = "Manifold.Memory.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.4"
+local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework Memory"
 
 --[[
@@ -19,10 +19,57 @@ local DESCRIPTION = "Manifold Framework Memory"
     ∂ v1.0.4 (2026-04-11)
         Hardened all memory helpers with type validation, safer address resolution,
         and consistent logger formatting.
+
+    ∂ v1.0.5 (2026-04-20)
+        Refactored duplicated read/write/add logic into shared operation helpers.
+        Reduced repeated address resolution and centralized validation/log formatting.
 ]]--
 
 Memory = {}
 Memory.__index = Memory
+
+local MODULE_PREFIX = "[Memory]"
+
+local TYPE_HANDLERS = {
+    Byte = {
+        read = readByte,
+        write = writeByte,
+        label = "byte value",
+        format = "%d"
+    },
+    Word = {
+        read = readSmallInteger,
+        write = writeSmallInteger,
+        label = "word value",
+        format = "%d",
+        supportsSigned = true
+    },
+    Integer = {
+        read = readInteger,
+        write = writeInteger,
+        label = "integer value",
+        format = "%d",
+        supportsSigned = true
+    },
+    QWord = {
+        read = readQword,
+        write = writeQword,
+        label = "QWord value",
+        format = "%d"
+    },
+    Float = {
+        read = readFloat,
+        write = writeFloat,
+        label = "float value",
+        format = "%f"
+    },
+    Double = {
+        read = readDouble,
+        write = writeDouble,
+        label = "double value",
+        format = "%f"
+    }
+}
 
 function Memory:New()
     local instance = setmetatable({}, self)
@@ -51,7 +98,7 @@ registerLuaFunctionHighlight('GetModuleInfo')
 function Memory:PrintModuleInfo()
     local info = self:GetModuleInfo()
     if not info then
-        logger:Info("[Memory] Failed to retrieve module info.")
+        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
         return
     end
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
@@ -88,6 +135,37 @@ end
 registerLuaFunctionHighlight('_IsOptionalBoolean')
 
 --
+--- ∑ Formats an address as a hexadecimal string for logging.
+--- @param address integer
+--- @return string
+--
+function Memory:_FormatAddress(address)
+    return string.format("0x%08X", address)
+end
+registerLuaFunctionHighlight('_FormatAddress')
+
+--
+--- ∑ Logs a failed read attempt with details about the type and address.
+--- @param typeInfo table
+--- @param address integer
+--
+function Memory:_LogReadFailure(typeInfo, address)
+    logger:ErrorF("%s Unable to read %s at address '%s'", MODULE_PREFIX, typeInfo.label, self:_FormatAddress(address))
+end
+registerLuaFunctionHighlight('_LogReadFailure')
+
+--
+--- ∑ Logs a failed write attempt with details about the type, value, and address.
+--- @param typeInfo table
+--- @param address integer
+--- @param value number
+--
+function Memory:_LogWriteFailure(typeInfo, address, value)
+    logger:ErrorF("%s Unable to write %s " .. typeInfo.format .. " to address '%s'", MODULE_PREFIX, typeInfo.label, value, self:_FormatAddress(address))
+end
+registerLuaFunctionHighlight('_LogWriteFailure')
+
+--
 --- ∑ Resolves a symbol, module name, or numeric address to a usable address value.
 ---   If a number is passed, it is returned unchanged.
 ---   If a string is passed, it is resolved via getAddressSafe().
@@ -98,32 +176,32 @@ registerLuaFunctionHighlight('_IsOptionalBoolean')
 --
 function Memory:SafeGetAddress(addressOrSymbol, isLocal)
     if addressOrSymbol == nil then
-        logger:Error("[Memory] SafeGetAddress failed: addressOrSymbol is nil")
+        logger:Error(MODULE_PREFIX .. " SafeGetAddress failed: addressOrSymbol is nil")
         return nil
     end
     if not self:_IsOptionalBoolean(isLocal) then
-        logger:Error("[Memory] SafeGetAddress failed: isLocal must be a boolean or nil")
+        logger:Error(MODULE_PREFIX .. " SafeGetAddress failed: isLocal must be a boolean or nil")
         return nil
     end
     local valueType = type(addressOrSymbol)
     if valueType == "number" then
         if addressOrSymbol < 0 then
-            logger:ErrorF("[Memory] SafeGetAddress failed: invalid numeric address %d", addressOrSymbol)
+            logger:ErrorF("%s SafeGetAddress failed: invalid numeric address %d", MODULE_PREFIX, addressOrSymbol)
             return nil
         end
         return addressOrSymbol
     end
     if valueType ~= "string" then
-        logger:Error("[Memory] SafeGetAddress failed: expected string or number, got " .. valueType)
+        logger:Error(MODULE_PREFIX .. " SafeGetAddress failed: expected string or number, got " .. valueType)
         return nil
     end
     if addressOrSymbol == "" then
-        logger:Error("[Memory] SafeGetAddress failed: symbol name is empty")
+        logger:Error(MODULE_PREFIX .. " SafeGetAddress failed: symbol name is empty")
         return nil
     end
     local address = getAddressSafe(addressOrSymbol, isLocal == true)
     if not self:_IsNumber(address) then
-        logger:Error("[Memory] Unable to find address for symbol: " .. tostring(addressOrSymbol))
+        logger:Error(MODULE_PREFIX .. " Unable to find address for symbol: " .. tostring(addressOrSymbol))
         return nil
     end
     return address
@@ -177,438 +255,136 @@ function Memory:_RequireSignedFlag(signed, functionName)
 end
 registerLuaFunctionHighlight('_RequireSignedFlag')
 
---------------------------------------------------------
---                  Module Start                      --
---------------------------------------------------------
+--
+--- ∑ Reads a value from memory using the appropriate type handler, with optional signed support.
+--- @param address integer
+--- @param typeInfo table
+--- @param signed boolean
+--- @return number|nil
+--
+function Memory:_ReadResolvedValue(address, typeInfo, signed)
+    if typeInfo.supportsSigned then
+        return typeInfo.read(address, signed == true)
+    end
+    return typeInfo.read(address)
+end
+registerLuaFunctionHighlight('_ReadResolvedValue')
 
 --
---- SafeReadByte
---- ∑ Reads a byte from the given address.
----   If the read is successful, it returns the byte value; otherwise, it returns nil.
---- @param address string|number # The memory address or symbol to read from.
---- @return integer|nil # The byte value read from the address, or nil if the read fails.
+--- ∑ Writes a value to memory using the appropriate type handler.
+--- @param address integer
+--- @param value number
+--- @param typeInfo table
+--- @return boolean
 --
-function Memory:SafeReadByte(address)
+function Memory:_WriteResolvedValue(address, value, typeInfo)
+    return typeInfo.write(address, value)
+end
+registerLuaFunctionHighlight('_WriteResolvedValue')
+
+--
+--- ∑ Safely reads a value from the specified address with type validation and logging.
+--- @param address string|number
+--- @param typeInfo table
+--- @param signed boolean
+--- @return number|nil
+--
+function Memory:_SafeReadValue(address, typeInfo, signed)
     local resolved = self:_RequireAddress(address, "Memory")
     if not resolved then return nil end
-    local value = readByte(resolved)
-    if not self:_IsNumber(value) then
-        logger:ErrorF("[Memory] Unable to read byte value at address '0x%08X'", resolved)
+    if typeInfo.supportsSigned and not self:_RequireSignedFlag(signed, "Memory") then
         return nil
     end
-    logger:InfoF("[Memory] Successfully read byte value from address '0x%08X': %d", resolved, value)
+    local value = self:_ReadResolvedValue(resolved, typeInfo, signed)
+    if not self:_IsNumber(value) then
+        self:_LogReadFailure(typeInfo, resolved)
+        return nil
+    end
+    logger:InfoF("%s Successfully read %s from address '%s': " .. typeInfo.format, MODULE_PREFIX, typeInfo.label, self:_FormatAddress(resolved), value)
     return value
 end
-registerLuaFunctionHighlight('SafeReadByte')
+registerLuaFunctionHighlight('_SafeReadValue')
 
 --
---- SafeWriteByte
---- ∑ Writes a byte to the specified address.
----   Returns true if the write is successful, otherwise false.
---- @param address string|number # The memory address or symbol to write to.
---- @param value integer # The byte value to write.
---- @return boolean
+--- ∑ Safely writes a value to the specified address with type validation and logging.
+--- @param address string|number
+--- @param value number
+--- @param typeInfo table
+--- @return boolean # true on success, false on failure
 --
-function Memory:SafeWriteByte(address, value)
+function Memory:_SafeWriteValue(address, value, typeInfo)
     local resolved = self:_RequireAddress(address, "Memory")
     if not resolved then return false end
     if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local success = writeByte(resolved, value)
+    local success = self:_WriteResolvedValue(resolved, value, typeInfo)
     if not success then
-        logger:ErrorF("[Memory] Unable to write byte value %d to address '0x%08X'", value, resolved)
+        self:_LogWriteFailure(typeInfo, resolved, value)
         return false
     end
-    logger:InfoF("[Memory] Successfully wrote byte value %d to address '0x%08X'", value, resolved)
+    logger:InfoF("%s Successfully wrote %s " .. typeInfo.format .. " to address '%s'", MODULE_PREFIX, typeInfo.label, value, self:_FormatAddress(resolved))
     return true
 end
-registerLuaFunctionHighlight('SafeWriteByte')
+registerLuaFunctionHighlight('_SafeWriteValue')
 
 --
---- SafeAddByte
---- ∑ Adds a value to the current byte value at the given address.
----   If the read and write operations are successful, returns true; otherwise, returns false.
---- @param address string|number # The memory address or symbol to modify.
---- @param value integer # The value to add to the current byte value.
---- @return boolean
+--- ∑ Safely adds a value to the current value at the specified address.
+---   This reads the current value, adds the specified amount, and writes it back.
+--- @param address string|number
+--- @param value number
+--- @param typeInfo table
+--- @param signed boolean
+--- @return boolean # true on success, false on failure
 --
-function Memory:SafeAddByte(address, value)
+function Memory:_SafeAddValue(address, value, typeInfo, signed)
     local resolved = self:_RequireAddress(address, "Memory")
     if not resolved then return false end
     if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local currentValue = self:SafeReadByte(resolved)
+    if typeInfo.supportsSigned and not self:_RequireSignedFlag(signed, "Memory") then
+        return false
+    end
+    local currentValue = self:_ReadResolvedValue(resolved, typeInfo, signed)
     if not self:_IsNumber(currentValue) then
-        logger:ErrorF("[Memory] Unable to add byte value due to read failure at address '0x%08X'", resolved)
+        logger:ErrorF("%s Unable to add %s due to read failure at address '%s'", MODULE_PREFIX, typeInfo.label, self:_FormatAddress(resolved))
         return false
     end
     local newValue = currentValue + value
-    local success = self:SafeWriteByte(resolved, newValue)
+    local success = self:_WriteResolvedValue(resolved, newValue, typeInfo)
     if not success then
-        logger:ErrorF("[Memory] Unable to write new byte value to address '0x%08X'", resolved)
+        logger:ErrorF("%s Unable to write new %s to address '%s'", MODULE_PREFIX, typeInfo.label, self:_FormatAddress(resolved))
         return false
     end
-    logger:InfoF("[Memory] Successfully added %d to byte value at address '0x%08X'. New value: %d", value, resolved, newValue)
+    logger:InfoF("%s Successfully added " .. typeInfo.format .. " to %s at address '%s'. New value: " .. typeInfo.format, MODULE_PREFIX, value, typeInfo.label, self:_FormatAddress(resolved), newValue)
     return true
 end
-registerLuaFunctionHighlight('SafeAddByte')
+registerLuaFunctionHighlight('_SafeAddValue')
 
 --
---- SafeReadWord
---- ∑ Reads a 2-byte value from the specified address.
----   If successful, returns the word value; otherwise, returns nil.
---- @param address string|number # The memory address or symbol to read from.
---- @param signed boolean # Optional flag. If true, reads as signed integer.
---- @return integer|nil
+--- ∑ Registers safe read/write/add functions for a specific type based on provided type information.
+---   This dynamically creates functions like SafeReadByte, SafeWriteByte, SafeAddByte, etc.
+--- @param typeName string
 --
-function Memory:SafeReadWord(address, signed)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return nil end
-    if not self:_RequireSignedFlag(signed, "Memory") then return nil end
-    local value = readSmallInteger(resolved, signed == true)
-    if not self:_IsNumber(value) then
-        logger:ErrorF("[Memory] Unable to read word value at address '0x%08X'", resolved)
-        return nil
+local function _registerTypedOperations(typeName)
+    local typeInfo = TYPE_HANDLERS[typeName]
+    local readName = "SafeRead" .. typeName
+    local writeName = "SafeWrite" .. typeName
+    local addName = "SafeAdd" .. typeName
+    Memory[readName] = function(self, address, signed)
+        return self:_SafeReadValue(address, typeInfo, signed)
     end
-    logger:InfoF("[Memory] Successfully read word value from address '0x%08X': %d", resolved, value)
-    return value
+    registerLuaFunctionHighlight(readName)
+    Memory[writeName] = function(self, address, value)
+        return self:_SafeWriteValue(address, value, typeInfo)
+    end
+    registerLuaFunctionHighlight(writeName)
+    Memory[addName] = function(self, address, value, signed)
+        return self:_SafeAddValue(address, value, typeInfo, signed)
+    end
+    registerLuaFunctionHighlight(addName)
 end
-registerLuaFunctionHighlight('SafeReadWord')
 
---
---- SafeWriteWord
---- ∑ Writes a 2-byte value to the specified address.
----   Returns true if the write is successful, otherwise false.
---- @param address string|number # The memory address or symbol to write to.
---- @param value integer # The word value to write.
---- @return boolean
---
-function Memory:SafeWriteWord(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local success = writeSmallInteger(resolved, value)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write word value %d to address '0x%08X'", value, resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully wrote word value %d to address '0x%08X'", value, resolved)
-    return true
+for _, typeName in ipairs({"Byte", "Word", "Integer", "QWord", "Float", "Double"}) do
+    _registerTypedOperations(typeName)
 end
-registerLuaFunctionHighlight('SafeWriteWord')
-
---
---- SafeAddWord
---- ∑ Adds a value to the current 2-byte value at the specified address.
----   Returns true if the operation succeeds, otherwise false.
---- @param address string|number # The memory address or symbol to modify.
---- @param value integer # The value to add.
---- @param signed boolean # Optional flag. If true, reads as signed integer.
---- @return boolean
---
-function Memory:SafeAddWord(address, value, signed)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    if not self:_RequireSignedFlag(signed, "Memory") then return false end
-    local currentValue = self:SafeReadWord(resolved, signed)
-    if not self:_IsNumber(currentValue) then
-        logger:ErrorF("[Memory] Unable to add word value due to read failure at address '0x%08X'", resolved)
-        return false
-    end
-    local newValue = currentValue + value
-    local success = self:SafeWriteWord(resolved, newValue)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write new word value to address '0x%08X'", resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully added %d to word value at address '0x%08X'. New value: %d", value, resolved, newValue)
-    return true
-end
-registerLuaFunctionHighlight('SafeAddWord')
-
---
---- SafeReadInteger
---- ∑ Reads a 4-byte integer from the specified address.
----   Returns the integer value if the read is successful; otherwise, returns nil.
---- @param address string|number # The memory address or symbol to read from.
---- @param signed boolean # Optional flag. If true, reads as signed integer.
---- @return integer|nil
---
-function Memory:SafeReadInteger(address, signed)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return nil end
-    if not self:_RequireSignedFlag(signed, "Memory") then return nil end
-    local value = readInteger(resolved, signed == true)
-    if not self:_IsNumber(value) then
-        logger:ErrorF("[Memory] Unable to read integer value at address '0x%08X'", resolved)
-        return nil
-    end
-    logger:InfoF("[Memory] Successfully read integer value from address '0x%08X': %d", resolved, value)
-    return value
-end
-registerLuaFunctionHighlight('SafeReadInteger')
-
---
---- SafeWriteInteger
---- ∑ Writes a 4-byte integer to the specified address.
----   Returns true if the write is successful; otherwise, false.
---- @param address string|number # The memory address or symbol to write to.
---- @param value integer # The integer value to write.
---- @return boolean
---
-function Memory:SafeWriteInteger(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local success = writeInteger(resolved, value)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write integer value %d to address '0x%08X'", value, resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully wrote integer value %d to address '0x%08X'", value, resolved)
-    return true
-end
-registerLuaFunctionHighlight('SafeWriteInteger')
-
---
---- SafeAddInteger
---- ∑ Adds a value to the current integer value at the specified address.
----   Returns true if the operation succeeds, otherwise false.
---- @param address string|number # The memory address or symbol to modify.
---- @param value integer # The value to add.
---- @param signed boolean # Optional flag. If true, reads as signed integer.
---- @return boolean
---
-function Memory:SafeAddInteger(address, value, signed)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    if not self:_RequireSignedFlag(signed, "Memory") then return false end
-    local currentValue = self:SafeReadInteger(resolved, signed)
-    if not self:_IsNumber(currentValue) then
-        logger:ErrorF("[Memory] Unable to add integer value due to read failure at address '0x%08X'", resolved)
-        return false
-    end
-    local newValue = currentValue + value
-    local success = self:SafeWriteInteger(resolved, newValue)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write new integer value to address '0x%08X'", resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully added %d to integer value at address '0x%08X'. New value: %d", value, resolved, newValue)
-    return true
-end
-registerLuaFunctionHighlight('SafeAddInteger')
-
---
---- SafeReadQWord
---- ∑ Reads an 8-byte QWord value from the specified address.
----   Returns the value if successful, otherwise returns nil.
---- @param address string|number # The memory address or symbol to read from.
---- @return integer|nil
---
-function Memory:SafeReadQWord(address)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return nil end
-    local value = readQword(resolved)
-    if not self:_IsNumber(value) then
-        logger:ErrorF("[Memory] Unable to read QWord from address '0x%08X'", resolved)
-        return nil
-    end
-    logger:InfoF("[Memory] Successfully read QWord value %d from address '0x%08X'", value, resolved)
-    return value
-end
-registerLuaFunctionHighlight('SafeReadQWord')
-
---
---- SafeWriteQWord
---- ∑ Writes an 8-byte QWord value to the specified address.
----   Returns true if the write is successful, otherwise false.
---- @param address string|number # The memory address or symbol to write to.
---- @param value integer # The QWord value to write.
---- @return boolean
---
-function Memory:SafeWriteQWord(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local success = writeQword(resolved, value)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write QWord value %d to address '0x%08X'", value, resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully wrote QWord value %d to address '0x%08X'", value, resolved)
-    return true
-end
-registerLuaFunctionHighlight('SafeWriteQWord')
-
---
---- SafeAddQWord
---- ∑ Adds a value to the current QWord value at the specified address.
----   Returns true if the operation succeeds, otherwise false.
---- @param address string|number # The memory address or symbol to modify.
---- @param value integer # The value to add.
---- @return boolean
---
-function Memory:SafeAddQWord(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local currentValue = self:SafeReadQWord(resolved)
-    if not self:_IsNumber(currentValue) then
-        logger:ErrorF("[Memory] Unable to add QWord value due to read failure at address '0x%08X'", resolved)
-        return false
-    end
-    local newValue = currentValue + value
-    local success = self:SafeWriteQWord(resolved, newValue)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write new QWord value to address '0x%08X'", resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully added %d to QWord value at address '0x%08X'. New value: %d", value, resolved, newValue)
-    return true
-end
-registerLuaFunctionHighlight('SafeAddQWord')
-
---
---- SafeReadFloat
---- ∑ Reads a float value from the specified memory address.
----   If the read is successful, it returns the float value; otherwise, it returns nil.
---- @param address string|number # The memory address or symbol to read from.
---- @return float|nil
---
-function Memory:SafeReadFloat(address)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return nil end
-    local value = readFloat(resolved)
-    if not self:_IsNumber(value) then
-        logger:ErrorF("[Memory] Unable to read float value at address '0x%08X'", resolved)
-        return nil
-    end
-    logger:InfoF("[Memory] Successfully read float value from address '0x%08X': %f", resolved, value)
-    return value
-end
-registerLuaFunctionHighlight('SafeReadFloat')
-
---
---- SafeWriteFloat
---- ∑ Writes a float value to the specified memory address.
----   Returns true if the write operation succeeds, otherwise false.
---- @param address string|number # The memory address or symbol to write to.
---- @param value float # The float value to write to the address.
---- @return boolean
---
-function Memory:SafeWriteFloat(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local success = writeFloat(resolved, value)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write float value %f to address '0x%08X'", value, resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully wrote float value %f to address '0x%08X'", value, resolved)
-    return true
-end
-registerLuaFunctionHighlight('SafeWriteFloat')
-
---
---- SafeAddFloat
---- ∑ Adds a value to the current float value at the specified address.
----   If the read and write operations are successful, returns true; otherwise, false.
---- @param address string|number # The memory address or symbol to modify.
---- @param value float # The value to add to the current float value.
---- @return boolean
---
-function Memory:SafeAddFloat(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local currentValue = self:SafeReadFloat(resolved)
-    if not self:_IsNumber(currentValue) then
-        logger:ErrorF("[Memory] Unable to add float value due to read failure at address '0x%08X'", resolved)
-        return false
-    end
-    local newValue = currentValue + value
-    local success = self:SafeWriteFloat(resolved, newValue)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write new float value to address '0x%08X'", resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully added %f to float value at address '0x%08X'. New value: %f", value, resolved, newValue)
-    return true
-end
-registerLuaFunctionHighlight('SafeAddFloat')
-
---
---- SafeReadDouble
---- ∑ Reads a double value from the specified memory address.
----   If the read is successful, it returns the double value; otherwise, it returns nil.
---- @param address string|number # The memory address or symbol to read from.
---- @return double|nil
---
-function Memory:SafeReadDouble(address)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return nil end
-    local value = readDouble(resolved)
-    if not self:_IsNumber(value) then
-        logger:ErrorF("[Memory] Unable to read double value at address '0x%08X'", resolved)
-        return nil
-    end
-    logger:InfoF("[Memory] Successfully read double value from address '0x%08X': %f", resolved, value)
-    return value
-end
-registerLuaFunctionHighlight('SafeReadDouble')
-
---
---- SafeWriteDouble
---- ∑ Writes a double value to the specified memory address.
----   Returns true if the write operation is successful, otherwise false.
---- @param address string|number # The memory address or symbol to write to.
---- @param value double # The double value to write to the address.
---- @return boolean
---
-function Memory:SafeWriteDouble(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local success = writeDouble(resolved, value)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write double value %f to address '0x%08X'", value, resolved)
-        return false
-    end
-    logger:InfoF("[Memory] Successfully wrote double value %f to address '0x%08X'", value, resolved)
-    return true
-end
-registerLuaFunctionHighlight('SafeWriteDouble')
-
---
---- SafeAddDouble
---- ∑ Adds a value to the current double value at the specified address.
----   If the read and write operations are successful, returns true; otherwise, false.
---- @param address string|number # The memory address or symbol to modify.
---- @param value double # The value to add to the current double value.
---- @return boolean
---
-function Memory:SafeAddDouble(address, value)
-    local resolved = self:_RequireAddress(address, "Memory")
-    if not resolved then return false end
-    if not self:_RequireNumber(value, "Memory", "value") then return false end
-    local currentValue = self:SafeReadDouble(resolved)
-    if not self:_IsNumber(currentValue) then
-        logger:ErrorF("[Memory] Unable to add double value due to read failure at address '0x%08X'", resolved)
-        return false
-    end
-    local newValue = currentValue + value
-    local success = self:SafeWriteDouble(resolved, newValue)
-    if not success then
-        logger:ErrorF("[Memory] Unable to write new double value to address '0x%08X'", resolved)
-        return false
-    end
-    logger:InfoF(
-        "[Memory] Successfully added %.2f to address '0x%08X'. Original value: %.2f, New value: %.2f", value, resolved, currentValue, newValue)
-    return true
-end
-registerLuaFunctionHighlight('SafeAddDouble')
 
 --------------------------------------------------------
 --                   Module End                       --
