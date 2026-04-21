@@ -1,6 +1,6 @@
 local NAME = "Manifold.Logger.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Logger"
 
 --[[
@@ -10,12 +10,18 @@ local DESCRIPTION = "Manifold Framework Logger"
     ∂ v1.0.1 (2025-04-11)
         Minor comment adjustments.
         Added a dedicated "Logs" Directory to log to.
+
+    ∂ v1.0.2 (2026-04-21)
+        Refactored duplicated log wrapper and file output logic into shared helpers.
+        Reduced module size by dynamically registering level-specific logging functions.
 ]]--
 
 Logger = {
     Level = 4
 }
 Logger.__index = Logger
+
+local MODULE_PREFIX = "[Logger]"
 
 function Logger:New()
     local instance = setmetatable({}, self)
@@ -43,7 +49,7 @@ registerLuaFunctionHighlight('GetModuleInfo')
 function Logger:PrintModuleInfo()
     local info = self:GetModuleInfo()
     if not info then
-        logger:Info("[Logger] Failed to retrieve module info.")
+        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
         return
     end
     logger:Info("Module Info : "  .. tostring(info.name))
@@ -77,6 +83,14 @@ for name, id in pairs(Logger.Levels) do
     Logger.LevelNames[id] = name
 end
 
+local LOG_METHODS = {
+    {name = "Debug",    level = Logger.Levels.DEBUG   },
+    {name = "Info",     level = Logger.Levels.INFO    },
+    {name = "Warning",  level = Logger.Levels.WARNING },
+    {name = "Error",    level = Logger.Levels.ERROR   },
+    {name = "Critical", level = Logger.Levels.CRITICAL}
+}
+
 --
 --- ∑ Sets the log file name for the logger. 
 ---   If no name is provided, the default log file name is used.
@@ -88,7 +102,7 @@ function Logger:SetLogFileName(name)
     else
         self.LogFileName = "Manifold.Runtime.".. name ..".log"
     end
-    self:Info("[Logger] Log file set to: " .. self.LogFileName)
+    self:Info(MODULE_PREFIX .. " Log file set to: " .. self.LogFileName)
 end
 registerLuaFunctionHighlight('SetLogFileName')
 
@@ -101,9 +115,9 @@ function Logger:SetLevel(level)
     local newLevel = type(level) == "number" and level or self.Levels[level] or self.Levels.INFO
     if self.Level ~= newLevel then
         self.Level = newLevel
-        self:ForceInfo("[Logger] Updated Log Level to: '" .. newLevel .. "' (" .. self.LevelNames[newLevel] .. ")")
+        self:ForceInfo(MODULE_PREFIX .. " Updated Log Level to: '" .. newLevel .. "' (" .. self.LevelNames[newLevel] .. ")")
     else
-        self:Info("[Logger] Log Level is already set to: '" .. newLevel .. "' (" .. self.LevelNames[newLevel] .. "). Skipping!")
+        self:Info(MODULE_PREFIX .. " Log Level is already set to: '" .. newLevel .. "' (" .. self.LevelNames[newLevel] .. "). Skipping!")
     end
 end
 registerLuaFunctionHighlight('SetLevel')
@@ -127,30 +141,128 @@ local function GetDateTime()
 end
 
 --
+--- ∑ Returns the absolute log directory path.
+--- @return string
+--
+function Logger:_GetLogsDirectory()
+    return self.DataDir .. "\\Logs"
+end
+registerLuaFunctionHighlight('_GetLogsDirectory')
+
+--
+--- ∑ Returns the absolute log file path.
+--- @return string
+--
+function Logger:_GetLogFilePath()
+    return self:_GetLogsDirectory() .. "\\" .. self.LogFileName
+end
+registerLuaFunctionHighlight('_GetLogFilePath')
+
+--
+--- ∑ Ensures the logger data and log directories exist.
+--- @return boolean
+--
+function Logger:_EnsureLogDirectories()
+    if not customIO or not self.DataDir then
+        return false
+    end
+    if not (customIO:DirectoryExists(self.DataDir) or customIO:CreateDirectory(self.DataDir)) then
+        return false
+    end
+    local logsDir = self:_GetLogsDirectory()
+    return customIO:DirectoryExists(logsDir) or customIO:CreateDirectory(logsDir)
+end
+registerLuaFunctionHighlight('_EnsureLogDirectories')
+
+--
+--- ∑ Appends a formatted message to the active log file when customIO is available.
+--- @param formattedMessage string
+--
+function Logger:_WriteToLogFile(formattedMessage)
+    if self:_EnsureLogDirectories() then
+        customIO:AppendToFile(self:_GetLogFilePath(), formattedMessage)
+    end
+end
+registerLuaFunctionHighlight('_WriteToLogFile')
+
+--
+--- ∑ Resolves a numeric or string log level to its name and id.
+--- @param level number|string
+--- @return string|nil, integer|nil
+--
+function Logger:_ResolveLevel(level)
+    local levelName = type(level) == "number" and self.LevelNames[level] or level
+    local levelId = self.Levels[levelName]
+    if not levelId then
+        print("[Logger Error]: Invalid log level - " .. tostring(level))
+        return nil, nil
+    end
+    return levelName, levelId
+end
+registerLuaFunctionHighlight('_ResolveLevel')
+
+--
+--- ∑ Builds the final log line for a message and level.
+--- @param levelName string
+--- @param message any
+--- @param forced boolean
+--- @return string
+--
+function Logger:_FormatLogMessage(levelName, message, forced)
+    local forcedFlag = forced and " [FORCED]" or ""
+    return GetDateTime() .. " [" .. levelName .. "]" .. forcedFlag .. " " .. self:Stringify(message)
+end
+registerLuaFunctionHighlight('_FormatLogMessage')
+
+--
+--- ∑ Centralized logging implementation for normal and forced log output.
+--- @param level number|string
+--- @param message any
+--- @param forced boolean
+--
+function Logger:_DispatchLog(level, message, forced)
+    local levelName, levelId = self:_ResolveLevel(level)
+    if not levelId then
+        return
+    end
+    local formattedMessage = self:_FormatLogMessage(levelName, message, forced == true)
+    self:_WriteToLogFile(formattedMessage)
+    if forced ~= true and levelId < self.Level then
+        return
+    end
+    local success, err = pcall(self.Output, formattedMessage)
+    if not success then
+        local failureKind = forced == true and "forced log" or "log"
+        print("[Logger Error]: Failed to output " .. failureKind .. " - " .. tostring(err))
+    end
+end
+registerLuaFunctionHighlight('_DispatchLog')
+
+--
 --- ∑ Clears the log file if it exists.
 ---   This function removes all content from the log file while keeping the file itself intact.
 --- @return boolean # True if the file was cleared successfully, false if there was an error.
 --
 function Logger:ClearLogFile()
-    local logsDir = self.DataDir .. "\\Logs"
-    local fullFilePath = logsDir .. "\\" .. self.LogFileName
-    if not customIO:DirectoryExists(logsDir) and not customIO:CreateDirectory(logsDir) then
-        logger:Error("[Logger] Failed to create 'Logs' directory: " .. logsDir)
+    local logsDir = self:_GetLogsDirectory()
+    local fullFilePath = self:_GetLogFilePath()
+    if not self:_EnsureLogDirectories() then
+        logger:Error(MODULE_PREFIX .. " Failed to create 'Logs' directory: " .. logsDir)
         return false
     end
     local success, err = pcall(function()
         local file = io.open(fullFilePath, "w")
         if file then
-            file:close()  -- Simply close the file to clear its contents
-            logger:Info("[Logger] Log file cleared: " .. fullFilePath)
+            file:close()
+            logger:Info(MODULE_PREFIX .. " Log file cleared: " .. fullFilePath)
             return true
         else
-            logger:Error("[Logger] Failed to clear log file: " .. fullFilePath)
+            logger:Error(MODULE_PREFIX .. " Failed to clear log file: " .. fullFilePath)
             return false
         end
     end)
     if not success then
-        logger:Error("[Logger] Error clearing log file: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " Error clearing log file: " .. tostring(err))
         return false
     end
 
@@ -196,30 +308,7 @@ registerLuaFunctionHighlight('Stringify')
 --- @param message any # The message to be logged.
 --
 function Logger:Log(level, message)
-    local levelName = type(level) == "number" and self.LevelNames[level] or level
-    local levelId = self.Levels[levelName]
-    if not levelId then
-        print("[Logger Error]: Invalid log level - " .. tostring(level))
-        return
-    end
-    local formattedMessage = GetDateTime() .. " [" .. levelName .. "] " .. self:Stringify(message)
-    -- Write to file (always)
-    -- We check for customIO since the dependency is loader AFTER the Logger.
-    if customIO and self.DataDir and self.LogFileName then
-        if customIO:DirectoryExists(self.DataDir) or customIO:CreateDirectory(self.DataDir) then
-            local logsDir = self.DataDir .. "\\Logs"
-            if customIO:DirectoryExists(logsDir) or customIO:CreateDirectory(logsDir) then
-                local filePath = logsDir .. "\\" .. self.LogFileName
-                customIO:AppendToFile(filePath, formattedMessage)
-            end
-        end
-    end
-    if levelId >= self.Level then
-        local success, err = pcall(self.Output, formattedMessage)
-        if not success then
-            print("[Logger Error]: Failed to output log - " .. tostring(err))
-        end
-    end
+    self:_DispatchLog(level, message, false)
 end
 registerLuaFunctionHighlight('Log')
 
@@ -229,199 +318,37 @@ registerLuaFunctionHighlight('Log')
 --- @param message any # The message to be logged.
 --
 function Logger:ForceLog(level, message)
-    local levelName = type(level) == "number" and self.LevelNames[level] or level
-    local levelId = self.Levels[levelName]
-    if not levelId then
-        print("[Logger Error]: Invalid log level - " .. tostring(level))
-        return
+    self:_DispatchLog(level, message, true)
+end
+registerLuaFunctionHighlight('ForceLog')
+
+--
+--- ∑ Registers level-specific log helpers (plain, formatted, and forced variants).
+--
+local function _registerLogMethods(definition)
+    local name = definition.name
+    local level = definition.level
+    Logger[name] = function(self, message)
+        self:Log(level, tostring(message))
     end
-    local formattedMessage = GetDateTime() .. " [" .. levelName .. "] [FORCED] " .. self:Stringify(message)
-    -- Write to file (always)
-    -- We check for customIO since the dependency is loader AFTER the Logger.
-    if customIO and self.DataDir and self.LogFileName then
-        if customIO:DirectoryExists(self.DataDir) or customIO:CreateDirectory(self.DataDir) then
-            local logsDir = self.DataDir .. "\\Logs"
-            if customIO:DirectoryExists(logsDir) or customIO:CreateDirectory(logsDir) then
-                local filePath = logsDir .. "\\" .. self.LogFileName
-                customIO:AppendToFile(filePath, formattedMessage)
-            end
-        end
+    registerLuaFunctionHighlight(name)
+    Logger[name .. "F"] = function(self, message, ...)
+        self:Log(level, string.format(message, ...))
     end
-    local success, err = pcall(self.Output, formattedMessage)
-    if not success then
-        print("[Logger Error]: Failed to output forced log - " .. tostring(err))
+    registerLuaFunctionHighlight(name .. "F")
+    Logger["Force" .. name] = function(self, message)
+        self:ForceLog(level, tostring(message))
     end
+    registerLuaFunctionHighlight("Force" .. name)
+    Logger["Force" .. name .. "F"] = function(self, message, ...)
+        self:ForceLog(level, string.format(message, ...))
+    end
+    registerLuaFunctionHighlight("Force" .. name .. "F")
 end
 
--- 
---- Debug
---- ∑ Logs a debug message. 
----   The message is converted to a string and logged at the DEBUG level.
---- @param message any # The message to be logged.
-function Logger:Debug(message) self:Log(self.Levels.DEBUG, tostring(message)) end
-registerLuaFunctionHighlight('Debug')
-
--- 
---- Info
---- ∑ Logs an info message. 
----   The message is converted to a string and logged at the INFO level.
---- @param message any # The message to be logged.
-function Logger:Info(message) self:Log(self.Levels.INFO, tostring(message)) end
-registerLuaFunctionHighlight('Info')
-
--- 
---- Warning
---- ∑ Logs a warning message. 
----   The message is converted to a string and logged at the WARNING level.
---- @param message any # The message to be logged.
-function Logger:Warning(message) self:Log(self.Levels.WARNING, tostring(message)) end
-registerLuaFunctionHighlight('Warning')
-
--- 
---- Error
---- ∑ Logs an error message. 
----   The message is converted to a string and logged at the ERROR level.
---- @param message any # The message to be logged.
-function Logger:Error(message) self:Log(self.Levels.ERROR, tostring(message)) end
-registerLuaFunctionHighlight('Error')
-
--- 
---- Critical
---- ∑ Logs a critical message. 
----   The message is converted to a string and logged at the CRITICAL level.
---- @param message any # The message to be logged.
-function Logger:Critical(message) self:Log(self.Levels.CRITICAL, tostring(message)) end
-registerLuaFunctionHighlight('Critical')
-
--- 
---- DebugF
---- ∑ Logs a formatted debug message. 
----   The message is formatted using the provided arguments and logged at the DEBUG level.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:DebugF(message, ...) self:Log(self.Levels.DEBUG, string.format(message, ...)) end
-registerLuaFunctionHighlight('DebugF')
-
--- 
---- InfoF
---- ∑ Logs a formatted info message. 
----   The message is formatted using the provided arguments and logged at the INFO level.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:InfoF(message, ...) self:Log(self.Levels.INFO, string.format(message, ...)) end
-registerLuaFunctionHighlight('InfoF')
-
--- 
---- WarningF
---- ∑ Logs a formatted warning message. 
----   The message is formatted using the provided arguments and logged at the WARNING level.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:WarningF(message, ...) self:Log(self.Levels.WARNING, string.format(message, ...)) end
-registerLuaFunctionHighlight('WarningF')
-
--- 
---- ErrorF
---- ∑ Logs a formatted error message. 
----   The message is formatted using the provided arguments and logged at the ERROR level.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:ErrorF(message, ...) self:Log(self.Levels.ERROR, string.format(message, ...)) end
-registerLuaFunctionHighlight('ErrorF')
-
--- 
---- CriticalF
---- ∑ Logs a formatted critical message. 
----   The message is formatted using the provided arguments and logged at the CRITICAL level.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:CriticalF(message, ...) self:Log(self.Levels.CRITICAL, string.format(message, ...)) end
-registerLuaFunctionHighlight('CriticalF')
-
--- 
---- ForceDebug
---- ∑ Logs a forced debug message. 
----   The message is converted to a string and forced to log at the DEBUG level, ignoring any log level filters.
---- @param message any # The message to be logged.
-function Logger:ForceDebug(message) self:ForceLog(self.Levels.DEBUG, tostring(message)) end
-registerLuaFunctionHighlight('ForceDebug')
-
--- 
---- ForceInfo
---- ∑ Logs a forced info message. 
----   The message is converted to a string and forced to log at the INFO level, ignoring any log level filters.
---- @param message any # The message to be logged.
-function Logger:ForceInfo(message) self:ForceLog(self.Levels.INFO, tostring(message)) end
-registerLuaFunctionHighlight('ForceInfo')
-
--- 
---- ForceWarning
---- ∑ Logs a forced warning message. 
----   The message is converted to a string and forced to log at the WARNING level, ignoring any log level filters.
---- @param message any # The message to be logged.
-function Logger:ForceWarning(message) self:ForceLog(self.Levels.WARNING, tostring(message)) end
-registerLuaFunctionHighlight('ForceWarning')
-
--- 
---- ForceError
---- ∑ Logs a forced error message. 
----   The message is converted to a string and forced to log at the ERROR level, ignoring any log level filters.
---- @param message any # The message to be logged.
-function Logger:ForceError(message) self:ForceLog(self.Levels.ERROR, tostring(message)) end
-registerLuaFunctionHighlight('ForceError')
-
--- 
---- ForceCritical
---- ∑ Logs a forced critical message. 
----   The message is converted to a string and forced to log at the CRITICAL level, ignoring any log level filters.
---- @param message any # The message to be logged.
-function Logger:ForceCritical(message) self:ForceLog(self.Levels.CRITICAL, tostring(message)) end
-registerLuaFunctionHighlight('ForceCritical')
-
--- 
---- ForceDebugF
---- ∑ Logs a forced formatted debug message. 
----   The message is formatted using the provided arguments and forced to log at the DEBUG level, ignoring any log level filters.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:ForceDebugF(message, ...) self:ForceLog(self.Levels.DEBUG, string.format(message, ...)) end
-registerLuaFunctionHighlight('ForceDebugF')
-
--- 
---- ForceInfoF
---- ∑ Logs a forced formatted info message. 
----   The message is formatted using the provided arguments and forced to log at the INFO level, ignoring any log level filters.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:ForceInfoF(message, ...) self:ForceLog(self.Levels.INFO, string.format(message, ...)) end
-registerLuaFunctionHighlight('ForceInfoF')
-
--- 
---- ForceWarningF
---- ∑ Logs a forced formatted warning message. 
----   The message is formatted using the provided arguments and forced to log at the WARNING level, ignoring any log level filters.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:ForceWarningF(message, ...) self:ForceLog(self.Levels.WARNING, string.format(message, ...)) end
-registerLuaFunctionHighlight('ForceWarningF')
-
--- 
---- ForceErrorF
---- ∑ Logs a forced formatted error message. 
----   The message is formatted using the provided arguments and forced to log at the ERROR level, ignoring any log level filters.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:ForceErrorF(message, ...) self:ForceLog(self.Levels.ERROR, string.format(message, ...)) end
-registerLuaFunctionHighlight('ForceErrorF')
-
--- 
---- ForceCriticalF
---- ∑ Logs a forced formatted critical message. 
----   The message is formatted using the provided arguments and forced to log at the CRITICAL level, ignoring any log level filters.
---- @param message any # The message to be logged.
---- @param ... any # Additional arguments to format the message.
-function Logger:ForceCriticalF(message, ...) self:ForceLog(self.Levels.CRITICAL, string.format(message, ...)) end
-registerLuaFunctionHighlight('ForceCriticalF')
+for _, definition in ipairs(LOG_METHODS) do
+    _registerLogMethods(definition)
+end
 
 --------------------------------------------------------
 --                   Module End                       --
