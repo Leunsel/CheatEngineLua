@@ -1,6 +1,6 @@
 local NAME = "Manifold.Callbacks.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.4"
+local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework Callbacks"
 
 --[[
@@ -24,18 +24,40 @@ local DESCRIPTION = "Manifold Framework Callbacks"
         Removed the MainForm OnClose override temporarily due to issues
         with Cheat Engine's closing process. Will revisit later.
         (Error: Cheat Engine does not close properly when this override is active.)
+
+    ∂ v1.0.5 (2026-04-21)
+        Refactored callback config flags into a shared configuration system.
+        Reduced callback log noise by focusing on blocked actions and actual errors.
 ]]--
 
-Callbacks = {
+Callbacks = {}
+Callbacks.__index = Callbacks
+
+local MODULE_PREFIX = "[Callbacks]"
+local DEFAULT_CONFIG = {
     DisableAutoAssemblerEdits = false,
     DisableDescriptionChange = false,
     DisableAddressChange = false,
     DisableTypeChange = false,
-    -- DisableValueChange = false, -- This would render a Cheat Table useless, so it's not included
+    DisableValueChange = false
 }
-Callbacks.__index = Callbacks
+local CONFIG_METHODS = {
+    "DisableAutoAssemblerEdits",
+    "DisableDescriptionChange",
+    "DisableAddressChange",
+    "DisableTypeChange",
+    "DisableValueChange"
+}
 
 local instance = nil
+
+local function _copyTable(source)
+    local target = {}
+    for key, value in pairs(source) do
+        target[key] = value
+    end
+    return target
+end
 
 function Callbacks:New()
     if instance then
@@ -43,11 +65,8 @@ function Callbacks:New()
     end
     instance = setmetatable({}, self)
     instance.Name = NAME or "Unnamed Module"
-    -- ...
-    instance.DisableAutoAssemblerEdits = false
-    instance.DisableDescriptionChange = false
-    instance.DisableAddressChange = false
-    instance.DisableTypeChange = false
+    instance.Config = _copyTable(DEFAULT_CONFIG)
+    instance:ResetConfig()
     return instance
 end
 registerLuaFunctionHighlight('New')
@@ -67,7 +86,7 @@ registerLuaFunctionHighlight('GetModuleInfo')
 function Callbacks:PrintModuleInfo()
     local info = self:GetModuleInfo()
     if not info then
-        logger:Info("[Callbacks] Failed to retrieve module info.")
+        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
         return
     end
     logger:Info("Module Info : "  .. tostring(info.name))
@@ -84,112 +103,175 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 --------------------------------------------------------
 
 --
---- ∑ Retrieves the State of DisableAutoAssemblerEdits.
---- @return boolean # true if Auto Assembler edits are disabled, false otherwise
+--- ∑ Validates callback config values.
+--- @param value any
+--- @param optionName string
+--- @return boolean
 --
-function Callbacks:GetDisableAutoAssemblerEdits()
-    return self.DisableAutoAssemblerEdits
+function Callbacks:_RequireBoolean(value, optionName)
+    if type(value) ~= "boolean" then
+        logger:Error(MODULE_PREFIX .. " " .. tostring(optionName) .. " must be a boolean value.")
+        return false
+    end
+    return true
 end
-registerLuaFunctionHighlight('GetDisableAutoAssemblerEdits')
+registerLuaFunctionHighlight('_RequireBoolean')
 
 --
---- ∑ Sets the State of DisableAutoAssemblerEdits.
---- @param value boolean # true to disable Auto Assembler edits, false to enable
+--- ∑ Resets the callback configuration to the default values.
+--- @return table
 --
-function Callbacks:SetDisableAutoAssemblerEdits(value)
-    self.DisableAutoAssemblerEdits = value
+function Callbacks:ResetConfig()
+    self.Config = _copyTable(DEFAULT_CONFIG)
+    for key, value in pairs(self.Config) do
+        self[key] = value
+    end
+    return self.Config
 end
-registerLuaFunctionHighlight('SetDisableAutoAssemblerEdits')
+registerLuaFunctionHighlight('ResetConfig')
 
 --
---- ∑ Toggles the State of DisableAutoAssemblerEdits.
---- @return nil
+--- ∑ Returns a config value by option name.
+--- @param optionName string
+--- @return boolean|nil
 --
-function Callbacks:ToggleDisableAutoAssemblerEdits()
-    self.DisableAutoAssemblerEdits = not self.DisableAutoAssemblerEdits
+function Callbacks:GetConfigValue(optionName)
+    if self.Config[optionName] == nil then
+        logger:Error(MODULE_PREFIX .. " Unknown config option: " .. tostring(optionName))
+        return nil
+    end
+    return self.Config[optionName]
 end
-registerLuaFunctionHighlight('ToggleDisableAutoAssemblerEdits')
+registerLuaFunctionHighlight('GetConfigValue')
 
 --
---- ∑ Retrieves the State of DisableDescriptionChange.
---- @return boolean # true if description changes are disabled, false otherwise
+--- ∑ Sets a config value by option name.
+--- @param optionName string
+--- @param value boolean
+--- @return boolean
 --
-function Callbacks:GetDisableDescriptionChange()
-    return self.DisableDescriptionChange
+function Callbacks:SetConfigValue(optionName, value)
+    if self.Config[optionName] == nil then
+        logger:Error(MODULE_PREFIX .. " Unknown config option: " .. tostring(optionName))
+        return false
+    end
+    if not self:_RequireBoolean(value, optionName) then
+        return false
+    end
+    self.Config[optionName] = value
+    self[optionName] = value
+    return true
 end
-registerLuaFunctionHighlight('GetDisableDescriptionChange')
+registerLuaFunctionHighlight('SetConfigValue')
 
 --
---- ∑ Sets the State of DisableDescriptionChange.
---- @param value boolean # true to disable description changes, false to enable
+--- ∑ Toggles a config value by option name.
+--- @param optionName string
+--- @return boolean|nil
 --
-function Callbacks:SetDisableDescriptionChange(value)
-    self.DisableDescriptionChange = value
+function Callbacks:ToggleConfigValue(optionName)
+    local currentValue = self:GetConfigValue(optionName)
+    if currentValue == nil then
+        return nil
+    end
+    self:SetConfigValue(optionName, not currentValue)
+    return self.Config[optionName]
 end
-registerLuaFunctionHighlight('SetDisableDescriptionChange')
+registerLuaFunctionHighlight('ToggleConfigValue')
 
 --
---- ∑ Toggles the State of DisableDescriptionChange.
---- @return nil
+--- ∑ Builds a readable memory record label for callback logs.
+--- @param memrec MemoryRecord|nil
+--- @return string
 --
-function Callbacks:ToggleDisableDescriptionChange()
-    self.DisableDescriptionChange = not self.DisableDescriptionChange
+function Callbacks:_DescribeMemoryRecord(memrec)
+    if not memrec then
+        return "Unknown Record"
+    end
+    local description = memrec.Description
+    if description == nil or description == "" then
+        description = "Unnamed Record"
+    end
+    local address = memrec.CurrentAddress or 0
+    return string.format("%s @ 0x%X", tostring(description), address)
 end
-registerLuaFunctionHighlight('ToggleDisableDescriptionChange')
+registerLuaFunctionHighlight('_DescribeMemoryRecord')
 
 --
---- ∑ Retrieves the State of DisableAddressChange.
---- @return boolean # true if address changes are disabled, false otherwise
+--- ∑ Converts a callback execute state into a readable label.
+--- @param newstate any
+--- @return string
 --
-function Callbacks:GetDisableAddressChange()
-    return self.DisableAddressChange
+function Callbacks:_FormatExecuteState(newstate)
+    local normalized = tostring(newstate):lower()
+    if normalized == "true" then
+        return "Activated"
+    end
+    if normalized == "false" then
+        return "Deactivated"
+    end
+    return "Unknown"
 end
-registerLuaFunctionHighlight('GetDisableAddressChange')
+registerLuaFunctionHighlight('_FormatExecuteState')
 
 --
---- ∑ Sets the State of DisableAddressChange.
---- @param value boolean # true to disable address changes, false to enable
+--- ∑ Logs a blocked callback action with concise record context.
+--- @param actionName string
+--- @param memrec MemoryRecord|nil
 --
-function Callbacks:SetDisableAddressChange(value)
-    self.DisableAddressChange = value
+function Callbacks:_LogBlockedAction(actionName, memrec)
+    logger:WarningF("%s %s prevented for %s", MODULE_PREFIX, tostring(actionName), self:_DescribeMemoryRecord(memrec))
 end
-registerLuaFunctionHighlight('SetDisableAddressChange')
+registerLuaFunctionHighlight('_LogBlockedAction')
 
 --
---- ∑ Toggles the State of DisableAddressChange.
---- @return nil
+--- ∑ Handles a guarded change callback with shared error and block logging.
+--- @param optionName string
+--- @param actionName string
+--- @param memrec MemoryRecord|nil
+--- @param errorContext string
+--- @return boolean
 --
-function Callbacks:ToggleDisableAddressChange()
-    self.DisableAddressChange = not self.DisableAddressChange
+function Callbacks:_HandleProtectedChange(optionName, actionName, memrec, errorContext)
+    local ok, result = pcall(function()
+        if self:GetConfigValue(optionName) then
+            self:_LogBlockedAction(actionName, memrec)
+            return true
+        end
+        return false
+    end)
+    if not ok then
+        logger:Error(MODULE_PREFIX .. " Error in " .. tostring(errorContext) .. ": " .. tostring(result))
+        return false
+    end
+    return result
 end
-registerLuaFunctionHighlight('ToggleDisableAddressChange')
+registerLuaFunctionHighlight('_HandleProtectedChange')
 
 --
---- ∑ Retrieves the State of DisableTypeChange.
---- @return boolean # true if type changes are disabled, false otherwise
+--- ∑ Generates config getter/setter/toggle helpers for supported options.
 --
-function Callbacks:GetDisableTypeChange()
-    return self.DisableTypeChange
+local function _registerConfigMethods(optionName)
+    local getterName = "Get" .. optionName
+    local setterName = "Set" .. optionName
+    local toggleName = "Toggle" .. optionName
+    Callbacks[getterName] = function(self)
+        return self:GetConfigValue(optionName)
+    end
+    registerLuaFunctionHighlight(getterName)
+    Callbacks[setterName] = function(self, value)
+        return self:SetConfigValue(optionName, value)
+    end
+    registerLuaFunctionHighlight(setterName)
+    Callbacks[toggleName] = function(self)
+        return self:ToggleConfigValue(optionName)
+    end
+    registerLuaFunctionHighlight(toggleName)
 end
-registerLuaFunctionHighlight('GetDisableTypeChange')
 
---
---- ∑ Sets the State of DisableTypeChange.
---- @param value boolean # true to disable type changes, false to enable
---
-function Callbacks:SetDisableTypeChange(value)
-    self.DisableTypeChange = value
+for _, optionName in ipairs(CONFIG_METHODS) do
+    _registerConfigMethods(optionName)
 end
-registerLuaFunctionHighlight('SetDisableTypeChange')
-
---
---- ∑ Toggles the State of DisableTypeChange.
---- @return nil
---
-function Callbacks:ToggleDisableTypeChange()
-    self.DisableTypeChange = not self.DisableTypeChange
-end
-registerLuaFunctionHighlight('ToggleDisableTypeChange')
 
 -- .....................................................
 
@@ -201,30 +283,10 @@ registerLuaFunctionHighlight('ToggleDisableTypeChange')
 --
 function onMemRecPreExecute(memoryrecord, newstate)
     local ok, err = pcall(function()
-        local stateStr = "Unknown"
-        local ns = tostring(newstate):lower()
-        if ns == "true" then
-            stateStr = "Activated"
-        elseif ns == "false" then
-            stateStr = "Deactivated"
-        end
-        local value = memoryrecord.Value
-        if value == nil or value == "" then value = "N/A" end
-        logger:DebugF(
-            "[Callbacks] [PreExecute]\n" ..
-            "\tDescription : %s\n" ..
-            "\tState       : %s (%s)\n" ..
-            "\tAddress     : 0x%X\n" ..
-            "\tVarType     : %s\n" ..
-            "\tValue       : %s",
-            memoryrecord.Description,
-            tostring(newstate), stateStr,
-            memoryrecord.CurrentAddress or 0,
-            memoryrecord.VarType or "N/A",
-            tostring(value))
+        logger:DebugF("%s PreExecute %s (%s)", MODULE_PREFIX, callbacks:_DescribeMemoryRecord(memoryrecord), callbacks:_FormatExecuteState(newstate))
     end)
     if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in onMemRecPreExecute: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " Error in onMemRecPreExecute: " .. tostring(err))
     end
 end
 registerLuaFunctionHighlight('onMemRecPreExecute')
@@ -238,24 +300,12 @@ registerLuaFunctionHighlight('onMemRecPreExecute')
 --
 function onMemRecPostExecute(memoryrecord, newstate, succeeded)
     local ok, err = pcall(function()
-        local stateStr = "Unknown"
-        local ns = tostring(newstate):lower()
-        if ns == "true" then
-            stateStr = "Activated"
-        elseif ns == "false" then
-            stateStr = "Deactivated"
+        if not succeeded then
+            logger:WarningF("%s PostExecute failed for %s (%s)", MODULE_PREFIX, callbacks:_DescribeMemoryRecord(memoryrecord), callbacks:_FormatExecuteState(newstate))
         end
-        logger:DebugF(
-            "[Callbacks] [PostExecute]\n" ..
-            "\tDescription : %s\n" ..
-            "\tState       : %s (%s)\n" ..
-            "\tSucceeded   : %s",
-            memoryrecord.Description,
-            tostring(newstate), stateStr,
-            tostring(succeeded))
     end)
     if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in onMemRecPostExecute: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " Error in onMemRecPostExecute: " .. tostring(err))
     end
 end
 registerLuaFunctionHighlight('onMemRecPostExecute')
@@ -268,25 +318,7 @@ registerLuaFunctionHighlight('onMemRecPostExecute')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnDescriptionChange = function(addresslist, memrec)
-    local ok, result = pcall(function()
-        logger:DebugF(
-            "[Callbacks] [OnDescriptionChange]\n" ..
-            "\tDescription : %s\n" ..
-            "\tAddress     : 0x%X",
-            memrec.Description,
-            memrec.CurrentAddress or 0)
-        if callbacks.DisableDescriptionChange then
-            logger:Warning("[Callbacks] Description changes are disabled. Change prevented.")
-            return true  -- prevent
-        end
-        logger:Debug("[Callbacks] Description change allowed.")
-        return false  -- allow
-    end)
-    if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnDescriptionChange: " .. tostring(result))
-        return false -- on error allow change (safe behavior)
-    end
-    return result -- true = block, false = allow
+    return callbacks:_HandleProtectedChange("DisableDescriptionChange", "Description change", memrec, "OnDescriptionChange")
 end
 registerLuaFunctionHighlight('AddressList.OnDescriptionChange')
 
@@ -298,25 +330,7 @@ registerLuaFunctionHighlight('AddressList.OnDescriptionChange')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnAddressChange = function(addresslist, memrec)
-    local ok, result = pcall(function()
-        logger:DebugF(
-            "[Callbacks] [OnAddressChange]\n" ..
-            "\tDescription : %s\n" ..
-            "\tOld Address : 0x%X",
-            memrec.Description,
-            memrec.CurrentAddress or 0)
-        if callbacks.DisableAddressChange then
-            logger:Warning("[Callbacks] Address changes are disabled. Change prevented.")
-            return true -- Prevent the change
-        end
-        logger:Debug("[Callbacks] Address change allowed.")
-        return false -- Allow
-    end)
-    if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnAddressChange: " .. tostring(result))
-        return false
-    end
-    return result -- true = block, false = allow
+    return callbacks:_HandleProtectedChange("DisableAddressChange", "Address change", memrec, "OnAddressChange")
 end
 registerLuaFunctionHighlight('AddressList.OnAddressChange')
 
@@ -328,27 +342,7 @@ registerLuaFunctionHighlight('AddressList.OnAddressChange')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnTypeChange = function(addresslist, memrec)
-    local ok, result = pcall(function()
-        logger:DebugF(
-            "[Callbacks] [OnTypeChange]\n" ..
-            "\tDescription : %s\n" ..
-            "\tAddress     : 0x%X\n" ..
-            "\tOld Type    : %s",
-            memrec.Description,
-            memrec.CurrentAddress or 0,
-            memrec.VarType or "N/A")
-        if callbacks.DisableTypeChange then
-            logger:Warning("[Callbacks] Type changes are disabled. Change prevented.")
-            return true -- Prevent the change
-        end
-        logger:Debug("[Callbacks] Type change allowed.")
-        return false -- Allow
-    end)
-    if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnTypeChange: " .. tostring(result))
-        return false
-    end
-    return result -- true = block, false = allow
+    return callbacks:_HandleProtectedChange("DisableTypeChange", "Type change", memrec, "OnTypeChange")
 end
 registerLuaFunctionHighlight('AddressList.OnTypeChange')
 
@@ -360,29 +354,7 @@ registerLuaFunctionHighlight('AddressList.OnTypeChange')
 --- @return boolean # true to prevent the change, false to allow it
 --
 AddressList.OnValueChange = function(addresslist, memrec)
-    local ok, result = pcall(function()
-        local value = memrec.Value
-        if value == nil or value == "" then value = "N/A" end
-        logger:DebugF(
-            "[Callbacks] [OnValueChange]\n" ..
-            "\tDescription : %s\n" ..
-            "\tAddress     : 0x%X\n" ..
-            "\tOld Value   : %s",
-            memrec.Description,
-            memrec.CurrentAddress or 0,
-            tostring(value))
-        if callbacks.DisableValueChange then
-            logger:Warning("[Callbacks] Value changes are disabled. Change prevented.")
-            return true -- Prevent
-        end
-        logger:Debug("[Callbacks] Value change allowed.")
-        return false -- Allow
-    end)
-    if not ok and logger and logger.Error then
-        logger:Error("[Callbacks] Error in OnValueChange: " .. tostring(result))
-        return false
-    end
-    return result -- true = block, false = allow
+    return callbacks:_HandleProtectedChange("DisableValueChange", "Value change", memrec, "OnValueChange")
 end
 registerLuaFunctionHighlight('AddressList.OnValueChange')
 
@@ -396,27 +368,20 @@ registerLuaFunctionHighlight('AddressList.OnValueChange')
 local o_AddressList_OnAutoAssemblerEdit = AddressList.OnAutoAssemblerEdit
 AddressList.OnAutoAssemblerEdit = function(addresslist, memrec)
     local ok, result = pcall(function()
-        logger:DebugF(
-            "[Callbacks] [OnAutoAssemblerEdit]\n" ..
-            "\tDescription : %s\n" ..
-            "\tAddress     : 0x%X",
-            memrec.Description,
-            memrec.CurrentAddress or 0)
-        if callbacks.DisableAutoAssemblerEdits then
-            logger:Warning("[Callbacks] Auto Assembler edits are disabled. Edit prevented.")
+        if callbacks:GetDisableAutoAssemblerEdits() then
+            callbacks:_LogBlockedAction("Auto Assembler edit", memrec)
             return true -- Prevent edit
         end
-        logger:Debug("[Callbacks] Auto Assembler edit allowed.")
         if o_AddressList_OnAutoAssemblerEdit then
             local ok2, err2 = pcall(o_AddressList_OnAutoAssemblerEdit, addresslist, memrec)
             if not ok2 then
-                logger:Error("[Callbacks] Error in original OnAutoAssemblerEdit: " .. tostring(err2))
+                logger:Error(MODULE_PREFIX .. " Error in original OnAutoAssemblerEdit: " .. tostring(err2))
             end
         end
         return false -- Allow edit
     end)
     if not ok then
-        logger:Error("[Callbacks] Error in OnAutoAssemblerEdit: " .. tostring(result))
+        logger:Error(MODULE_PREFIX .. " Error in OnAutoAssemblerEdit: " .. tostring(result))
         return false -- safe fallback: allow edit
     end
     return result -- true = block, false = allow
@@ -435,7 +400,7 @@ LuaEngine.OnShow = function(...)
     if o_LuaEngine_OnShow then
         local ok, err = pcall(o_LuaEngine_OnShow, ...)
         if not ok and logger and logger.Error then
-            logger:Error("[Callbacks] Error in original LuaEngine.OnShow: " .. tostring(err))
+            logger:Error(MODULE_PREFIX .. " Error in original LuaEngine.OnShow: " .. tostring(err))
         end
     end
     if ui and ui.ActiveTheme and ui.ActiveTheme ~= "" and ui.ApplyThemeToLuaEngine and ui.GetActiveThemeData then
@@ -445,58 +410,14 @@ LuaEngine.OnShow = function(...)
             for _ = 1, 2 do
                 local ok2, err2 = pcall(ui.ApplyThemeToLuaEngine, ui, themeData)
                 if not ok2 and logger and logger.Error then
-                    logger:Error("[Callbacks] Error applying theme to Lua Engine: " .. tostring(err2))
+                    logger:Error(MODULE_PREFIX .. " Error applying theme to Lua Engine: " .. tostring(err2))
                 end
             end
         elseif not ok and logger and logger.Error then
-            logger:Error("[Callbacks] Error getting active theme data: " .. tostring(themeData))
+            logger:Error(MODULE_PREFIX .. " Error getting active theme data: " .. tostring(themeData))
         end
     end
 end
-
---
---- ∑ Main Form OnClose Callback Override.
---- This function is called when the main form is being closed.
---- It ensures that all scripts are properly deactivated before closing.
---- @param ... any # Additional parameters passed to the original OnClose function
---
---[[
-o_MainForm_OnClose = MainForm and MainForm.OnClose
-MainForm.OnClose = function(sender)
-    for i = 0, AddressList.Count - 1 do
-        local mr = AddressList.getMemoryRecord(i)
-        if mr.Type == vtAutoAssembler then
-            mr.Async = false
-            logger:Debug("[Callbacks] Disabling Async State for Auto Assembler Script: " .. mr.Description)
-        end
-        if (i % math.max(1, math.floor(AddressList.Count / 10))) == 0 then
-            logger:Debug("[Callbacks] Disabling Async State Progress... " .. tostring(math.floor((i / AddressList.Count) * 100)) .. "%")
-        end
-    end
-    for i = AddressList.Count - 1, 0, -1 do
-        local mr = AddressList.getMemoryRecord(i)
-        if mr.Type == vtAutoAssembler then
-            if mr.Active then
-                logger:DebugF("[Callbacks] Deactivating Auto Assembler Script: %s", mr.Description)
-                mr.Active = false
-            end
-        end
-        if (i % math.max(1, math.floor(AddressList.Count / 10))) == 0 then
-            logger:Debug("[Callbacks] Deactivating Scripts Progress... " .. tostring(math.floor(((AddressList.Count - i) / AddressList.Count) * 100)) .. "%")
-        end
-    end
-    logger:Debug("[Callbacks] Cheat Table is ready to close. All Auto Assembler scripts deactivated.")
-    -- Call original handler, but IGNORE its return value
-    if o_MainForm_OnClose then
-        pcall(o_MainForm_OnClose, sender)
-    else
-        logger:Debug("[Callbacks] No original MainForm.OnClose handler to call. What the- *panic*")
-    end
-    logger:Info("[Callbacks] Alright, last  chance, buddy! Closing Cheat Table using pure force now! (caFree)")
-    -- ALWAYS allow close
-    return caFree
-end
-]]
 
 --------------------------------------------------------
 --                   Module End                       --
