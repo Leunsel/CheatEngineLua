@@ -1,6 +1,6 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.3"
+local VERSION = "1.0.4"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
@@ -15,6 +15,10 @@ local DESCRIPTION = "Manifold Framework State"
     
     ∂ v1.0.3 (2024-06-12)
         Improved async memory record handling during state restoration. - Leunsel
+
+    ∂ v1.0.4 (2026-04-21)
+        Reduced duplicated state serialization and validation logic.
+        Simplified restore/save flows and trimmed low-value debug logging.
 ]]--
 
 State = {
@@ -22,11 +26,13 @@ State = {
 }
 State.__index = State
 
+local MODULE_PREFIX = "[State]"
+
 function State:New()
     local instance = setmetatable({}, self)
     self:CheckDependencies()
     instance.Name = NAME or "Unnamed Module"
-    instance.TableStateDir = State:EnsureStateDirectory()
+    instance.TableStateDir = self:EnsureStateDirectory()
     return instance
 end
 registerLuaFunctionHighlight('New')
@@ -46,7 +52,7 @@ registerLuaFunctionHighlight('GetModuleInfo')
 function State:PrintModuleInfo()
     local info = self:GetModuleInfo()
     if not info then
-        logger:Info("[State] Failed to retrieve module info.")
+        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
         return
     end
     logger:Info("Module Info : "  .. tostring(info.name))
@@ -78,6 +84,36 @@ for num, name in pairs(HOTKEY_ACTIONS) do
     HOTKEY_ACTION_NUMBERS[name] = num
 end
 
+local function _isValidString(value)
+    return type(value) == "string" and value ~= ""
+end
+
+local function _describeRecord(mr)
+    if not mr then
+        return "Unknown Record"
+    end
+    return string.format("ID=%s (Description='%s')", tostring(mr.ID), tostring(mr.Description))
+end
+
+local function _serializeHotkeys(mr)
+    local hotkeys = {}
+    if not (mr and mr.HotkeyCount and mr.HotkeyCount > 0) then
+        return hotkeys
+    end
+    for hkIndex = 0, mr.HotkeyCount - 1 do
+        local hotkey = mr.getHotkey(hkIndex)
+        if hotkey then
+            hotkeys[#hotkeys + 1] = {
+                keys = hotkey.Keys,
+                action = HOTKEY_ACTION_NUMBERS[hotkey.Action] or 0,
+                description = hotkey.Description,
+                value = hotkey.Value
+            }
+        end
+    end
+    return hotkeys
+end
+
 --
 --- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
 --- @return void
@@ -86,28 +122,24 @@ end
 --
 function State:CheckDependencies()
     local dependencies = {
-        -- JSON is now handled by CustomIO
-        -- { name = "json", path = "Manifold.Json",  init = function() json = JSON:new() end },
         { name = "logger", path = "Manifold.Logger",  init = function() logger = Logger:New() end },
         { name = "customIO", path = "Manifold.CustomIO", init = function() customIO = CustomIO:New() end },
         { name = "processHandler", path = "Manifold.ProcessHandler", init = function() processHandler = ProcessHandler:New() end}
     }
     for _, dep in ipairs(dependencies) do
-        local depName = dep.name
-        if _G[depName] == nil then
-            logger:Warning("[State] '" .. depName .. "' dependency not found. Attempting to load...")
+        if _G[dep.name] == nil then
+            logger:Warning(MODULE_PREFIX .. " '" .. dep.name .. "' dependency not found. Attempting to load...")
             local success, result = pcall(CETrequire, dep.path)
             if success then
-                logger:Info("[State] Loaded dependency '" .. depName .. "'.")
                 if dep.init then dep.init() end
+                logger:Info(MODULE_PREFIX .. " Loaded dependency '" .. dep.name .. "'.")
             else
-                logger:Error("[State] Failed to load dependency '" .. depName .. "': " .. result)
+                logger:Error(MODULE_PREFIX .. " Failed to load dependency '" .. dep.name .. "': " .. tostring(result))
             end
-        else
-            logger:Debug("[State] Dependency '" .. depName .. "' is already loaded")
         end
     end  
 end
+registerLuaFunctionHighlight('CheckDependencies')
 
 --
 --- ∑ Ensures that the State Directory exists within the Data Directory.
@@ -116,23 +148,18 @@ end
 --
 function State:EnsureStateDirectory()
     if not customIO:EnsureDataDirectory() then
-        logger:Error("[State] Data Directory missing; cannot ensure State Directory.")
+        logger:Error(MODULE_PREFIX .. " Data Directory missing; cannot ensure State Directory.")
         return nil
     end
     local stateDir = customIO.DataDir .. "\\State"
-    local exists, err = customIO:DirectoryExists(stateDir)
-    if not exists and err then
-        logger:Error("[State] Failed to check State Dir: " .. err)
-        return nil
-    end
-    if not exists then
-        logger:Warning("[State] State Dir missing; creating it...")
+    if not customIO:DirectoryExists(stateDir) then
+        logger:Warning(MODULE_PREFIX .. " State Dir missing; creating it...")
         local ok, err = customIO:CreateDirectory(stateDir)
         if not ok then
-            logger:Error("[State] Create State Dir failed: " .. (err or "Unknown error"))
+            logger:Error(MODULE_PREFIX .. " Create State Dir failed: " .. (err or "Unknown error"))
             return nil
         end
-        logger:Info("[State] State Dir created.")
+        logger:Info(MODULE_PREFIX .. " State Dir created.")
     end
     return stateDir
 end
@@ -144,28 +171,14 @@ registerLuaFunctionHighlight('EnsureStateDirectory')
 --
 function State:GetIndexedAddressList()
     if not AddressList then
-        logger:Error("[State] AddressList is nil!")
+        logger:Error(MODULE_PREFIX .. " AddressList is nil!")
         return nil
     end
     local indexedList = {}
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr then
-            local hotkeys = {}
-            if mr.HotkeyCount and mr.HotkeyCount > 0 then
-                for hkIndex = 0, mr.HotkeyCount - 1 do
-                    local hotkey = mr.getHotkey(hkIndex)
-                    if hotkey then
-                        table.insert(hotkeys, {
-                            keys = hotkey.Keys,
-                            action = HOTKEY_ACTION_NUMBERS[hotkey.Action] or 0,
-                            description = hotkey.Description,
-                            value = hotkey.Value
-                        })
-                    end
-                end
-            end
-            table.insert(indexedList, {
+            indexedList[#indexedList + 1] = {
                 index = i,
                 id = mr.ID,
                 description = mr.Description,
@@ -174,11 +187,10 @@ function State:GetIndexedAddressList()
                     or (mr.IsGroupHeader and "HeaderID") 
                     or "MemoryRecord",
                 HotkeyCount = mr.HotkeyCount,
-                Hotkeys = hotkeys
-            })
+                Hotkeys = _serializeHotkeys(mr)
+            }
         end
     end
-    table.sort(indexedList, function(a, b) return a.index < b.index end)
     local keyedList = {}
     for _, entry in ipairs(indexedList) do
         if entry.id then
@@ -190,41 +202,46 @@ end
 registerLuaFunctionHighlight('GetIndexedAddressList')
 
 --
---- ∑ Retrieves the current process name.
---- @return string  # The current process name.
---- @throws error if the process is nil.
---
-function State:GetProcessName()
-    if not process then
-        logger:Error("[State] Process is nil!")
-        return nil
-    end
-    logger:Debug("[State] Process: " .. process)
-    return process
-end
-
---
 --- ∑ Retrieves the full file path for a state file based on the state name.
 --- @param stateName string  # The name of the state.
 --- @return string|nil  # The full file path to the state file, or nil if the path cannot be determined.
 --- @note The file path is constructed using the process name and the state name.
 --
 function State:GetStateFilePath(stateName)
-    if not stateName or stateName == "" then
-        logger:Error("[State] Invalid state name!")
+    if not _isValidString(stateName) then
+        logger:Error(MODULE_PREFIX .. " Invalid state name!")
         return nil
     end
-    local stateDir = self:EnsureStateDirectory()
+    local stateDir = self.TableStateDir or self:EnsureStateDirectory()
     if not stateDir then
         return nil
     end
-    procName = customIO:StripExt(processHandler:GetAttachedProcessName())
+    local procName = customIO:StripExt(processHandler:GetAttachedProcessName())
     local fileName = "Manifold." .. stateName .. "." .. procName .. ".State"
-    local fullPath = stateDir .. "\\" .. fileName
-    logger:Debug("[State] File path: " .. fullPath)
-    return fullPath
+    return stateDir .. "\\" .. fileName
 end
 registerLuaFunctionHighlight('GetStateFilePath')
+
+--
+--- ∑ Builds a compact state entry for an active record or record with hotkeys.
+--- @param rec table
+--- @return table|nil
+--
+function State:_BuildStateRecord(rec)
+    local hotkeys = rec.Hotkeys or {}
+    if not rec.active and #hotkeys == 0 then
+        return nil
+    end
+    return {
+        index = rec.index,
+        id = rec.id,
+        description = rec.description,
+        type = rec.type,
+        active = rec.active,
+        hotkeys = hotkeys
+    }
+end
+registerLuaFunctionHighlight('_BuildStateRecord')
 
 --
 --- ∑ Saves the current state of the memory records to a state file.
@@ -233,45 +250,25 @@ registerLuaFunctionHighlight('GetStateFilePath')
 --- @note This function retrieves the active memory records and writes them to the state file.
 --
 function State:SaveTableState(stateName)
-    if not stateName or stateName == "" then
-        logger:Error("[State] Invalid state name!")
+    if not _isValidString(stateName) then
+        logger:Error(MODULE_PREFIX .. " Invalid state name!")
         return false
     end
     local stateData = {}
-    local indexedList, keyedList = self:GetIndexedAddressList()
+    local indexedList = self:GetIndexedAddressList()
     for _, rec in ipairs(indexedList) do
-        if rec.active or (rec.HotkeyCount and rec.HotkeyCount > 0) then
-            local recordData = {
-                index = rec.index,
-                id = rec.id,
-                description = rec.description,
-                type = rec.type,
-                active = rec.active,
-                hotkeys = {}
-            }
-            if rec.Hotkeys and #rec.Hotkeys > 0 then
-                for _, hotkey in ipairs(rec.Hotkeys) do
-                    table.insert(recordData.hotkeys, {
-                        keys = hotkey.keys,
-                        action = hotkey.action,
-                        description = hotkey.description,
-                        value = hotkey.value
-                    })
-                end
-            end
-            if #recordData.hotkeys > 0 or rec.active then
-                table.insert(stateData, recordData)
-            end
+        local recordData = self:_BuildStateRecord(rec)
+        if recordData then
+            stateData[#stateData + 1] = recordData
         end
     end
     if #stateData == 0 then
-        logger:Warning("[State] No active records to save.")
+        logger:Warning(MODULE_PREFIX .. " No active records to save.")
         return false
     end
-    logger:Info("[State] " .. #stateData .. " records to save.")
     local procName = processHandler:GetAttachedProcessName()
     if not procName then
-        logger:Error("[State] No process attached. Cannot save state '" .. stateName .. "'.")
+        logger:Error(MODULE_PREFIX .. " No process attached. Cannot save state '" .. stateName .. "'.")
         return false
     end
     local filePath = self:GetStateFilePath(stateName)
@@ -280,30 +277,11 @@ function State:SaveTableState(stateName)
     end
     local ok = self:WriteStateFile(filePath, stateData)
     if ok then
-        logger:Info("[State] State saved to '" .. filePath .. "'.")
+        logger:Info(string.format("%s State '%s' saved with %d records.", MODULE_PREFIX, stateName, #stateData))
     end
     return ok
 end
 registerLuaFunctionHighlight('SaveTableState')
-
---
---- ∑ Creates lookup tables for faster access by ID and description.
---- @return table # Returns the indexed list of memory records.
---- @return table # Returns a map of memory records by their ID.
---- @return table # Returns a map of memory records by their description.
---
-function State:CreateLookupTables()
-    local indexedList = self:GetIndexedAddressList()
-    local idMap, descMap = {}, {}
-    for i = 0, AddressList.Count - 1 do
-        local mr = AddressList.getMemoryRecord(i)
-        if mr then
-            idMap[mr.ID] = mr
-            descMap[mr.Description] = mr
-        end
-    end
-    return indexedList, idMap, descMap
-end
 
 --
 --- ∑ Runs a function on CE's main thread (GUI thread) to safely touch MemoryRecords/Hotkeys.
@@ -332,12 +310,10 @@ end
 --
 function State:SetMemoryRecordState(mr, state, timeoutMs)
     if not mr then
-        logger:Warning("[State] SetMemoryRecordState called with nil mr.")
+        logger:Warning(MODULE_PREFIX .. " SetMemoryRecordState called with nil mr.")
         return false
     end
     if mr.Active == state then
-        logger:Debug(string.format("[State] Memory Record ID=%s already %s (Description='%s').",
-            tostring(mr.ID), state and "active" or "inactive", tostring(mr.Description)))
         return true
     end
     timeoutMs = tonumber(timeoutMs) or 10000
@@ -354,17 +330,9 @@ function State:SetMemoryRecordState(mr, state, timeoutMs)
         -- If async, wait (bounded) until processing finishes
         if mr.Async then
             asyncWasProcessing = true
-            -- Start timestamp
             local startMs = (type(getTickCount) == "function")
                 and getTickCount()
                 or math.floor(os.clock() * 1000)
-            -- Optional: debug line once (not spam)
-            logger:Debug(string.format(
-                "[State] Waiting for async %s of Memory Record ID=%s (Description='%s') up to %dms...",
-                state and "activation" or "deactivation", id, desc, timeoutMs))
-            -- Optional: heartbeat every N ms (debug only)
-            local heartbeatEveryMs = 250
-            local nextHeartbeatMs = startMs + heartbeatEveryMs
             while mr.AsyncProcessing do
                 if type(processMessages) == "function" then processMessages() end
                 if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
@@ -373,20 +341,11 @@ function State:SetMemoryRecordState(mr, state, timeoutMs)
                     and getTickCount()
                     or math.floor(os.clock() * 1000)
                 waitedMs = nowMs - startMs
-                -- Heartbeat (debug). If you don't want it, set heartbeatEveryMs = nil or 0.
-                if heartbeatEveryMs and heartbeatEveryMs > 0 and nowMs >= nextHeartbeatMs then
-                    logger:Debug(string.format(
-                        "[State] Async still processing ID=%s after %dms (Description='%s').",
-                        id, waitedMs, desc
-                    ))
-                    nextHeartbeatMs = nowMs + heartbeatEveryMs
-                end
                 if waitedMs >= timeoutMs then
                     didTimeout = true
                     break
                 end
             end
-            -- Final waitedMs if loop exited quickly
             if waitedMs == 0 then
                 local endMs = (type(getTickCount) == "function")
                     and getTickCount()
@@ -395,22 +354,22 @@ function State:SetMemoryRecordState(mr, state, timeoutMs)
             end
         end
     end)
-    -- Post-check (outside main thread OK: read-only)
     if mr.Active ~= state then
-        logger:Warning(string.format("[State] Failed to %s Memory Record ID=%s (Description='%s'). Active=%s Async=%s AsyncProcessing=%s", id, desc, tostring(mr.Active), tostring(mr.Async), tostring(mr.AsyncProcessing)))
+        logger:Warning(string.format("%s Failed to set %s. Active=%s Async=%s AsyncProcessing=%s", MODULE_PREFIX, _describeRecord(mr), tostring(mr.Active), tostring(mr.Async), tostring(mr.AsyncProcessing)))
         return false
     end
     if asyncWasProcessing then
         if didTimeout then
-            logger:Warning(string.format("[State] %s requested for Memory Record ID=%s (Description='%s') but async processing timed out after %dms. AsyncProcessing=%s", id, desc, waitedMs, tostring(mr.AsyncProcessing)))
+            logger:Warning(string.format("%s %s timed out after %dms. AsyncProcessing=%s", MODULE_PREFIX, _describeRecord(mr), waitedMs, tostring(mr.AsyncProcessing)))
         else
-            logger:Info(string.format("[State] Memory Record ID=%s (Description='%s') %s. Async completed in %dms.", id, desc, state and "activated" or "deactivated", waitedMs))
+            logger:Info(string.format("%s %s %s. Async completed in %dms.", MODULE_PREFIX, _describeRecord(mr), state and "activated" or "deactivated", waitedMs))
         end
     else
-        logger:Info(string.format("[State] Memory Record ID=%s (Description='%s') %s (non-async).", id, desc, state and "activated" or "deactivated"))
+        logger:Info(string.format("%s %s %s.", MODULE_PREFIX, _describeRecord(mr), state and "activated" or "deactivated"))
     end
     return true
 end
+registerLuaFunctionHighlight('SetMemoryRecordState')
 
 --
 --- ∑ Restores the state of memory records based on the state file.
@@ -420,7 +379,7 @@ end
 --
 function State:RestoreState(stateData)
     if not (AddressList and stateData) then
-        logger:Error("[State] AddressList or stateData is not available.")
+        logger:Error(MODULE_PREFIX .. " AddressList or stateData is not available.")
         return { activatedCount = 0, deactivatedCount = 0, unchangedCount = 0, failedCount = 0 }
     end
     local stateLookup = {}
@@ -435,8 +394,6 @@ function State:RestoreState(stateData)
             local targetState = rec and rec.active or false
             if mr.Active == targetState then
                 stats.unchangedCount = stats.unchangedCount + 1
-                logger:Debug(string.format("[State] Unchanged Memory Record ID=%s (Description='%s').",
-                    tostring(mr.ID), tostring(mr.Description)))
             else
                 if self:SetMemoryRecordState(mr, targetState) then
                     if targetState then
@@ -444,14 +401,8 @@ function State:RestoreState(stateData)
                     else
                         stats.deactivatedCount = stats.deactivatedCount + 1
                     end
-                    logger:Info(string.format("[State] %s Memory Record ID=%s (Description='%s').",
-                        targetState and "Activated" or "Deactivated",
-                        tostring(mr.ID), tostring(mr.Description)))
                 else
                     stats.failedCount = stats.failedCount + 1
-                    logger:Warning(string.format("[State] Failed to %s Memory Record ID=%s (Description='%s').",
-                        targetState and "activate" or "deactivate",
-                        tostring(mr.ID), tostring(mr.Description)))
                 end
             end
             if rec and rec.hotkeys and #rec.hotkeys > 0 then
@@ -469,13 +420,14 @@ function State:RestoreState(stateData)
                     if type(processMessages) == "function" then processMessages() end
                     if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
                 end)
-                logger:Info(string.format("[State] Restored %d hotkeys for Memory Record ID=%s (Description='%s').",
-                    #rec.hotkeys, tostring(mr.ID), tostring(mr.Description)))
+                logger:Info(string.format("%s Restored %d hotkeys for %s.", MODULE_PREFIX, #rec.hotkeys, _describeRecord(mr)))
             end
         end
     end
+    logger:Info(string.format("%s Restore complete. Activated: %d, Deactivated: %d, Unchanged: %d, Failed: %d", MODULE_PREFIX, stats.activatedCount, stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
     return stats
 end
+registerLuaFunctionHighlight('RestoreState')
 
 --
 --- ∑ Loads the state of memory records from a state file.
@@ -483,30 +435,27 @@ end
 --- @return boolean  # Returns true if the state was successfully loaded, otherwise false.
 --
 function State:LoadTableState(stateName)
-    if not stateName or stateName == "" then
-        logger:Error("[State] Invalid state name!")
+    if not _isValidString(stateName) then
+        logger:Error(MODULE_PREFIX .. " Invalid state name!")
         return false
     end
     local procName = processHandler:GetAttachedProcessName()
     if not procName then
-        logger:Error("[State] No process attached. Cannot load state '" .. stateName .. "'.")
+        logger:Error(MODULE_PREFIX .. " No process attached. Cannot load state '" .. stateName .. "'.")
         return false
     end
     local filePath = self:GetStateFilePath(stateName)
     if not filePath then
-        logger:Error("[State] State file path not resolved.")
+        logger:Error(MODULE_PREFIX .. " State file path not resolved.")
         return false
     end
     local stateData = self:ReadStateFile(filePath)
     if not stateData then
-        logger:Error("[State] Failed to read state file.")
+        logger:Error(MODULE_PREFIX .. " Failed to read state file.")
         return false
     end
-    local stats = self:RestoreState(stateData)
-    logger:Info(string.format(
-        "[State] State '%s' loaded. Activated: %d, Deactivated: %d, Unchanged: %d, Failed: %d",
-        stateName, stats.activatedCount, stats.deactivatedCount, stats.unchangedCount, stats.failedCount
-    ))
+    self:RestoreState(stateData)
+    logger:Info(string.format("%s State '%s' loaded.", MODULE_PREFIX, stateName))
     return true
 end
 registerLuaFunctionHighlight('LoadTableState')
@@ -520,7 +469,7 @@ registerLuaFunctionHighlight('LoadTableState')
 --
 function State:RestoreOriginalState()
     if not AddressList then
-        logger:Error("[State] AddressList is not available.")
+        logger:Error(MODULE_PREFIX .. " AddressList is not available.")
         return { deactivatedCount = 0, unchangedCount = 0, failedCount = 0 }
     end
     local stats = { deactivatedCount = 0, unchangedCount = 0, failedCount = 0 }
@@ -530,21 +479,15 @@ function State:RestoreOriginalState()
             if mr.Active then
                 if self:SetMemoryRecordState(mr, false) then
                     stats.deactivatedCount = stats.deactivatedCount + 1
-                    logger:Info(string.format("[State] Memory Record ID=%s has been successfully deactivated.",
-                        tostring(mr.ID)))
                 else
                     stats.failedCount = stats.failedCount + 1
-                    logger:Warning(string.format("[State] Memory Record ID=%s failed to deactivate properly.",
-                        tostring(mr.ID)))
                 end
             else
                 stats.unchangedCount = stats.unchangedCount + 1
-                logger:Debug(string.format("[State] Memory Record ID=%s was already deactivated.",
-                    tostring(mr.ID)))
             end
         end
     end
-    logger:Info(string.format("[State] RestoreOriginalState completed. Deactivated: %d, Unchanged: %d, Failed: %d", stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
+    logger:Info(string.format("%s RestoreOriginalState completed. Deactivated: %d, Unchanged: %d, Failed: %d", MODULE_PREFIX, stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
     return stats
 end
 registerLuaFunctionHighlight('RestoreOriginalState')
@@ -557,21 +500,19 @@ registerLuaFunctionHighlight('RestoreOriginalState')
 --- @note This function calls the WriteToFileAsJson function to write the state data as JSON.
 --
 function State:WriteStateFile(path, data)
-    if not path or path == "" then
-        logger:Error("[State] Invalid file path!")
+    if not _isValidString(path) then
+        logger:Error(MODULE_PREFIX .. " Invalid file path!")
         return false
     end
     if not data or type(data) ~= "table" then
-        logger:Error("[State] Invalid data provided!")
+        logger:Error(MODULE_PREFIX .. " Invalid data provided!")
         return false
     end
-    logger:Debug("[State] Writing state file...")
     local ok, err = customIO:WriteToFileAsJson(path, data)
     if not ok then
-        logger:Error("[State] Write failed: " .. (err or "Unknown error"))
+        logger:Error(MODULE_PREFIX .. " Write failed: " .. (err or "Unknown error"))
         return false
     end
-    logger:Info("[State] State written to file.")
     return true
 end
 registerLuaFunctionHighlight('WriteStateFile')
@@ -583,17 +524,15 @@ registerLuaFunctionHighlight('WriteStateFile')
 --- @note This function calls the ReadFromFileAsJson function to read the state data from a JSON file.
 --
 function State:ReadStateFile(path)
-    if not path or path == "" then
-        logger:Error("[State] Invalid file path!")
+    if not _isValidString(path) then
+        logger:Error(MODULE_PREFIX .. " Invalid file path!")
         return nil
     end
-    logger:Debug("[State] Reading state file: " .. path)
     local data, err = customIO:ReadFromFileAsJson(path)
     if not data then
-        logger:Error("[State] Read failed: " .. (err or "Unknown error"))
+        logger:Error(MODULE_PREFIX .. " Read failed: " .. (err or "Unknown error"))
         return nil
     end
-    logger:Info("[State] State loaded from file.")
     return data
 end
 registerLuaFunctionHighlight('ReadStateFile')
