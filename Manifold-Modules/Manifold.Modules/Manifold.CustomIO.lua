@@ -1,6 +1,6 @@
 local NAME = "Manifold.CustomIO.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework CustomIO"
 
 --[[
@@ -16,10 +16,50 @@ local DESCRIPTION = "Manifold Framework CustomIO"
             - (CustomIO:WriteToTableFileAsJson)
         Adjusted the write procedure to correctly handle byte streams.
             - (CustomIO:WriteToTableFile and CustomIO:WriteToTableFileAsJson)
+
+    ∂ v1.0.3 (2026-04-21)
+        Reduced low-value log noise and focused logging on failures and meaningful state changes.
 ]]--
 
 CustomIO = {}
 CustomIO.__index = CustomIO
+
+local MODULE_PREFIX = "[CustomIO]"
+
+--
+--- ∑ Internal helper function to check if a value is a non-empty string.
+--- @param value any
+--- @return boolean
+--
+local function _isString(value)
+    return type(value) == "string" and value ~= ""
+end
+
+--
+--- ∑ Internal helper function to read the content of a Cheat Engine table file.
+--- @param tableFile tableFileObject
+--- @return string|nil
+--
+local function _readTableFile(tableFile)
+    local stream = tableFile.getData()
+    local bytes = stream.read(stream.Size)
+    return string.char(table.unpack(bytes))
+end
+
+--
+--- ∑ Internal helper function to write text data to a Cheat Engine table file.
+--- @param tableFile tableFileObject
+--- @param text string
+--- @return boolean
+--- Note: This function overwrites the entire content of the table file with the provided text.
+--
+local function _writeTableFile(tableFile, text)
+    local stream = tableFile.Stream
+    stream.Position = 0
+    stream.Size = 0
+    stream.write({string.byte(text, 1, -1)})
+    stream.Position = 0
+end
 
 function CustomIO:New()
     local instance = setmetatable({}, self)
@@ -45,7 +85,7 @@ registerLuaFunctionHighlight('GetModuleInfo')
 function CustomIO:PrintModuleInfo()
     local info = self:GetModuleInfo()
     if not info then
-        logger:Info("[CustomIO] Failed to retrieve module info.")
+        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
         return
     end
     logger:Info("Module Info : "  .. tostring(info.name))
@@ -63,36 +103,26 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 
 --
 --- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
---- @return # void
---- @note This function checks for the existence of the 'json' dependency,
----       and attempts to load it if not already present.
 --
 function CustomIO:CheckDependencies()
-    local dependencies = {
-        { name = "json", path = "Manifold.Json",  init = function() json = JSON:new() end },
-        -- Logger is assumed to be loaded as it's a core dependency.
-    }
-    for _, dep in ipairs(dependencies) do
-        local depName = dep.name
-        if _G[depName] == nil then
-            logger:Warning("[CustomIO] '" .. depName .. "' dependency not found. Attempting to load...")
-            local success, result = pcall(CETrequire, dep.path)
-            if success then
-                logger:Info("[CustomIO] Loaded dependency '" .. depName .. "'.")
-                if dep.init then dep.init() end
-            else
-                logger:Error("[CustomIO] Failed to load dependency '" .. depName .. "': " .. result)
-            end
-        else
-            logger:Debug("[CustomIO] Dependency '" .. depName .. "' is already loaded")
-        end
-    end  
+    if json ~= nil then
+        return
+    end
+    logger:Warning(MODULE_PREFIX .. " 'json' dependency not found. Attempting to load...")
+    local success, result = pcall(CETrequire, "Manifold.Json")
+    if success then
+        json = JSON:new()
+        logger:Info(MODULE_PREFIX .. " Loaded dependency 'json'.")
+    else
+        logger:Error(MODULE_PREFIX .. " Failed to load dependency 'json': " .. tostring(result))
+    end
 end
+registerLuaFunctionHighlight('CheckDependencies')
 
 --
 --- ∑ Checks if a directory exists.
---- @param dir string # The directory path to check for existence.
---- @return boolean # Returns 'true' if the directory exists, 'false' otherwise.
+--- @param dir string
+--- @return boolean
 --
 function CustomIO:DirectoryExists(dir)
     local attr = lfs.attributes(dir)
@@ -102,34 +132,34 @@ registerLuaFunctionHighlight('DirectoryExists')
 
 --
 --- ∑ Ensures that a directory exists, creating it if necessary.
---- @param path string # The directory path to check or create.
---- @return boolean # Returns 'true' if the directory exists or was created successfully, 'false' otherwise.
+--- @param path string
+--- @return boolean
 --
 function CustomIO:EnsureDirectoryExists(path)
-    if not customIO:DirectoryExists(path) then
-        local success, err = customIO:CreateDirectory(path)
-        if not success then
-            logger:Error("[CustomIO] Failed to create folder '" .. path .. "': " .. (err or "Unknown error"))
-            return false
-        end
+    if not _isString(path) then
+        logger:Error(MODULE_PREFIX .. " Invalid directory path.")
+        return false
     end
-    return true
+    if self:DirectoryExists(path) then
+        return true
+    end
+    return self:CreateDirectory(path)
 end
 registerLuaFunctionHighlight('EnsureDirectoryExists')
 
 --
 --- ∑ Builds a complete file path from the provided directory and file name.
---- @param dir string # The directory path.
---- @param fileName string # The file name (including extension).
---- @return string # Returns the full path, properly formatted.
+--- @param dir string
+--- @param fileName string
+--- @return string|nil
 --
 function CustomIO:BuildPath(dir, fileName)
-    if not dir or type(dir) ~= "string" or dir == "" then
-        logger:Error("[CustomIO] Invalid directory path.")
+    if not _isString(dir) then
+        logger:Error(MODULE_PREFIX .. " Invalid directory path.")
         return nil
     end
-    if not fileName or type(fileName) ~= "string" or fileName == "" then
-        logger:Error("[CustomIO] Invalid file name.")
+    if not _isString(fileName) then
+        logger:Error(MODULE_PREFIX .. " Invalid file name.")
         return nil
     end
     if not dir:match("[\\/]$") then
@@ -141,120 +171,111 @@ registerLuaFunctionHighlight('BuildPath')
 
 --
 --- ∑ Attempts to create a directory if it does not exist.
---- @param dir string # The directory path to create.
---- @return boolean # Returns 'true' if the directory was successfully created, 'false' if there was an error.
---- @note This function logs an error message if the directory creation fails.
+--- @param dir string
+--- @return boolean, string|nil
 --
 function CustomIO:CreateDirectory(dir)
-    local attributes = lfs.attributes(dir)
-    if attributes and attributes.mode == "directory" then
-        logger:Info("[CustomIO] Directory already exists: " .. dir)
-        return true  -- No need to create it if it already exists
+    if not _isString(dir) then
+        logger:Error(MODULE_PREFIX .. " Invalid directory path.")
+        return false, "Invalid directory path"
+    end
+    if self:DirectoryExists(dir) then
+        return true
     end
     local success = lfs.mkdir(dir)
     if not success then
-        local err = "Unknown error"
-        if not lfs.attributes(dir) then
-            err = "Permission denied or invalid path"
-        end
-        logger:Error("[CustomIO] Failed to create directory '" .. dir .. "'! Error: " .. err)
+        local err = lfs.attributes(dir) and "Unknown error" or "Permission denied or invalid path"
+        logger:Error(MODULE_PREFIX .. " Failed to create directory '" .. dir .. "': " .. err)
         return false, err
     end
-    logger:Info("[CustomIO] Successfully created directory: " .. dir)
+    logger:Info(MODULE_PREFIX .. " Created directory: " .. dir)
     return true
 end
 registerLuaFunctionHighlight('CreateDirectory')
 
 --
 --- ∑ Opens a directory using the system's default file explorer.
---- @param dir string # The directory path to open.
---- @return boolean # Returns 'true' if the directory was opened successfully, 'false' otherwise.
+--- @param dir string
+--- @return boolean
 --
 function CustomIO:OpenDirectory(dir)
-    if not dir or type(dir) ~= "string" or dir == "" then
-        logger:Error("[CustomIO] Invalid directory path.")
+    if not _isString(dir) then
+        logger:Error(MODULE_PREFIX .. " Invalid directory path.")
         return false
     end
     if not self:DirectoryExists(dir) then
-        logger:Error("[CustomIO] Directory does not exist: '" .. dir .. "'")
+        logger:Error(MODULE_PREFIX .. " Directory does not exist: '" .. dir .. "'")
         return false
     end
     local success, result = pcall(os.execute, string.format('start /b "" "%s"', dir))
     if success then
-        logger:Info("[CustomIO] Opened folder: '" .. dir .. "'")
+        logger:Info(MODULE_PREFIX .. " Opened directory: " .. dir)
         return true
-    else
-        logger:Error("[CustomIO] Failed to open folder '" .. dir .. "': " .. result)
-        return false
     end
+    logger:Error(MODULE_PREFIX .. " Failed to open directory '" .. dir .. "': " .. tostring(result))
+    return false
 end
 registerLuaFunctionHighlight('OpenDirectory')
 
 --
 --- ∑ Strips the extension from a file name.
---- @param fileName string # The file name to process.
---- @return string|nil # Returns the file name without the extension, or nil on error.
+--- @param fileName string
+--- @return string|nil
 --
 function CustomIO:StripExt(fileName)
-    if not fileName or type(fileName) ~= "string" or fileName == "" then
-        logger:Error("[CustomIO] Invalid file name provided for StripExt.")
+    if not _isString(fileName) then
+        logger:Error(MODULE_PREFIX .. " Invalid file name provided for StripExt.")
         return nil
     end
-    local nameWithoutExt = fileName:match("(.+)%.[^%.]+$")
-    if not nameWithoutExt or nameWithoutExt == "" then
-        logger:Warning("[CustomIO] Failed to strip extension from file name: '" .. fileName .. "'. Returning original name.")
-        return fileName
-    end
-    logger:Info("[CustomIO] Stripped extension from file name: '" .. fileName .. "' -> '" .. nameWithoutExt .. "'")
-    return nameWithoutExt
+    return fileName:match("(.+)%.[^%.]+$") or fileName
 end
 registerLuaFunctionHighlight('StripExt')
 
 --
 --- ∑ Checks if a file exists at the specified path.
---- @param filePath string # The path of the file to check.
---- @return boolean # Returns 'true' if the file exists, 'false' otherwise.
---- @note This function simply attempts to open the file in read mode. If the file can be opened, it is considered to exist.
+--- @param filePath string
+--- @return boolean
 --
 function CustomIO:FileExists(filePath)
     local file = io.open(filePath, "r")
     if file then
         file:close()
         return true
-    else
-        return false
     end
+    return false
 end
 registerLuaFunctionHighlight('FileExists')
 
 --
 --- ∑ Attempts to delete a file at the given path.
---- @param filePath string # The path of the file to delete.
---- @return boolean # Returns 'true' if the file was successfully deleted, 'false' if there was an error.
---- @note This function logs an error message if the file deletion fails.
+--- @param filePath string
+--- @return boolean, string|nil
 --
 function CustomIO:DeleteFile(filePath)
-    if not filePath then
+    if not _isString(filePath) then
         return false, "File path is missing"
     end
-    local success, err = pcall(function()
-        os.remove(filePath)
-    end)
+    if not self:FileExists(filePath) then
+        logger:Warning(MODULE_PREFIX .. " File not found for deletion: '" .. filePath .. "'")
+        return false, "File not found"
+    end
+    local success, err = pcall(os.remove, filePath)
     if not success then
-        logger:Error("[CustomIO] Failed to delete file '" .. filePath .. "': " .. err)
+        logger:Error(MODULE_PREFIX .. " Failed to delete file '" .. filePath .. "': " .. tostring(err))
         return false, err
     end
+    logger:Info(MODULE_PREFIX .. " Deleted file: " .. filePath)
     return true
 end
 registerLuaFunctionHighlight('DeleteFile')
 
 --
 --- ∑ Reads the contents of a file and returns it as a string.
---- @param filePath string # The path of the file to read from.
---- @returns string|nil, string|nil # Returns the file contents or 'nil' with an error message.
+--- @param filePath string
+--- @returns string|nil, string|nil
 --
 function CustomIO:ReadFromFile(filePath)
-    if not filePath then
+    if not _isString(filePath) then
         return nil, "Invalid parameter: filePath is missing"
     end
     local file, err = io.open(filePath, "r")
@@ -263,8 +284,7 @@ function CustomIO:ReadFromFile(filePath)
     end
     local content = file:read("*all")
     file:close()
-    
-    if not content then
+    if content == nil then
         return nil, "Failed to read content from file"
     end
     return content
@@ -273,22 +293,26 @@ registerLuaFunctionHighlight('ReadFromFile')
 
 --
 --- ∑ Writes raw text data to a specified file, overwriting it.
---- @param filePath string # The path of the file to write to.
---- @param text string # The text content to be written.
---- @return boolean, string|nil # Returns 'true' if successful, otherwise 'false' and an error message.
+--- @param filePath string
+--- @param data string
+--- @return boolean, string|nil
 --
 function CustomIO:WriteToFile(filePath, data)
-    if not filePath or not data then
+    if not _isString(filePath) or data == nil then
         return false, "Invalid parameters: filePath or data is missing"
     end
-    local success, err = pcall(function()
-        local file = assert(io.open(filePath, "w"))
-        file:write(data)
-        file:close()
-    end)
-    if not success then
-        logger:Error("[CustomIO] Failed to write to file '" .. filePath .. "': " .. err)
+    local file, err = io.open(filePath, "w")
+    if not file then
+        logger:Error(MODULE_PREFIX .. " Failed to open file '" .. filePath .. "' for writing: " .. tostring(err))
         return false, err
+    end
+    local success, writeErr = pcall(function()
+        file:write(data)
+    end)
+    file:close()
+    if not success then
+        logger:Error(MODULE_PREFIX .. " Failed to write to file '" .. filePath .. "': " .. tostring(writeErr))
+        return false, writeErr
     end
     return true
 end
@@ -296,22 +320,26 @@ registerLuaFunctionHighlight('WriteToFile')
 
 --
 --- ∑ Appends raw text data to a specified file.
---- @param filePath string # The path of the file to append to.
---- @param text string # The text content to be appended.
---- @return boolean, string|nil # Returns 'true' if successful, otherwise 'false' and an error message.
+--- @param filePath string
+--- @param data string
+--- @return boolean, string|nil
 --
 function CustomIO:AppendToFile(filePath, data)
-    if not filePath or not data then
+    if not _isString(filePath) or data == nil then
         return false, "Invalid parameters: filePath or data is missing"
     end
-    local success, err = pcall(function()
-        local file = assert(io.open(filePath, "a"))
-        file:write(data .. "\n")
-        file:close()
-    end)
-    if not success then
-        logger:Error("[CustomIO] Failed to append to file '" .. filePath .. "': " .. err)
+    local file, err = io.open(filePath, "a")
+    if not file then
+        logger:Error(MODULE_PREFIX .. " Failed to open file '" .. filePath .. "' for appending: " .. tostring(err))
         return false, err
+    end
+    local success, writeErr = pcall(function()
+        file:write(data .. "\n")
+    end)
+    file:close()
+    if not success then
+        logger:Error(MODULE_PREFIX .. " Failed to append to file '" .. filePath .. "': " .. tostring(writeErr))
+        return false, writeErr
     end
     return true
 end
@@ -319,9 +347,8 @@ registerLuaFunctionHighlight('AppendToFile')
 
 --
 --- ∑ Attempts to read a CSV file and returns its contents as a table.
---- @param filePath string # The path to the CSV file to read.
---- @return table|nil, string|nil # A table of rows (each row is a table of values), or 'nil' and an error message if reading fails.
---- @note Assumes the CSV data is comma-separated and may fail for complex CSV formats (e.g., commas inside quoted fields).
+--- @param filePath string
+--- @return table|nil, string|nil
 --
 function CustomIO:ReadCSV(filePath)
     local content, err = self:ReadFromFile(filePath)
@@ -341,25 +368,28 @@ registerLuaFunctionHighlight('ReadCSV')
 
 --
 --- ∑ Writes data to a CSV file at the specified path.
---- @param filePath string # The path to the CSV file to write to.
---- @param data table # A table of rows, each row being a table of values.
---- @return boolean, string|nil # Returns 'true' if successful, or 'false' and an error message if writing fails.
---- @note Assumes simple CSV format (comma-separated values) and does not handle special cases like quoted fields with commas.
+--- @param filePath string
+--- @param data table
+--- @return boolean, string|nil
 --
 function CustomIO:WriteCSV(filePath, data)
-    if not filePath or not data then
+    if not _isString(filePath) or type(data) ~= "table" then
         return false, "Invalid parameters: filePath or data is missing"
     end
-    local success, err = pcall(function()
-        local file = assert(io.open(filePath, "w"))
+    local file, err = io.open(filePath, "w")
+    if not file then
+        logger:Error(MODULE_PREFIX .. " Failed to open CSV file '" .. filePath .. "' for writing: " .. tostring(err))
+        return false, err
+    end
+    local success, writeErr = pcall(function()
         for _, row in ipairs(data) do
             file:write(table.concat(row, ",") .. "\n")
         end
-        file:close()
     end)
+    file:close()
     if not success then
-        logger:Error("[CustomIO] Failed to write to CSV file '" .. filePath .. "': " .. err)
-        return false, err
+        logger:Error(MODULE_PREFIX .. " Failed to write to CSV file '" .. filePath .. "': " .. tostring(writeErr))
+        return false, writeErr
     end
     return true
 end
@@ -367,75 +397,60 @@ registerLuaFunctionHighlight('WriteCSV')
 
 --
 --- ∑ Reads the content of a Cheat Engine table file and returns it as a string.
---- @param fileName string # The name of the table file to read from.
---- @return string|nil, string|nil # The file content as a string, or 'nil' and an error message if reading fails.
---- @note Logs a warning if the file is not found.
+--- @param fileName string
+--- @return string|nil, string|nil
 --
 function CustomIO:ReadFromTableFile(fileName)
-    if not fileName then
+    if not _isString(fileName) then
         return nil, "Invalid parameter: fileName is missing"
     end
-    logger:Info("[CustomIO] Reading data from Table File '" .. fileName .. "'!")
+    logger:Info(MODULE_PREFIX .. " Reading table file '" .. fileName .. "'.")
     local tableFile = findTableFile(fileName)
     if not tableFile then
-        logger:Warning("[CustomIO] Table File '" .. fileName .. "' not found!")
+        logger:Warning(MODULE_PREFIX .. " Table file not found: '" .. fileName .. "'")
         return nil, "File not found"
     end
-    local success, content = pcall(function()
-        local stream = tableFile.getData()
-        local bytes = stream.read(stream.Size)
-        return string.char(table.unpack(bytes))
-    end)
+    local success, content = pcall(_readTableFile, tableFile)
     if not success or not content then
-        logger:Error("[CustomIO] Failed to read from Table File '" .. fileName .. "'!")
+        logger:Error(MODULE_PREFIX .. " Failed to read table file '" .. fileName .. "'.")
         return nil, "Read error"
     end
-    logger:Info("[CustomIO] Successfully read data from Table File '" .. fileName .. "'!")
+    logger:Info(MODULE_PREFIX .. " Read table file '" .. fileName .. "'.")
     return content
 end
 registerLuaFunctionHighlight('ReadFromTableFile')
 
 --
 --- ∑ Writes a given text string to a Cheat Engine table file.
---- @param fileName string # The name of the table file to write to.
---- @param text string # The text content to be written to the file.
---- @return boolean # Returns true if the write operation is successful, otherwise false.
---- @note Attempts to create the file if not found.
+--- @param fileName string
+--- @param text string
+--- @return boolean
 --
 function CustomIO:WriteToTableFile(fileName, text)
-    if not fileName or type(text) ~= "string" then
-        logger:Error("[CustomIO] Invalid parameters: fileName or text is missing or not a string!")
+    if not _isString(fileName) or type(text) ~= "string" then
+        logger:Error(MODULE_PREFIX .. " Invalid parameters: fileName or text is missing or not a string.")
         return false
     end
-    logger:Info("[CustomIO] Writing data to file '" .. fileName .. "'!")
-    -- logger:Info("[CustomIO] Data:\n" .. text)
+    logger:Info(MODULE_PREFIX .. " Writing table file '" .. fileName .. "'.")
     local tableFile = findTableFile(fileName) or createTableFile(fileName)
     if not tableFile then
-        logger:Error("[CustomIO] Failed to create/find table file '" .. fileName .. "'!")
+        logger:Error(MODULE_PREFIX .. " Failed to create/find table file '" .. fileName .. "'.")
         return false
     end
-    local success, err = pcall(function()
-        local stream = tableFile.Stream
-        stream.Position = 0
-        stream.Size = 0
-        local bytes = { string.byte(text, 1, -1) }
-        stream.write(bytes)
-        stream.Position = 0
-    end)
+    local success, err = pcall(_writeTableFile, tableFile, text)
     if not success then
-        logger:Error("[CustomIO] Failed to write data to file '" .. fileName .. "'! Error: " .. err)
+        logger:Error(MODULE_PREFIX .. " Failed to write table file '" .. fileName .. "': " .. tostring(err))
         return false
     end
-    logger:Info("[CustomIO] Successfully wrote data to file '" .. fileName .. "'!")
+    logger:Info(MODULE_PREFIX .. " Wrote table file '" .. fileName .. "'.")
     return true
 end
 registerLuaFunctionHighlight('WriteToTableFile')
 
 --
 --- ∑ Reads the content of a Cheat Engine table file and returns it as a parsed JSON object.
---- @param fileName string # The name of the table file to read from.
---- @return table|nil, string|nil # The parsed JSON content as a table, or 'nil' and an error message if reading or parsing fails.
---- @note Logs a warning if the file is not found.
+--- @param fileName string
+--- @return table|nil, string|nil
 --
 function CustomIO:ReadFromTableFileAsJson(fileName)
     local content, err = self:ReadFromTableFile(fileName)
@@ -446,7 +461,7 @@ function CustomIO:ReadFromTableFileAsJson(fileName)
         return json:decode(content)
     end)
     if not success or not jsonData then
-        logger:Error("[CustomIO] Failed to parse JSON from Table File '" .. fileName .. "'!")
+        logger:Error(MODULE_PREFIX .. " Failed to parse JSON from table file '" .. fileName .. "'.")
         return nil, "JSON parse error"
     end
     return jsonData
@@ -455,19 +470,20 @@ registerLuaFunctionHighlight('ReadFromTableFileAsJson')
 
 --
 --- ∑ Writes a table as JSON to a Cheat Engine table file.
---- @param fileName string # The name of the table file to write to.
---- @param data table # The table to be serialized as JSON and written to the file.
---- @return boolean # Returns true if the write operation is successful, otherwise false.
---- @note Attempts to create the file if not found.
+--- @param fileName string
+--- @param data table
+--- @return boolean
 --
 function CustomIO:WriteToTableFileAsJson(fileName, data)
-    if not fileName or type(data) ~= "table" then
-        logger:Error("[CustomIO] Invalid parameters: fileName is missing or data is not a table!")
+    if not _isString(fileName) or type(data) ~= "table" then
+        logger:Error(MODULE_PREFIX .. " Invalid parameters: fileName is missing or data is not a table.")
         return false
     end
-    local jsonText = json:encode(data)
-    if not jsonText then
-        logger:Error("[CustomIO] Failed to encode table data as JSON!")
+    local success, jsonText = pcall(function()
+        return json:encode(data)
+    end)
+    if not success or not jsonText then
+        logger:Error(MODULE_PREFIX .. " Failed to encode table data as JSON.")
         return false
     end
     return self:WriteToTableFile(fileName, jsonText)
@@ -476,64 +492,56 @@ registerLuaFunctionHighlight('WriteToTableFileAsJson')
 
 --
 --- ∑ Reads a JSON file, decodes it into a Lua table, and returns the data.
---- @param filePath string # The path of the JSON file to read from.
---- @returns table|nil, string|nil # Returns the parsed table or 'nil' with an error message if reading or decoding fails.
+--- @param filePath string
+--- @returns table|nil, string|nil
 --
 function CustomIO:ReadFromFileAsJson(filePath)
-    if not self:FileExists(filePath) then
-        return nil, string.format("File '%s' does not exist.", filePath)
-    end
     local content, err = self:ReadFromFile(filePath)
     if not content then
         return nil, err
     end
-    -- logger:Debug("[CustomIO] Raw content read from file: " .. content)
     local data, decodeErr = json:decode(content)
     if not data then
         return nil, string.format("Failed to parse JSON: %s", decodeErr or "Unknown error")
     end
-    -- logger:Debug("[CustomIO] Decoded JSON data: " .. tostring(data))
     return data
 end
 registerLuaFunctionHighlight('ReadFromFileAsJson')
 
 --
 --- ∑ Serializes Lua data into JSON and writes it to a specified file.
---- @param filePath string # The path of the file to write to.
---- @param data table # The Lua table to be serialized as JSON.
---- @return boolean, string|nil # Returns 'true' if successful, or 'false' and an error message if writing fails.
+--- @param filePath string
+--- @param data table
+--- @return boolean, string|nil
 --
 function CustomIO:WriteToFileAsJson(filePath, data)
-    if not filePath or not data then
+    if not _isString(filePath) or type(data) ~= "table" then
         return false, "Invalid parameters: filePath or data is missing"
     end
-    local success, err = pcall(function()
-        local file = assert(io.open(filePath, "w"))
-        file:write(json:encode_pretty(data))
-        file:close()
+    local success, jsonText = pcall(function()
+        return json:encode_pretty(data)
     end)
-    if not success then
-        return false, string.format("Failed to write JSON to file: %s", err)
+    if not success or not jsonText then
+        logger:Error(MODULE_PREFIX .. " Failed to encode JSON for file '" .. filePath .. "'.")
+        return false, "JSON encode error"
     end
-    return true
+    return self:WriteToFile(filePath, jsonText)
 end
 registerLuaFunctionHighlight('WriteToFileAsJson')
 
 --
 --- ∑ Ensures the Data Directory exists.
---- @return boolean # Returns true if the directory exists or is created successfully, false if creation fails.
---- @note Logs success or failure when attempting to create the directory.
+--- @return boolean
 --
 function CustomIO:EnsureDataDirectory()
     local dataDir = self.DataDir
     if self:DirectoryExists(dataDir) then return true end
-    logger:Warning("[CustomIO] Data Directory does not exist, attempting to create it.")
+    logger:Warning(MODULE_PREFIX .. " Data directory missing. Attempting to create it.")
     local success, err = self:CreateDirectory(dataDir)
     if not success then
-        logger:Error("[CustomIO] Failed to create Data Directory: " .. (err or "Unknown Error"))
+        logger:Error(MODULE_PREFIX .. " Failed to create Data Directory: " .. (err or "Unknown Error"))
         return false
     end
-    logger:Info("[CustomIO] Successfully created Data Directory: '" .. dataDir .. "'")
     return true
 end
 registerLuaFunctionHighlight('EnsureDataDirectory')
