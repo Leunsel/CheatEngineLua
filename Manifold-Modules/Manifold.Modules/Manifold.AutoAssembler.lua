@@ -1,6 +1,6 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.2"
+local VERSION = "2.0.3"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
@@ -22,6 +22,9 @@ local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
     ∂ v2.0.2 (2026-02-13)
         Adjusted Logging for AutoAssemble Failures.
+
+    ∂ v2.0.3 (2026-04-21)
+        Added missing PrintModuleInfo function to AutoAssembler.
 ]]--
 
 AutoAssembler = {
@@ -114,6 +117,24 @@ function _trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 function AutoAssembler:GetModuleInfo()
     return { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
 end
+
+--
+--- ∑ Prints module details in a readable formatted block.
+--
+function AutoAssembler:PrintModuleInfo()
+    local info = self:GetModuleInfo()
+    if not info then
+        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
+        return
+    end
+    logger:Info("Module Info : "  .. tostring(info.name))
+    logger:Info("\tVersion:     " .. tostring(info.version))
+    local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
+    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
+    logger:Info("\tAuthor:      " .. author)
+    logger:Info("\tDescription: " .. description .. "\n")
+end
+registerLuaFunctionHighlight('PrintModuleInfo')
 
 --
 --- ∑ Sets the expected process name for this table.
