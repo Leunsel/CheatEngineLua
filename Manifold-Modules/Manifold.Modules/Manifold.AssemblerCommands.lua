@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -31,6 +31,10 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
     ∂ v1.1.0 (2026-04-20)
         Refactored command lifecycle, validation, and registration into shared helpers.
         Centralized patch/assert logic and reduced command-specific boilerplate for scalability.
+
+    ∂ v1.1.1 (2026-04-25)
+        Adjusted ManifoldScanModule module validation to check against loaded modules in attach context, not just main module name.
+        There was no real module validation before, so this is a significant improvement to prevent CE from crashing.
 ]]--
 
 AssemblerCommands = {
@@ -624,6 +628,42 @@ function AssemblerCommands:_resolveAddress(expr)
 end
 
 --
+--- ∑ Checks whether a module argument can belong to the current attach context.
+---   The main process module is valid, but loaded DLL modules are valid targets too.
+--- @param moduleName any
+--- @return boolean
+--- @return string|nil
+--
+function AssemblerCommands:_isModuleSuitableForAttachContext(moduleName)
+    local normalizedModule = self:_stripQuotes(moduleName)
+    if normalizedModule == "" then return false, "moduleName empty" end
+    if type(process) == "string" and process ~= "" and normalizedModule:lower() == process:lower() then
+        return true, nil
+    end
+    local enumModulesFn = rawget(_G, "enumModules")
+    if type(enumModulesFn) == "function" then
+        local ok, modules = pcall(enumModulesFn)
+        if not ok then return false, "module list could not be read: " .. tostring(modules) end
+        local expected = normalizedModule:lower()
+        for _, module in ipairs(modules or {}) do
+            local moduleNameText = module and module.Name
+            if type(moduleNameText) == "string" and moduleNameText:lower() == expected then
+                return true, nil
+            end
+        end
+        return false, "module ('" .. moduleName .. "') is not loaded in the current attach context"
+    end
+    local getAddressSafeFn = rawget(_G, "getAddressSafe")
+    if type(getAddressSafeFn) == "function" then
+        local ok, address = pcall(function() return getAddressSafeFn(normalizedModule) end)
+        if ok and address then return true, nil end
+        if not ok then return false, "module could not be resolved: " .. tostring(address) end
+        return false, "module ('" .. moduleName .. "') is not loaded in the current attach context"
+    end
+    return true, nil
+end
+
+--
 --- ∑ Reads and resolves a required address argument in one step.
 ---   This helper exists because almost every runtime command starts with the same
 ---   "read arg -> resolve address -> format error" flow.
@@ -815,6 +855,8 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     logger:DebugF("   Alignment Param: %s", tostring(alignmentParam))
     if normalizedModule == "" then return nil, "moduleName empty" end
     if normalizedSignature == "" then return nil, "signature empty" end
+    local moduleOk, moduleErr = self:_isModuleSuitableForAttachContext(normalizedModule)
+    if not moduleOk then return nil, moduleErr end
     local fn = rawget(_G, "AOBScanModuleUnique")
     if type(fn) ~= "function" then return nil, "AOBScanModuleUnique not available" end
     local ok, addrOrErr = pcall(function()
