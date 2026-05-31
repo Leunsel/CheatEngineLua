@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -35,6 +35,9 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
     ∂ v1.1.1 (2026-04-25)
         Adjusted ManifoldScanModule module validation to check against loaded modules in attach context, not just main module name.
         There was no real module validation before, so this is a significant improvement to prevent CE from crashing.
+
+    v1.1.2 (2026-05-30)
+        Added ManifoldResolveStatic mode handling for x86 abs32 operands while keeping x64 RIP-relative defaults.
 ]]--
 
 AssemblerCommands = {
@@ -42,6 +45,9 @@ AssemblerCommands = {
     LOG_SIG_MAX_DEBUG = 64,
     DEFAULT_RESOLVE_STATIC_DISP_OFFSET = 3,
     DEFAULT_RESOLVE_STATIC_INSTR_LENGTH = 7,
+    DEFAULT_RESOLVE_STATIC_ABS_OFFSET = 1,
+    DEFAULT_RESOLVE_STATIC_ABS_INSTR_LENGTH = 5,
+    DEFAULT_RESOLVE_STATIC_MODE = "auto",
     ActivePatches = nil
 }
 AssemblerCommands.__index = AssemblerCommands
@@ -390,7 +396,105 @@ function AssemblerCommands:_parseOptionalNumberArg(args, index, commandName, fie
 end
 
 --
---- ∑ Parses a byte pattern with wildcard support.
+--- Normalizes a ManifoldResolveStatic address calculation mode.
+--- @param value any
+--- @return string|nil
+--- @return string|nil
+--
+function AssemblerCommands:_normalizeResolveStaticMode(value)
+    if self:_isBlank(value) then return nil, nil end
+    local text = self:_stripQuotes(value):lower():gsub("[%s_%-%./]+", "")
+    if text == "auto" then return "auto", nil end
+    if text == "rip" or text == "riprelative" or text == "relative" or text == "rel" or text == "rel32" or text == "disp32" then
+        return "rip", nil
+    end
+    if text == "absolute" or text == "abs" or text == "abs32" or text == "x86" or text == "moffs" or text == "moffs32" then
+        return "absolute", nil
+    end
+    return nil, "expected auto, rip/relative, or absolute/abs32"
+end
+
+function AssemblerCommands:_parseResolveStaticOptions(args, commandName)
+    local mode = nil
+    local dispOffset = nil
+    local instructionLength = nil
+    local thirdMode, thirdModeErr = self:_normalizeResolveStaticMode(args[3])
+    if thirdMode then
+        mode = thirdMode
+        local offsetErr, lengthErr
+        dispOffset, offsetErr = self:_parseOptionalNumberArg(args, 4, commandName, "disp offset", nil)
+        if offsetErr then return nil, offsetErr end
+        instructionLength, lengthErr = self:_parseOptionalNumberArg(args, 5, commandName, "instruction length", nil)
+        if lengthErr then return nil, lengthErr end
+    else
+        if not self:_isBlank(args[3]) and self:_parseNumber(args[3]) == nil then
+            return nil, string.format("%s: invalid disp offset or resolve mode (Argument 3): '%s' (%s)", commandName, tostring(args[3]), tostring(thirdModeErr))
+        end
+        local offsetErr
+        dispOffset, offsetErr = self:_parseOptionalNumberArg(args, 3, commandName, "disp offset", nil)
+        if offsetErr then return nil, offsetErr end
+        local fourthMode, fourthModeErr = self:_normalizeResolveStaticMode(args[4])
+        if fourthMode then
+            mode = fourthMode
+            local lengthErr
+            instructionLength, lengthErr = self:_parseOptionalNumberArg(args, 5, commandName, "instruction length", nil)
+            if lengthErr then return nil, lengthErr end
+        else
+            if not self:_isBlank(args[4]) and self:_parseNumber(args[4]) == nil then
+                return nil, string.format("%s: invalid instruction length or resolve mode (Argument 4): '%s' (%s)", commandName, tostring(args[4]), tostring(fourthModeErr))
+            end
+            local lengthErr
+            instructionLength, lengthErr = self:_parseOptionalNumberArg(args, 4, commandName, "instruction length", nil)
+            if lengthErr then return nil, lengthErr end
+            local fifthMode, fifthModeErr = self:_normalizeResolveStaticMode(args[5])
+            if fifthMode then
+                mode = fifthMode
+            elseif not self:_isBlank(args[5]) then
+                return nil, string.format("%s: invalid resolve mode (Argument 5): '%s' (%s)", commandName, tostring(args[5]), tostring(fifthModeErr))
+            end
+        end
+    end
+    return {
+        Mode = mode or self.DEFAULT_RESOLVE_STATIC_MODE,
+        DispOffset = dispOffset,
+        InstructionLength = instructionLength
+    }, nil
+end
+
+function AssemblerCommands:_detectResolveStaticMode(baseAddr)
+    local bytes, err = self:_readBytes(baseAddr, 1)
+    if bytes and type(bytes[1]) == "number" then
+        local opcode = bytes[1]
+        if opcode >= 0xA0 and opcode <= 0xA3 then
+            return "absolute", string.format("opcode %02X uses an absolute moffs operand", opcode)
+        end
+        return "rip", string.format("opcode %02X uses RIP-relative defaults", opcode)
+    end
+    return "rip", "opcode read unavailable; using RIP-relative defaults (" .. tostring(err) .. ")"
+end
+
+function AssemblerCommands:_resolveStaticDefaults(mode, dispOffset, instructionLength)
+    if mode == "absolute" then
+        return dispOffset or self.DEFAULT_RESOLVE_STATIC_ABS_OFFSET,
+            instructionLength or self.DEFAULT_RESOLVE_STATIC_ABS_INSTR_LENGTH
+    end
+    return dispOffset or self.DEFAULT_RESOLVE_STATIC_DISP_OFFSET,
+        instructionLength or self.DEFAULT_RESOLVE_STATIC_INSTR_LENGTH
+end
+
+function AssemblerCommands:_readResolveStaticValue(readIntegerFn, operandAddr, mode)
+    local ok, value = pcall(function() return readIntegerFn(operandAddr, mode == "rip") end)
+    if not ok or value == nil then
+        return nil, tostring(value)
+    end
+    if mode == "absolute" and value < 0 then
+        value = value + 0x100000000
+    end
+    return value, nil
+end
+
+--
+--- Parses a byte pattern with wildcard support.
 ---   Supported examples:
 ---     - Exact byte tokens: "7B", "0x7B", "$7B"
 ---     - Wildcards: "?", "??", "**", "?*", "*?"
@@ -1053,16 +1157,22 @@ end
 --- ∑ Creates the Auto Assembler command handler for ManifoldResolveStatic.
 ---   Why this command exists:
 ---     x64 scripts often start from a scanned instruction, but what we really need is
----     the final RIP-relative target. This command resolves that target and emits a define(),
----     so later script sections can stay readable and avoid repeating disp32 math.
+---     the final RIP-relative target. x86 scripts can hit absolute imm32/moffs operands
+---     instead. This command resolves either form and emits a define(), so later script
+---     sections can stay readable and avoid repeating address math.
 ---   Usage example:
 ---     ManifoldScanModule(GlobalLoadInsn, SomeGame.exe, 48 8B 05 ?? ?? ?? ??)
----     ManifoldResolveStatic(GlobalPtr, GlobalLoadInsn, 3, 7)
----   Formula:
----     target = instructionAddress + instructionLength + disp32
+---     ManifoldResolveStatic(GlobalPtr, GlobalLoadInsn, 3, 7, rip)
+---     ManifoldResolveStatic(SavegamePtr, SavegameHook, absolute)
+---   Formulas:
+---     rip/relative: target = instructionAddress + instructionLength + disp32
+---     absolute/abs32: target = abs32
 ---   Why the defaults are 3 and 7:
 ---     Many common x64 RIP-relative instructions store the displacement after 3 bytes
 ---     and have a total instruction length of 7 bytes.
+---   Auto mode:
+---     Defaults to RIP-relative behavior, but detects A0-A3 moffs opcodes as absolute
+---     with an operand offset of 1 and instruction length of 5.
 --- @return function
 --
 function AssemblerCommands:_cmdManifoldResolveStatic()
@@ -1075,10 +1185,14 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
         if not symbol then return self:_commandError(ctx.Name, symbolErr) end
         local baseAddr, _, addrErr = self:_requireResolvedAddressArg(ctx.Args, 2, ctx.Name, "address expression")
         if not baseAddr then return self:_commandError(ctx.Name, addrErr) end
-        local dispOffset, dispErr = self:_parseOptionalNumberArg(ctx.Args, 3, ctx.Name, "disp offset", self.DEFAULT_RESOLVE_STATIC_DISP_OFFSET)
-        if dispErr then return self:_commandError(ctx.Name, dispErr) end
-        local instructionLength, instructionErr = self:_parseOptionalNumberArg(ctx.Args, 4, ctx.Name, "instruction length", self.DEFAULT_RESOLVE_STATIC_INSTR_LENGTH)
-        if instructionErr then return self:_commandError(ctx.Name, instructionErr) end
+        local options, optionsErr = self:_parseResolveStaticOptions(ctx.Args, ctx.Name)
+        if not options then return self:_commandError(ctx.Name, optionsErr) end
+        local mode = options.Mode
+        local detectReason = nil
+        if mode == "auto" then
+            mode, detectReason = self:_detectResolveStaticMode(baseAddr)
+        end
+        local dispOffset, instructionLength = self:_resolveStaticDefaults(mode, options.DispOffset, options.InstructionLength)
         if dispOffset < 0 then
             return self:_commandError(ctx.Name, ctx.Name .. ": disp offset must be >= 0")
         end
@@ -1089,16 +1203,30 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
         if type(readIntegerFn) ~= "function" then
             return self:_commandError(ctx.Name, ctx.Name .. ": readInteger not available")
         end
-        local ok, disp = pcall(function() return readIntegerFn(baseAddr + dispOffset, true) end)
-        if not ok or disp == nil then
-            return self:_commandError(ctx.Name, ctx.Name .. ": failed to read disp32")
+        local operandAddr = baseAddr + dispOffset
+        local value, valueErr = self:_readResolveStaticValue(readIntegerFn, operandAddr, mode)
+        if value == nil then
+            return self:_commandError(ctx.Name, ctx.Name .. ": failed to read 32-bit operand: " .. tostring(valueErr))
         end
-        local target = baseAddr + instructionLength + disp
+        local target
+        if mode == "absolute" then
+            target = value
+        else
+            target = baseAddr + instructionLength + value
+        end
         local targetName = getNameFromAddress(target)
         local replace = string.format("define(%s, %s)", symbol, targetName)
         logger:Info(MODULE_PREFIX .. " ManifoldResolveStatic OK")
+        logger:InfoF("   Mode        : %s", mode)
+        if detectReason then logger:InfoF("   Auto Detect : %s", detectReason) end
         logger:InfoF("   Base Address: %s", getNameFromAddress(baseAddr))
-        logger:InfoF("   Disp32      : %X", disp)
+        logger:InfoF("   Value Offset: %d", dispOffset)
+        if mode == "absolute" then
+            logger:InfoF("   Abs32       : %08X", value)
+        else
+            logger:InfoF("   Disp32      : %X", value)
+            logger:InfoF("   Instr Length: %d", instructionLength)
+        end
         logger:InfoF("   Target      : %s", targetName)
         logger:InfoF("   Replace Line: %s", replace)
         return replace
