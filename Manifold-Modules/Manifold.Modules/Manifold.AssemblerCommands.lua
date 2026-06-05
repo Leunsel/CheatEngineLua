@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.2"
+local VERSION = "1.1.4"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -38,6 +38,12 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
 
     v1.1.2 (2026-05-30)
         Added ManifoldResolveStatic mode handling for x86 abs32 operands while keeping x64 RIP-relative defaults.
+
+    v1.1.3 (2026-06-03)
+        Adjusted ManifoldResolveStatic output to emit raw address literals instead of resolved symbol names.
+
+    v1.1.4 (2026-06-03)
+        Adjusted ManifoldResolveStatic to dereference the resolved operand address and emit the loaded pointer value.
 ]]--
 
 AssemblerCommands = {
@@ -325,6 +331,20 @@ function AssemblerCommands:_syntaxDefine(symbol)
 end
 
 --
+--- Formats an address as a raw Auto Assembler hex literal without resolving symbols.
+--- @param address number
+--- @return string
+--
+function AssemblerCommands:_formatAddressLiteral(address)
+    if type(address) ~= "number" then return tostring(address) end
+    if address < 0 then address = address + 0x100000000 end
+    if address <= 0xFFFFFFFF then
+        return string.format("%08X", address)
+    end
+    return string.format("%016X", address)
+end
+
+--
 --- ∑ Reads a required argument or returns a consistent command-style error string.
 --- @param args table
 --- @param index number
@@ -491,6 +511,41 @@ function AssemblerCommands:_readResolveStaticValue(readIntegerFn, operandAddr, m
         value = value + 0x100000000
     end
     return value, nil
+end
+
+function AssemblerCommands:_isTarget64Bit()
+    local targetIs64BitFn = rawget(_G, "targetIs64Bit")
+    if type(targetIs64BitFn) == "function" then
+        local ok, result = pcall(targetIs64BitFn)
+        if ok then return result == true end
+    end
+    return false
+end
+
+function AssemblerCommands:_readPointerValue(addr)
+    local readPointerFn = rawget(_G, "readPointer")
+    if type(readPointerFn) == "function" then
+        local ok, value = pcall(function() return readPointerFn(addr) end)
+        if ok and value ~= nil then return value, nil end
+        return nil, tostring(value)
+    end
+
+    if self:_isTarget64Bit() then
+        local readQwordFn = rawget(_G, "readQword")
+        if type(readQwordFn) ~= "function" then return nil, "readPointer/readQword not available" end
+        local ok, value = pcall(function() return readQwordFn(addr) end)
+        if ok and value ~= nil then return value, nil end
+        return nil, tostring(value)
+    end
+
+    local readIntegerFn = rawget(_G, "readInteger")
+    if type(readIntegerFn) ~= "function" then return nil, "readPointer/readInteger not available" end
+    local ok, value = pcall(function() return readIntegerFn(addr, false) end)
+    if ok and value ~= nil then
+        if value < 0 then value = value + 0x100000000 end
+        return value, nil
+    end
+    return nil, tostring(value)
 end
 
 --
@@ -1157,16 +1212,17 @@ end
 --- ∑ Creates the Auto Assembler command handler for ManifoldResolveStatic.
 ---   Why this command exists:
 ---     x64 scripts often start from a scanned instruction, but what we really need is
----     the final RIP-relative target. x86 scripts can hit absolute imm32/moffs operands
----     instead. This command resolves either form and emits a define(), so later script
----     sections can stay readable and avoid repeating address math.
+---     the pointer loaded by its memory operand. x86 scripts can hit absolute
+---     imm32/moffs operands instead. This command resolves either form, dereferences
+---     it, and emits a define(), so later script sections can stay readable.
 ---   Usage example:
 ---     ManifoldScanModule(GlobalLoadInsn, SomeGame.exe, 48 8B 05 ?? ?? ?? ??)
 ---     ManifoldResolveStatic(GlobalPtr, GlobalLoadInsn, 3, 7, rip)
 ---     ManifoldResolveStatic(SavegamePtr, SavegameHook, absolute)
 ---   Formulas:
----     rip/relative: target = instructionAddress + instructionLength + disp32
----     absolute/abs32: target = abs32
+---     rip/relative: operandAddress = instructionAddress + instructionLength + disp32
+---     absolute/abs32: operandAddress = abs32
+---     target = readPointer(operandAddress)
 ---   Why the defaults are 3 and 7:
 ---     Many common x64 RIP-relative instructions store the displacement after 3 bytes
 ---     and have a total instruction length of 7 bytes.
@@ -1208,18 +1264,24 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
         if value == nil then
             return self:_commandError(ctx.Name, ctx.Name .. ": failed to read 32-bit operand: " .. tostring(valueErr))
         end
-        local target
+        local operandAddress
         if mode == "absolute" then
-            target = value
+            operandAddress = value
         else
-            target = baseAddr + instructionLength + value
+            operandAddress = baseAddr + instructionLength + value
         end
-        local targetName = getNameFromAddress(target)
-        local replace = string.format("define(%s, %s)", symbol, targetName)
+        local pointerValue, pointerErr = self:_readPointerValue(operandAddress)
+        if pointerValue == nil then
+            return self:_commandError(ctx.Name, ctx.Name .. ": failed to read pointer at resolved operand address: " .. tostring(pointerErr))
+        end
+        local baseLiteral = self:_formatAddressLiteral(baseAddr)
+        local operandLiteral = self:_formatAddressLiteral(operandAddress)
+        local pointerLiteral = self:_formatAddressLiteral(pointerValue)
+        local replace = string.format("define(%s, %s)", symbol, pointerLiteral)
         logger:Info(MODULE_PREFIX .. " ManifoldResolveStatic OK")
         logger:InfoF("   Mode        : %s", mode)
         if detectReason then logger:InfoF("   Auto Detect : %s", detectReason) end
-        logger:InfoF("   Base Address: %s", getNameFromAddress(baseAddr))
+        logger:InfoF("   Base Address: %s", baseLiteral)
         logger:InfoF("   Value Offset: %d", dispOffset)
         if mode == "absolute" then
             logger:InfoF("   Abs32       : %08X", value)
@@ -1227,7 +1289,8 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
             logger:InfoF("   Disp32      : %X", value)
             logger:InfoF("   Instr Length: %d", instructionLength)
         end
-        logger:InfoF("   Target      : %s", targetName)
+        logger:InfoF("   Operand Addr: %s", operandLiteral)
+        logger:InfoF("   Pointer     : %s", pointerLiteral)
         logger:InfoF("   Replace Line: %s", replace)
         return replace
     end
