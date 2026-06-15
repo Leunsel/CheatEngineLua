@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -44,6 +44,9 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
 
     v1.1.4 (2026-06-03)
         Adjusted ManifoldResolveStatic to dereference the resolved operand address and emit the loaded pointer value.
+
+    v1.1.5 (2026-06-13)
+        Adjusted ManifoldResolveStatic to define the static operand address by default and added pointer/value output mode.
 ]]--
 
 AssemblerCommands = {
@@ -54,6 +57,7 @@ AssemblerCommands = {
     DEFAULT_RESOLVE_STATIC_ABS_OFFSET = 1,
     DEFAULT_RESOLVE_STATIC_ABS_INSTR_LENGTH = 5,
     DEFAULT_RESOLVE_STATIC_MODE = "auto",
+    DEFAULT_RESOLVE_STATIC_OUTPUT_MODE = "address",
     ActivePatches = nil
 }
 AssemblerCommands.__index = AssemblerCommands
@@ -338,7 +342,7 @@ end
 function AssemblerCommands:_formatAddressLiteral(address)
     if type(address) ~= "number" then return tostring(address) end
     if address < 0 then address = address + 0x100000000 end
-    if address <= 0xFFFFFFFF then
+    if address <= 0xFFFFFFFF and not self:_isTarget64Bit() then
         return string.format("%08X", address)
     end
     return string.format("%016X", address)
@@ -434,50 +438,61 @@ function AssemblerCommands:_normalizeResolveStaticMode(value)
     return nil, "expected auto, rip/relative, or absolute/abs32"
 end
 
+function AssemblerCommands:_normalizeResolveStaticOutputMode(value)
+    if self:_isBlank(value) then return nil, nil end
+    local text = self:_stripQuotes(value):lower():gsub("[%s_%-%./]+", "")
+    if text == "address" or text == "addr" or text == "operand" or text == "operandaddress" or text == "slot" or text == "static" or text == "raw" then
+        return "address", nil
+    end
+    if text == "pointer" or text == "ptr" or text == "value" or text == "deref" or text == "dereference" or text == "target" then
+        return "pointer", nil
+    end
+    return nil, "expected address/slot/static or pointer/value/deref"
+end
+
 function AssemblerCommands:_parseResolveStaticOptions(args, commandName)
     local mode = nil
     local dispOffset = nil
     local instructionLength = nil
-    local thirdMode, thirdModeErr = self:_normalizeResolveStaticMode(args[3])
-    if thirdMode then
-        mode = thirdMode
-        local offsetErr, lengthErr
-        dispOffset, offsetErr = self:_parseOptionalNumberArg(args, 4, commandName, "disp offset", nil)
-        if offsetErr then return nil, offsetErr end
-        instructionLength, lengthErr = self:_parseOptionalNumberArg(args, 5, commandName, "instruction length", nil)
-        if lengthErr then return nil, lengthErr end
-    else
-        if not self:_isBlank(args[3]) and self:_parseNumber(args[3]) == nil then
-            return nil, string.format("%s: invalid disp offset or resolve mode (Argument 3): '%s' (%s)", commandName, tostring(args[3]), tostring(thirdModeErr))
-        end
-        local offsetErr
-        dispOffset, offsetErr = self:_parseOptionalNumberArg(args, 3, commandName, "disp offset", nil)
-        if offsetErr then return nil, offsetErr end
-        local fourthMode, fourthModeErr = self:_normalizeResolveStaticMode(args[4])
-        if fourthMode then
-            mode = fourthMode
-            local lengthErr
-            instructionLength, lengthErr = self:_parseOptionalNumberArg(args, 5, commandName, "instruction length", nil)
-            if lengthErr then return nil, lengthErr end
-        else
-            if not self:_isBlank(args[4]) and self:_parseNumber(args[4]) == nil then
-                return nil, string.format("%s: invalid instruction length or resolve mode (Argument 4): '%s' (%s)", commandName, tostring(args[4]), tostring(fourthModeErr))
-            end
-            local lengthErr
-            instructionLength, lengthErr = self:_parseOptionalNumberArg(args, 4, commandName, "instruction length", nil)
-            if lengthErr then return nil, lengthErr end
-            local fifthMode, fifthModeErr = self:_normalizeResolveStaticMode(args[5])
-            if fifthMode then
-                mode = fifthMode
-            elseif not self:_isBlank(args[5]) then
-                return nil, string.format("%s: invalid resolve mode (Argument 5): '%s' (%s)", commandName, tostring(args[5]), tostring(fifthModeErr))
+    local outputMode = nil
+
+    for i = 3, #args do
+        local raw = args[i]
+        if not self:_isBlank(raw) then
+            local parsedMode, modeErr = self:_normalizeResolveStaticMode(raw)
+            if parsedMode then
+                if mode then
+                    return nil, string.format("%s: duplicate resolve mode (Argument %d): '%s'", commandName, i, tostring(raw))
+                end
+                mode = parsedMode
+            else
+                local parsedOutputMode, outputErr = self:_normalizeResolveStaticOutputMode(raw)
+                if parsedOutputMode then
+                    if outputMode then
+                        return nil, string.format("%s: duplicate output mode (Argument %d): '%s'", commandName, i, tostring(raw))
+                    end
+                    outputMode = parsedOutputMode
+                else
+                    local numberValue = self:_parseNumber(raw)
+                    if numberValue == nil then
+                        return nil, string.format("%s: invalid resolve option (Argument %d): '%s' (%s; %s)", commandName, i, tostring(raw), tostring(modeErr), tostring(outputErr))
+                    end
+                    if dispOffset == nil then
+                        dispOffset = numberValue
+                    elseif instructionLength == nil then
+                        instructionLength = numberValue
+                    else
+                        return nil, string.format("%s: unexpected numeric resolve option (Argument %d): '%s'", commandName, i, tostring(raw))
+                    end
+                end
             end
         end
     end
     return {
         Mode = mode or self.DEFAULT_RESOLVE_STATIC_MODE,
         DispOffset = dispOffset,
-        InstructionLength = instructionLength
+        InstructionLength = instructionLength,
+        OutputMode = outputMode or self.DEFAULT_RESOLVE_STATIC_OUTPUT_MODE
     }, nil
 end
 
@@ -1212,17 +1227,19 @@ end
 --- ∑ Creates the Auto Assembler command handler for ManifoldResolveStatic.
 ---   Why this command exists:
 ---     x64 scripts often start from a scanned instruction, but what we really need is
----     the pointer loaded by its memory operand. x86 scripts can hit absolute
----     imm32/moffs operands instead. This command resolves either form, dereferences
----     it, and emits a define(), so later script sections can stay readable.
+---     the static address used by its memory operand. x86 scripts can hit absolute
+---     imm32/moffs operands instead. This command resolves either form and emits a
+---     define(), so later script sections can stay readable.
 ---   Usage example:
 ---     ManifoldScanModule(GlobalLoadInsn, SomeGame.exe, 48 8B 05 ?? ?? ?? ??)
 ---     ManifoldResolveStatic(GlobalPtr, GlobalLoadInsn, 3, 7, rip)
+---     ManifoldResolveStatic(GlobalValue, GlobalLoadInsn, 3, 7, rip, pointer)
 ---     ManifoldResolveStatic(SavegamePtr, SavegameHook, absolute)
 ---   Formulas:
 ---     rip/relative: operandAddress = instructionAddress + instructionLength + disp32
 ---     absolute/abs32: operandAddress = abs32
----     target = readPointer(operandAddress)
+---     address output: target = operandAddress
+---     pointer output: target = readPointer(operandAddress)
 ---   Why the defaults are 3 and 7:
 ---     Many common x64 RIP-relative instructions store the displacement after 3 bytes
 ---     and have a total instruction length of 7 bytes.
@@ -1244,6 +1261,7 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
         local options, optionsErr = self:_parseResolveStaticOptions(ctx.Args, ctx.Name)
         if not options then return self:_commandError(ctx.Name, optionsErr) end
         local mode = options.Mode
+        local outputMode = options.OutputMode
         local detectReason = nil
         if mode == "auto" then
             mode, detectReason = self:_detectResolveStaticMode(baseAddr)
@@ -1271,15 +1289,18 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
             operandAddress = baseAddr + instructionLength + value
         end
         local pointerValue, pointerErr = self:_readPointerValue(operandAddress)
-        if pointerValue == nil then
+        if pointerValue == nil and outputMode == "pointer" then
             return self:_commandError(ctx.Name, ctx.Name .. ": failed to read pointer at resolved operand address: " .. tostring(pointerErr))
         end
         local baseLiteral = self:_formatAddressLiteral(baseAddr)
         local operandLiteral = self:_formatAddressLiteral(operandAddress)
-        local pointerLiteral = self:_formatAddressLiteral(pointerValue)
-        local replace = string.format("define(%s, %s)", symbol, pointerLiteral)
+        local pointerLiteral = pointerValue == nil and ("<unreadable: " .. tostring(pointerErr) .. ">") or self:_formatAddressLiteral(pointerValue)
+        local targetValue = outputMode == "pointer" and pointerValue or operandAddress
+        local targetLiteral = self:_formatAddressLiteral(targetValue)
+        local replace = string.format("define(%s, %s)", symbol, targetLiteral)
         logger:Info(MODULE_PREFIX .. " ManifoldResolveStatic OK")
         logger:InfoF("   Mode        : %s", mode)
+        logger:InfoF("   Output      : %s", outputMode)
         if detectReason then logger:InfoF("   Auto Detect : %s", detectReason) end
         logger:InfoF("   Base Address: %s", baseLiteral)
         logger:InfoF("   Value Offset: %d", dispOffset)
@@ -1291,6 +1312,7 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
         end
         logger:InfoF("   Operand Addr: %s", operandLiteral)
         logger:InfoF("   Pointer     : %s", pointerLiteral)
+        logger:InfoF("   Target      : %s", targetLiteral)
         logger:InfoF("   Replace Line: %s", replace)
         return replace
     end
