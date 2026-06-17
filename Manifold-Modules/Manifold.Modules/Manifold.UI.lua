@@ -34,6 +34,7 @@ UI = {
     ActiveTheme = nil,
     CompactMode = false,
     IsApplyingTheme = false,
+    ThemeApplyLockTimeoutMs = 8000,
     -- Setup
     Theme = "",
     SloganStr = "",
@@ -65,6 +66,33 @@ local function _VersionAtLeast(current, required)
         if currentPart < requiredPart then return false end
     end
     return true
+end
+
+local THEME_APPLY_LOCK = rawget(_G, "__ManifoldThemeApplyLock")
+if type(THEME_APPLY_LOCK) ~= "table" then
+    THEME_APPLY_LOCK = {
+        Active = false,
+        Token = nil,
+        ThemeName = nil,
+        StartedAt = 0,
+    }
+    rawset(_G, "__ManifoldThemeApplyLock", THEME_APPLY_LOCK)
+end
+
+--
+--- ∑ Returns a millisecond timestamp for lightweight runtime locks.
+--- @returns integer # A monotonic-ish timestamp in milliseconds.
+--
+local function _ThemeLockNow()
+    if type(getTickCount64) == "function" then
+        local ok, value = pcall(getTickCount64)
+        if ok and value then return value end
+    end
+    if type(getTickCount) == "function" then
+        local ok, value = pcall(getTickCount)
+        if ok and value then return value end
+    end
+    return math.floor((os.clock() or 0) * 1000)
 end
 
 function UI:New(config)
@@ -1061,41 +1089,93 @@ end
 registerLuaFunctionHighlight("ApplyThemeToForms")
 
 --
+--- ∑ Attempts to acquire the global theme-apply lock.
+--- @param themeName string # The requested theme name.
+--- @returns string|nil, table|nil # Lock token on success; current lock data on failure.
+--
+function UI:AcquireThemeApplyLock(themeName)
+    local now = _ThemeLockNow()
+    local timeout = tonumber(self.ThemeApplyLockTimeoutMs) or 8000
+    if THEME_APPLY_LOCK.Active then
+        local elapsed = now - (tonumber(THEME_APPLY_LOCK.StartedAt) or now)
+        if elapsed < timeout then
+            return nil, THEME_APPLY_LOCK
+        end
+        if logger and logger.WarningF then
+            logger:WarningF("[UI] Theme apply lock for '%s' is stale after %d ms. Releasing it.", tostring(THEME_APPLY_LOCK.ThemeName), elapsed)
+        end
+    end
+    local token = tostring(self) .. ":" .. tostring(themeName or "<unknown>") .. ":" .. tostring(now)
+    THEME_APPLY_LOCK.Active = true
+    THEME_APPLY_LOCK.Token = token
+    THEME_APPLY_LOCK.ThemeName = tostring(themeName or "<unknown>")
+    THEME_APPLY_LOCK.StartedAt = now
+    self.IsApplyingTheme = true
+    return token, THEME_APPLY_LOCK
+end
+registerLuaFunctionHighlight("AcquireThemeApplyLock")
+
+--
+--- ∑ Releases the global theme-apply lock when the caller owns it.
+--- @param token string # The lock token returned by AcquireThemeApplyLock.
+--
+function UI:ReleaseThemeApplyLock(token)
+    if token ~= nil and THEME_APPLY_LOCK.Token == token then
+        THEME_APPLY_LOCK.Active = false
+        THEME_APPLY_LOCK.Token = nil
+        THEME_APPLY_LOCK.ThemeName = nil
+        THEME_APPLY_LOCK.StartedAt = 0
+    end
+    self.IsApplyingTheme = false
+end
+registerLuaFunctionHighlight("ReleaseThemeApplyLock")
+
+--
 --- ∑ Applies a specified theme to all UI components.
 --- @param themeName string # The name of the theme to apply.
 --- @param allowReapply boolean # (Optional) If true, forces reapplication even if the theme is already active.
 --- @return # void
 --
 function UI:ApplyTheme(themeName, allowReapply)
-    local theme = self:GetTheme(themeName)
-    if not theme then
-        return
+    local token, activeLock = self:AcquireThemeApplyLock(themeName)
+    if not token then
+        local activeName = activeLock and activeLock.ThemeName or "<unknown>"
+        logger:WarningF("[UI] A theme is already being applied: '%s'. Skipping theme '%s'.", tostring(activeName), tostring(themeName))
+        return false
     end
-    if self.ActiveTheme == themeName and not allowReapply then
-        logger:Warning("[UI] Theme '" .. themeName .. "' is already applied.")
-        return
-    end
-    if self.IsApplyingTheme then
-        logger:WarningF("[UI] A theme is already being applied. Please wait. (Skipping theme '%s')", themeName)
-        return
-    else
+
+    local ok, result = pcall(function()
+        local theme = self:GetTheme(themeName)
+        if not theme then
+            return false
+        end
+        if self.ActiveTheme == themeName and not allowReapply then
+            logger:Warning("[UI] Theme '" .. themeName .. "' is already applied.")
+            return false
+        end
         logger:Info("[UI] Applying theme: '" .. themeName .. "'")
+        MainForm.Show()
+        self:ApplyThemeToTreeView(theme)
+        self:ApplyThemeToAddressList(theme)
+        self:ApplyThemeToMainForm(theme)
+        self:ApplyThemeToAddressRecords(theme)
+        self:ApplyThemeToLuaEngine(theme)
+        MainForm.repaint()
+        self.ActiveTheme = themeName
+        self:ApplyThemeToForms(theme, false)
+        if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
+            self:ApplyThemeToTeleporter(teleporter, theme)
+        end
+        logger:Info("[UI] Theme '" .. themeName .. "' applied.")
+        return true
+    end)
+
+    self:ReleaseThemeApplyLock(token)
+    if not ok then
+        logger:Error("[UI] Failed to apply theme '" .. tostring(themeName) .. "': " .. tostring(result))
+        return false
     end
-    self.IsApplyingTheme = true
-    MainForm.Show()
-    self:ApplyThemeToTreeView(theme)
-    self:ApplyThemeToAddressList(theme)
-    self:ApplyThemeToMainForm(theme)
-    self:ApplyThemeToAddressRecords(theme)
-    self:ApplyThemeToLuaEngine(theme)
-    MainForm.repaint()
-    self.ActiveTheme = themeName
-    self:ApplyThemeToForms(theme, true)
-    if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
-        self:ApplyThemeToTeleporter(teleporter, theme)
-    end
-    logger:Info("[UI] Theme '" .. themeName .. "' applied.")
-    self.IsApplyingTheme = false
+    return result == true
 end
 registerLuaFunctionHighlight("ApplyTheme")
 
@@ -2324,33 +2404,52 @@ end
 function UI:ApplyThemeObject(themeObj)
     if not themeObj or not themeObj.Tokens then
         logger:Warning("[UI] Invalid theme object.")
-        return
+        return false
     end
-    local builtTheme = {}
-    for token, colorHex in pairs(themeObj.Tokens) do
-        if type(colorHex) == "string" and colorHex:match("^#%x%x%x%x%x%x$") then
-            local rgbColor = tonumber(colorHex:sub(2), 16)
-            if rgbColor then
-                builtTheme[token] = self:RGB2BGR(rgbColor)
+    local lockName = themeObj.Name or "Theme Object"
+    local lockToken, activeLock = self:AcquireThemeApplyLock(lockName)
+    if not lockToken then
+        local activeName = activeLock and activeLock.ThemeName or "<unknown>"
+        logger:WarningF("[UI] A theme is already being applied: '%s'. Skipping theme object '%s'.", tostring(activeName), tostring(lockName))
+        return false
+    end
+
+    local ok, result = pcall(function()
+        local builtTheme = {}
+        for token, colorHex in pairs(themeObj.Tokens) do
+            if type(colorHex) == "string" and colorHex:match("^#%x%x%x%x%x%x$") then
+                local rgbColor = tonumber(colorHex:sub(2), 16)
+                if rgbColor then
+                    builtTheme[token] = self:RGB2BGR(rgbColor)
+                else
+                    logger:Warning(
+                        string.format(
+                            "[UI] Failed to convert color for token '%s': '%s' (parsed: %s)",
+                            token, colorHex, tostring(rgbColor)))
+                end
             else
-                logger:Warning(
-                    string.format(
-                        "[UI] Failed to convert color for token '%s': '%s' (parsed: %s)",
-                        token, colorHex, tostring(rgbColor)))
+                logger:Warning(string.format("[UI] Invalid color format for token '%s': %s", token, tostring(colorHex)))
             end
-        else
-            logger:Warning(string.format("[UI] Invalid color format for token '%s': %s", token, tostring(colorHex)))
         end
+        logger:Info("[UI] Applying theme object: '" .. tostring(lockName) .. "'")
+        self:ApplyThemeToTreeView(builtTheme)
+        self:ApplyThemeToAddressList(builtTheme)
+        self:ApplyThemeToMainForm(builtTheme)
+        self:ApplyThemeToAddressRecords(builtTheme)
+        self:ApplyThemeToLuaEngine(builtTheme)
+        self:ApplyThemeToForms(builtTheme, false)
+        if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
+            self:ApplyThemeToTeleporter(teleporter, builtTheme)
+        end
+        return true
+    end)
+
+    self:ReleaseThemeApplyLock(lockToken)
+    if not ok then
+        logger:Error("[UI] Failed to apply theme object '" .. tostring(lockName) .. "': " .. tostring(result))
+        return false
     end
-    self:ApplyThemeToTreeView(builtTheme)
-    self:ApplyThemeToAddressList(builtTheme)
-    self:ApplyThemeToMainForm(builtTheme)
-    self:ApplyThemeToAddressRecords(builtTheme)
-    self:ApplyThemeToLuaEngine(builtTheme)
-    self:ApplyThemeToForms(builtTheme, true)
-    if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
-        self:ApplyThemeToTeleporter(teleporter, builtTheme)
-    end
+    return result == true
 end
 
 --
