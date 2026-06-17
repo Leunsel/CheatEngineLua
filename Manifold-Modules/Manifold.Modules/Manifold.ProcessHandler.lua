@@ -1,6 +1,6 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
@@ -9,6 +9,9 @@ local DESCRIPTION = "Manifold Framework ProcessHandler"
 
     ∂ v1.0.1 (2025-04-11)
         Minor comment adjustments.
+
+    ∂ v1.0.2 (2026-06-17)
+        AutoAttach Tick Reset upon start and removed duplicate StartAutoAttachTimer function.
 ]]--
 
 ProcessHandler = {
@@ -187,6 +190,7 @@ registerLuaFunctionHighlight('OpenLink')
 --
 function ProcessHandler:AutoAttach(processName)
     processName = processName or self.ProcessName
+    self.AutoAttachTimerTicks = 0
     logger:Debug("[ProcessHandler] Starting AutoAttach for process: " .. tostring(processName))
     local function autoAttachTimer_tick(timer)
         -- logger:Info("[ProcessHandler] Timer fired!")
@@ -302,26 +306,6 @@ function ProcessHandler:PerformPostAttachTasks()
     if utils.VerifyMD5 then
         utils:VerifyFileHash()
     end
-end
-
---
---- ∑ Starts an auto-attach timer with a specified callback.
----   The callback function will be called on each timer tick.
---- @param callback function # The function to call on each timer tick.
---- @return # void
---- @note 
---- - Creates a timer attached to the MainForm.
---- - Sets the timer's interval based on AutoAttachTimerInterval.
---- - Logs the timer start and its interval.
----
----   This function sets up a recurring timer to periodically call the specified callback. 
----   The interval is determined by the 'AutoAttachTimerInterval' property, and the start of the timer is logged for tracking purposes.
----
-function ProcessHandler:StartAutoAttachTimer(callback)
-    local autoAttachTimer = createTimer(MainForm)
-    autoAttachTimer.Interval = self.AutoAttachTimerInterval
-    autoAttachTimer.OnTimer = callback
-    logger:Info("[ProcessHandler] AutoAttach timer started with interval: " .. self.AutoAttachTimerInterval .. "ms")
 end
 
 --
