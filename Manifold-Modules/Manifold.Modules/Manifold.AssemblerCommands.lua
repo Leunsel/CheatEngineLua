@@ -455,7 +455,6 @@ function AssemblerCommands:_parseResolveStaticOptions(args, commandName)
     local dispOffset = nil
     local instructionLength = nil
     local outputMode = nil
-
     for i = 3, #args do
         local raw = args[i]
         if not self:_isBlank(raw) then
@@ -544,7 +543,6 @@ function AssemblerCommands:_readPointerValue(addr)
         if ok and value ~= nil then return value, nil end
         return nil, tostring(value)
     end
-
     if self:_isTarget64Bit() then
         local readQwordFn = rawget(_G, "readQword")
         if type(readQwordFn) ~= "function" then return nil, "readPointer/readQword not available" end
@@ -552,7 +550,6 @@ function AssemblerCommands:_readPointerValue(addr)
         if ok and value ~= nil then return value, nil end
         return nil, tostring(value)
     end
-
     local readIntegerFn = rawget(_G, "readInteger")
     if type(readIntegerFn) ~= "function" then return nil, "readPointer/readInteger not available" end
     local ok, value = pcall(function() return readIntegerFn(addr, false) end)
@@ -637,7 +634,6 @@ end
 function AssemblerCommands:_writeBytes(addr, bytes)
     local wb = rawget(_G, "writeBytes")
     if type(wb) ~= "function" then return nil, "writeBytes not available" end
-
     local ok, err = pcall(function()
         for index = 1, #bytes do
             local byte = bytes[index]
@@ -646,7 +642,6 @@ function AssemblerCommands:_writeBytes(addr, bytes)
             end
         end
     end)
-
     if not ok then return nil, tostring(err) end
     return true
 end
@@ -784,7 +779,6 @@ end
 function AssemblerCommands:_resolveAddress(expr)
     local text = self:_trim(self:_stripQuotes(expr or ""))
     if text == "" then return nil, "empty address expr" end
-
     local getAddressSafeFn = rawget(_G, "getAddressSafe")
     if type(getAddressSafeFn) == "function" then
         local ok, address = pcall(function() return getAddressSafeFn(text) end)

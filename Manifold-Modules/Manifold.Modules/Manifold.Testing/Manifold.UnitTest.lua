@@ -116,6 +116,35 @@ local MODULE_SPECS = {
     end,
   },
 
+  ["Manifold.Forms"] = {
+    required = true,
+    exports = {
+      New = "function",
+      ResolveTheme = "function",
+      ApplyTheme = "function",
+      RegisterForm = "function",
+      RegisterControl = "function",
+      CreatePanel = "function",
+      CreateLabel = "function",
+      CreateTextBox = "function",
+      CreateListView = "function",
+      CreateButton = "function",
+      SetButtonOnClick = "function",
+    },
+    behavior = function(ctx)
+      local Forms = ctx.module
+      local formsInstance = Forms:New()
+      ctx:expect(type(formsInstance) == "table", "Forms:New returns table")
+      local resolved = formsInstance:ResolveTheme({
+        ["MainForm.Color"] = 0x010203,
+        ["AddressList.List.BackgroundColor"] = 0x040506,
+      })
+      ctx:expect(type(resolved) == "table", "Forms:ResolveTheme returns table")
+      ctx:expect(resolved.COLOR_BG == 0x010203, "Forms:ResolveTheme maps MainForm.Color")
+      ctx:expect(resolved.COLOR_INPUT == 0x040506, "Forms:ResolveTheme maps AddressList.List.BackgroundColor")
+    end,
+  },
+
   ["Manifold.Json"] = {
     required = true,
     exports = {
