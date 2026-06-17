@@ -33,6 +33,7 @@ UI = {
     ThemeList = {},
     ActiveTheme = nil,
     CompactMode = false,
+    IsApplyingTheme = false,
     -- Setup
     Theme = "",
     SloganStr = "",
@@ -1074,6 +1075,13 @@ function UI:ApplyTheme(themeName, allowReapply)
         logger:Warning("[UI] Theme '" .. themeName .. "' is already applied.")
         return
     end
+    if self.IsApplyingTheme then
+        logger:WarningF("[UI] A theme is already being applied. Please wait. (Skipping theme '%s')", themeName)
+        return
+    else
+        logger:Info("[UI] Applying theme: '" .. themeName .. "'")
+    end
+    self.IsApplyingTheme = true
     MainForm.Show()
     self:ApplyThemeToTreeView(theme)
     self:ApplyThemeToAddressList(theme)
@@ -1087,6 +1095,7 @@ function UI:ApplyTheme(themeName, allowReapply)
         self:ApplyThemeToTeleporter(teleporter, theme)
     end
     logger:Info("[UI] Theme '" .. themeName .. "' applied.")
+    self.IsApplyingTheme = false
 end
 registerLuaFunctionHighlight("ApplyTheme")
 
