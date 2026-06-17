@@ -1,12 +1,14 @@
 local NAME = "Manifold.Forms.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Forms"
 
 --[[
     v1.0.0 (2026-06-17)
         Initial retained-mode form helper API.
         Registers created controls so Manifold.UI themes can be applied live.
+    v1.0.1 (2026-06-17)
+        Resolve registered control roots through the parent chain for reliable live theming.
 ]]--
 
 Forms = {
@@ -285,7 +287,23 @@ function Forms:_ResolveRoot(parent, opts)
     if opts.root then return opts.root end
     local root = self:_SafeGet(parent, "_formsRoot")
     if root then return root end
-    return parent
+    local current = parent
+    local resolved = parent
+    local guard = 0
+    while current and guard < 64 do
+        local inheritedRoot = self:_SafeGet(current, "_formsRoot")
+        if inheritedRoot then
+            return inheritedRoot
+        end
+        resolved = current
+        local nextParent = self:_SafeGet(current, "Parent")
+        if not nextParent or nextParent == current then
+            break
+        end
+        current = nextParent
+        guard = guard + 1
+    end
+    return resolved
 end
 
 --
