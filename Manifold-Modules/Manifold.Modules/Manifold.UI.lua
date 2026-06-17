@@ -1,6 +1,6 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.4"
+local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
@@ -21,6 +21,12 @@ local DESCRIPTION = "Manifold Framework UI"
     ∂ v1.0.4 (2026-04-04)
         Manifold.UI now properly handles the Teleporter UI theming at runtime, eliminating
         the need for a bruteforced UI Restart.
+    
+    ∂ v1.0.5 (2026-06-17)
+        Added Manifold.Forms integration for live theming of registered forms.
+        Requires Manifold.Forms for Theme Creator UI control generation.
+        Removed legacy CE-control fallback builders from the Theme Creator path.
+        Corrected minor logging inconsistencies.
 ]] 
 
 UI = {
@@ -33,6 +39,32 @@ UI = {
     SignatureStr = ""
 }
 UI.__index = UI
+
+--
+--- ∑ Compares two version strings to determine if the current version meets or exceeds the required version.
+--- @param current string # The current version string (e.g., "1.0.5").
+--- @param required string # The required version string to compare against (e.g., "1.0.0").
+--- @return boolean # True if the current version is greater than or equal to the required version, otherwise false.
+--- @note The function splits the version strings into their numeric components and compares them sequentially. It handles versions of different lengths by treating missing components as zero.
+--
+local function _VersionAtLeast(current, required)
+    local currentParts = {}
+    local requiredParts = {}
+    for part in tostring(current or ""):gmatch("%d+") do
+        currentParts[#currentParts + 1] = tonumber(part) or 0
+    end
+    for part in tostring(required or ""):gmatch("%d+") do
+        requiredParts[#requiredParts + 1] = tonumber(part) or 0
+    end
+    local count = math.max(#currentParts, #requiredParts)
+    for index = 1, count do
+        local currentPart = currentParts[index] or 0
+        local requiredPart = requiredParts[index] or 0
+        if currentPart > requiredPart then return true end
+        if currentPart < requiredPart then return false end
+    end
+    return true
+end
 
 function UI:New(config)
     local instance = setmetatable({}, self)
@@ -151,33 +183,46 @@ UI.TokenDescriptions = {
 --- @note Checks for 'json' as well as "customIO" and loads them if not already present.
 --
 function UI:CheckDependencies()
+    local function depLog(level, message)
+        if logger and logger[level] then
+            logger[level](logger, message)
+        end
+    end
     local dependencies = {
+        {name = "logger", path = "Manifold.Logger", init = function()
+                logger = Logger:New()
+            end},
         {name = "json", path = "Manifold.Json", init = function()
                 json = JSON:new()
             end},
         {name = "customIO", path = "Manifold.CustomIO", init = function()
                 customIO = CustomIO:New()
             end},
-        {name = "logger", path = "Manifold.Logger", init = function()
-                logger = Logger:New()
+        {name = "forms", path = "Manifold.Forms", init = function()
+                forms = Forms:New()
             end}
     }
     for _, dep in ipairs(dependencies) do
         local depName = dep.name
         if _G[depName] == nil then
-            logger:Warning("[UI] '" .. depName .. "' dependency not found. Attempting to load...")
+            depLog("Warning", "[UI] '" .. depName .. "' dependency not found. Attempting to load...")
             local success, result = pcall(CETrequire, dep.path)
             if success then
-                logger:Info("[UI] Loaded dependency '" .. depName .. "'.")
                 if dep.init then
                     dep.init()
                 end
+                depLog("Info", "[UI] Loaded dependency '" .. depName .. "'.")
             else
-                logger:Error("[UI] Failed to load dependency '" .. depName .. "': " .. result)
+                depLog("Error", "[UI] Failed to load dependency '" .. depName .. "': " .. tostring(result))
             end
         else
-            logger:Debug("[UI] Dependency '" .. depName .. "' is already loaded")
+            depLog("Debug", "[UI] Dependency '" .. depName .. "' is already loaded")
         end
+    end
+    if _VersionAtLeast(VERSION, "1.0.5") and not (forms and type(forms.CreatePanel) == "function") then
+        local message = "[UI] As of Version 1.0.5, Manifold.Forms is required to generate the UI-Components."
+        depLog("Error", message)
+        error(message, 2)
     end
 end
 
@@ -945,14 +990,12 @@ function UI:SetTeleporterControlColors(uiState, theme)
     setLabel(uiState.TreeStatsLabel, mutedText, 9)
     setLabel(uiState.TreeHeaderLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.EditorHeaderLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.SearchLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.NameLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.AuthorLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.CategoryLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.XLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.YLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.ZLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.DescriptionLabel, labelText, 10, "[fsBold]")
     setEdit(uiState.NameEdit)
     setEdit(uiState.AuthorEdit)
     setEdit(uiState.CategoryEdit)
@@ -1015,6 +1058,7 @@ function UI:ApplyTheme(themeName, allowReapply)
     self:ApplyThemeToLuaEngine(theme)
     MainForm.repaint()
     self.ActiveTheme = themeName
+    forms:ApplyTheme(theme)
     if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
         self:ApplyThemeToTeleporter(teleporter, theme)
     end
@@ -1074,13 +1118,13 @@ registerLuaFunctionHighlight("UpdateThemeSelector")
 --
 function UI:RunInMainThread(func)
     if type(func) ~= "function" then
-        logger:Error("[UI] Invalid parameter for 'RunInMainThread'. Expected a function, got '%s'.", type(func))
+        logger:ErrorF("[UI] Invalid parameter for 'RunInMainThread'. Expected a function, got '%s'.", type(func))
         return
     end
     if inMainThread() then
         local success, result = pcall(func)
         if not success then
-            logger:Error("[UI] Error while executing function in main thread: %s", result)
+            logger:ErrorF("[UI] Error while executing function in main thread: %s", result)
         end
     else
         local success, result =
@@ -1090,7 +1134,7 @@ function UI:RunInMainThread(func)
             end
         )
         if not success then
-            logger:Error("[UI] Failed to synchronize function execution in main thread: %s", result)
+            logger:ErrorF("[UI] Failed to synchronize function execution in main thread: %s", result)
         end
     end
 end
@@ -1591,15 +1635,17 @@ end
 --- @return label A styled label component.
 --
 function UI:CreateStyledLabel(parent, caption, x, y, size, bold)
-    local label = createLabel(parent)
+    local label = forms:CreateLabel(parent, {
+        caption = caption or "",
+        left = x or 0,
+        top = y or 0,
+        fontSize = size or 10,
+        style = bold or "[fsBold]",
+        role = "label"
+    })
     if not label then
         error("Failed to create label.")
     end
-    label.Caption = caption or ""
-    label.Left = x or 0
-    label.Top = y or 0
-    label.Font.Size = size or 10
-    label.Font.Style = bold or "[fsBold]"
     return label
 end
 
@@ -1612,13 +1658,15 @@ end
 --- @return edit A styled edit field component.
 --
 function UI:CreateStyledEdit(parent, text, align)
-    local edit = createEdit(parent)
+    local edit = forms:CreateTextBox(parent, {
+        text = text or "",
+        align = align or alTop,
+        borderSpacing = { Around = 3 },
+        role = "input"
+    })
     if not edit then
         error("Failed to create edit field.")
     end
-    edit.Text = text or ""
-    edit.Align = align or alTop
-    edit.BorderSpacing.Around = 3
     return edit
 end
 
@@ -1631,17 +1679,24 @@ end
 --- @return btn A styled button component.
 --
 function UI:CreateStyledButton(parent, caption, width)
-    local btn = createButton(parent)
+    local btn = forms:CreateButton(parent, {
+        caption = caption or "Button",
+        align = alLeft,
+        borderSpacing = { Around = 5 },
+        fontSize = 10,
+        style = "[fsBold]",
+        width = width or 100,
+        role = "button"
+    })
     if not btn then
         error("Failed to create button.")
     end
-    btn.Caption = caption or "Button"
-    btn.Align = alLeft
-    btn.BorderSpacing.Around = 5
-    btn.Font.Style = "[fsBold]"
-    btn.Font.Size = 10
-    btn.Width = width or 100
     return btn
+end
+
+function UI:SetFormsButtonHandler(button, handler)
+    if not button then return end
+    forms:SetButtonOnClick(button, handler)
 end
 
 --
@@ -1650,17 +1705,23 @@ end
 --- @return form # The created theme creator form.
 --
 function UI:CreateThemeCreatorForm()
-    local form = createForm(true)
+    local form = forms:CreateForm({
+        caption = "[Manifold] Theme Creator",
+        width = 980,
+        height = 620,
+        position = "poScreenCenter",
+        role = "form"
+    })
     if not form then
         error("Failed to create form.")
     end
-    form.Caption = "Theme Creator"
-    form.Width = 600
-    form.Height = 600
     form.Position = "poScreenCenter"
     form.Font.Size = 9
     form.Font.Name = "Consolas"
     form.Scaled = false
+    form.BorderStyle = "bsSizeable"
+    form.Constraints.MinWidth = 980
+    form.Constraints.MinHeight = 620
     return form
 end
 
@@ -1670,16 +1731,32 @@ end
 --- @param form # The parent form to contain the panel.
 --- @return themeNameInput, authorInput, descriptionInput The created input fields for metadata.
 --
-function UI:CreateThemeInfoPanel(form)
-    local infoPanel = createGroupBox(form)
-    if not infoPanel then
-        error("Failed to create info panel.")
-    end
-    infoPanel.Caption = "Metadata"
-    infoPanel.Align = alTop
-    infoPanel.BevelOuter = bvNone
-    infoPanel.BorderSpacing.Around = 3
-    return self:CreateStyledEdit(infoPanel, "Description"), self:CreateStyledEdit(infoPanel, "Theme_Name"), self:CreateStyledEdit(infoPanel, "Author") 
+function UI:CreateThemeInfoPanel(form, opts)
+    opts = opts or {}
+    local _, _, _, content = forms:CreateCard(form, {
+        title = opts.title or "METADATA",
+        align = opts.align or alTop,
+        height = opts.height or 158,
+        borderSpacing = opts.borderSpacing or { Left = 6, Top = 6, Right = 6 },
+        contentSpacing = opts.contentSpacing or { Around = 8 }
+    })
+    local descEdit = forms:CreateFieldRow(content, {
+        caption = "Description",
+        labelWidth = 88,
+        textHint = "Description",
+        borderSpacing = { Bottom = 0 }
+    })
+    local authorEdit = forms:CreateFieldRow(content, {
+        caption = "Author",
+        labelWidth = 88,
+        textHint = "Author"
+    })
+    local nameEdit = forms:CreateFieldRow(content, {
+        caption = "Name",
+        labelWidth = 88,
+        textHint = "Theme name"
+    })
+    return descEdit, nameEdit, authorEdit
 end
 
 --
@@ -1688,8 +1765,28 @@ end
 --- @param form # UI parent form for the list view.
 --- @return listView # A configured list view component.
 --
-function UI:CreateListViewControl(form)
-    local listView = createListView(form)
+function UI:CreateListViewControl(form, opts)
+    opts = opts or {}
+    local _, _, _, content = forms:CreateCard(form, {
+        title = opts.title or "THEME TOKENS",
+        align = opts.align or alClient,
+        height = opts.height,
+        width = opts.width,
+        borderSpacing = opts.borderSpacing or { Left = 6, Top = 6, Right = 6 },
+        contentSpacing = opts.contentSpacing or { Around = 6 }
+    })
+    local listView = forms:CreateListView(content, {
+        align = alClient,
+        viewStyle = "vsReport",
+        readOnly = true,
+        autoWidthLastColumn = true,
+        rowSelect = true,
+        fullRowSelect = true,
+        hideSelection = false,
+        borderSpacing = { Around = 0 },
+        fontSize = 9,
+        role = "listview"
+    })
     if not listView then
         error("Failed to create list view.")
     end
@@ -1707,10 +1804,11 @@ function UI:CreateListViewControl(form)
     listView.Columns[0].AutoSize = true
     listView.Columns.Add().Caption = "Token"
     listView.Columns[1].AutoSize = true
-    imageList = createImageList()
-    imageList.Width = 16
-    imageList.Height = 16
-    listView.SmallImages = imageList
+    self.ThemeCreatorImageList = createImageList()
+    self.ThemeCreatorImageList.Width = 16
+    self.ThemeCreatorImageList.Height = 16
+    listView.SmallImages = self.ThemeCreatorImageList
+    self.ThemeCreatorListView = listView
     return listView
 end
 
@@ -1721,15 +1819,22 @@ end
 --- @param listOfColorsAndTokens # List of color-token pairs to update the image list with.
 --
 function UI:RebuildImageList(listView, listOfColorsAndTokens)
-    if not listOfColorsAndTokens or #listOfColorsAndTokens == 0 then
-        logger:Warning("[UI] No color-token pairs provided to RebuildImageList.")
+    if not listView then
         return
     end
-    if imageList then imageList.Destroy() end
-    imageList = createImageList()
-    imageList.Width = 16
-    imageList.Height = 16
-    listView.SmallImages = imageList
+    listOfColorsAndTokens = listOfColorsAndTokens or self:GetColorsAndTokensFromListView(listView)
+    if not listOfColorsAndTokens or #listOfColorsAndTokens == 0 then
+        return
+    end
+    if self.ThemeCreatorImageList then
+        pcall(function()
+            self.ThemeCreatorImageList.Destroy()
+        end)
+    end
+    self.ThemeCreatorImageList = createImageList()
+    self.ThemeCreatorImageList.Width = 16
+    self.ThemeCreatorImageList.Height = 16
+    listView.SmallImages = self.ThemeCreatorImageList
     for i, pair in ipairs(listOfColorsAndTokens) do
         local colorHex = pair[1]
         local rgbColor = tonumber(colorHex:sub(2), 16)
@@ -1737,7 +1842,7 @@ function UI:RebuildImageList(listView, listOfColorsAndTokens)
         local bmp = createBitmap(16, 16)
         bmp.Canvas.Brush.Color = bgrColor
         bmp.Canvas.FillRect(0, 0, 16, 16)
-        imageList.Add(bmp)
+        self.ThemeCreatorImageList.Add(bmp)
         bmp.Destroy()
         if listView.Items.Count > i - 1 then
             listView.Items[i - 1].ImageIndex = i - 1
@@ -1786,6 +1891,7 @@ function UI:PopulateListView(listView, tokenInputs)
         tokenInputs[token] = item
     end
     self:RebuildImageList(listView, listOfColorsAndTokens)
+    self:SetThemeCreatorStatus(tostring(#listOfColorsAndTokens) .. " tokens loaded")
 end
 
 --
@@ -1804,11 +1910,13 @@ function UI:HandleColorSelection(item, token)
         local newColorHex = string.format("#%06X", self:BGR2RGB(newColor))
         item.Caption = newColorHex
         self.PreviewPanel.Color = newColor
-        self.SelectedTokenLabel.Caption = "Selected: " .. token
-        self:UpdateColorLabels(newColor)
+        self:UpdateColorLabels(self:BGR2RGB(newColor))
         self:UpdateSelectedToken(token)
     end
-    self:RebuildImageList(listView, self:GetColorsAndTokensFromListView(listView))
+    local listView = self.ThemeCreatorListView
+    if listView then
+        self:RebuildImageList(listView, self:GetColorsAndTokensFromListView(listView))
+    end
 end
 
 --
@@ -1849,7 +1957,6 @@ function UI:OnListViewDblClick(listView, tokenInputs)
         end
         self:HandleColorSelection(sel, token)
     end
-    self:RebuildImageList(listView)
 end
 
 --
@@ -1868,6 +1975,7 @@ function UI:OnListViewSelectItem(listView)
             self.SelectedTokenLabel.Caption = item.SubItems[0]
             self:UpdateColorLabels(colorNum)
             self:UpdateSelectedToken(item.SubItems[0])
+            self:SetThemeCreatorStatus("Selected: " .. tostring(item.SubItems[0]))
         end
     end
 end
@@ -1903,15 +2011,17 @@ end
 --- @param topOffset # Optional vertical offset override
 --
 function UI:CreateCopyButton(parent, targetLabel, topOffset)
-    local btn = createButton(parent)
-    btn.Caption = "📋"
-    btn.Width = 25
-    btn.Height = 20
-    btn.Left = targetLabel.Left + targetLabel.Width + 10
-    btn.Top = topOffset or targetLabel.Top
-    btn.OnClick = function()
+    local btn = forms:CreateButton(parent, {
+        caption = "Copy",
+        width = 58,
+        height = 22,
+        left = targetLabel.Left + targetLabel.Width + 10,
+        top = topOffset or targetLabel.Top,
+        role = "button"
+    })
+    self:SetFormsButtonHandler(btn, function()
         writeToClipboard(targetLabel.Caption)
-    end
+    end)
     return btn
 end
 
@@ -1921,65 +2031,82 @@ end
 ---   and offers interaction via a color picker and clipboard buttons.
 --- @param form # The parent form for the preview panel.
 --
-function UI:CreateTokenPreviewPanel(form)
-    local function createPanelWithSpacing(parent, align, height)
-        local panel = createPanel(parent)
-        panel.Align = align
-        panel.Height = height
-        panel.BevelOuter = bvNone
-        return panel
+function UI:CreateTokenPreviewPanel(form, opts)
+    opts = opts or {}
+    local cardAlign = opts.align or alBottom
+    local cardHeight = opts.height
+    if cardHeight == nil and cardAlign ~= alClient then
+        cardHeight = 142
     end
-    local function createLabelWithCopy(labelRefName, parent, captionText)
-        local rowPanel = createPanelWithSpacing(parent, alTop, 24)
-        local copyBtn = createButton(rowPanel)
-        copyBtn.Caption = "📋"
-        copyBtn.Width = 25
-        copyBtn.BorderSpacing.Left = 5
-        copyBtn.Align = alLeft
-        local label = self:CreateStyledLabel(rowPanel, captionText, 0, 4, 10, "[]")
-        label.Align = alLeft
-        label.AutoSize = true
-        self[labelRefName] = label
-        copyBtn.OnClick = function()
-            writeToClipboard(label.Caption)
+    local _, _, _, content = forms:CreateCard(form, {
+        title = opts.title or "TOKEN PREVIEW",
+        align = cardAlign,
+        height = cardHeight,
+        borderSpacing = opts.borderSpacing or { Left = 6, Top = 6, Right = 6 },
+        contentSpacing = opts.contentSpacing or { Around = 8 }
+    })
+    local rowContainer = forms:CreatePanel(content, {
+        align = alClient,
+        role = "panel"
+    })
+    self.PreviewPanel = forms:CreatePanel(rowContainer, {
+        align = alLeft,
+        width = 104,
+        height = 104,
+        color = 0x808080,
+        role = "swatch",
+        lockColor = true,
+        bevelOuter = "bvLowered",
+        bevelWidth = 1,
+        borderSpacing = { Right = 10 },
+        hint = "Preview Area",
+        showHint = true
+    })
+    self.PreviewPanel.Constraints.MaxWidth = 104
+    self.PreviewPanel.Constraints.MaxHeight = 104
+
+    local controlsStack = forms:CreatePanel(rowContainer, {
+        align = alClient,
+        role = "panel"
+    })
+    local function createLabelRow(refName, caption, canCopy)
+        local row = forms:CreatePanel(controlsStack, {
+            align = alTop,
+            height = 24,
+            role = "panel",
+            borderSpacing = { Bottom = 2 }
+        })
+        local copyBtn
+        if canCopy then
+            copyBtn = forms:CreateButton(row, {
+                caption = "Copy",
+                align = alRight,
+                width = 58,
+                height = 22,
+                fontSize = 9,
+                borderSpacing = { Left = 6 }
+            })
+        end
+        local label = forms:CreateLabel(row, {
+            align = alClient,
+            caption = caption,
+            layout = "tlCenter",
+            transparent = true,
+            role = "label",
+            fontSize = 10,
+            style = "[]"
+        })
+        self[refName] = label
+        if copyBtn then
+            self:SetFormsButtonHandler(copyBtn, function()
+                writeToClipboard(label.Caption or "")
+            end)
         end
     end
-    local function createInfoLabel(refName, caption, parent)
-        local panel = createPanelWithSpacing(parent, alTop, 24)
-        self[refName] = self:CreateStyledLabel(panel, caption, 0, 4, 10, "[]")
-        self[refName].Align = alLeft
-        self[refName].AutoSize = true
-    end
-    local groupBox = createGroupBox(form)
-    groupBox.Caption = "Token Preview"
-    groupBox.Align = alBottom
-    groupBox.BevelOuter = bvNone
-    groupBox.BorderSpacing.Around = 3
-    groupBox.AutoSize = true
-    local rowContainer = createPanel(groupBox)
-    rowContainer.Align = alTop
-    rowContainer.AutoSize = true
-    rowContainer.BevelOuter = bvNone
-    self.PreviewPanel = createPanel(rowContainer)
-    self.PreviewPanel.Align = alLeft
-    self.PreviewPanel.Width = 100
-    self.PreviewPanel.Height = 100
-    self.PreviewPanel.Constraints.MaxWidth = 100
-    self.PreviewPanel.Constraints.MaxHeight = 100
-    self.PreviewPanel.BevelOuter = bvNone
-    self.PreviewPanel.BorderSpacing.Around = 5
-    self.PreviewPanel.Color = 0x808080
-    self.PreviewPanel.Hint = "Preview Area"
-    self.PreviewPanel.ShowHint = true
-    local controlsStack = createPanel(rowContainer)
-    controlsStack.Align = alClient
-    controlsStack.AutoSize = true
-    controlsStack.BevelOuter = bvNone
-    controlsStack.BorderSpacing.Around = 5
-    createLabelWithCopy("HexLabel", controlsStack, "Hex: #FFFFFF")
-    createLabelWithCopy("RGBLabel", controlsStack, "RGB: (255, 255, 255)")
-    createInfoLabel("DescriptionLabel", "(No Description)", controlsStack)
-    createInfoLabel("SelectedTokenLabel", "(No Token)", controlsStack)
+    createLabelRow("HexLabel", "Hex: #FFFFFF", true)
+    createLabelRow("RGBLabel", "RGB: (255, 255, 255)", true)
+    createLabelRow("DescriptionLabel", "(No Description)", false)
+    createLabelRow("SelectedTokenLabel", "(No Token)", false)
 end
 
 --
@@ -1988,16 +2115,43 @@ end
 --- @param form # The parent form for the button panel.
 --- @return applyBtn, exportBtn, loadBtn # The action buttons for theme management.
 --
-function UI:CreateButtonPanel(form)
-    local buttonGroupBox = createGroupBox(form)
-    buttonGroupBox.Caption = "Actions"
-    buttonGroupBox.Align = alBottom
-    buttonGroupBox.AutoSize = true
-    buttonGroupBox.BevelOuter = bvNone
-    buttonGroupBox.BorderSpacing.Around = 3
-    local applyBtn = self:CreateStyledButton(buttonGroupBox, "✔ Apply Theme", 140)
-    local exportBtn = self:CreateStyledButton(buttonGroupBox, "💾 Export as JSON", 140)
-    local loadBtn = self:CreateStyledButton(buttonGroupBox, "📂 Load Theme", 140)
+function UI:CreateButtonPanel(form, opts)
+    opts = opts or {}
+    local activeTheme = nil
+    if self.ActiveTheme and self.ThemeList then
+        activeTheme = self.ThemeList[self.ActiveTheme]
+    end
+    local designTheme = forms.ActiveDesignTheme or forms:ResolveTheme(activeTheme)
+    local toolbar = forms:CreatePanel(form, {
+        align = opts.align or alBottom,
+        height = opts.height or 30,
+        color = designTheme.COLOR_PANEL,
+        role = "panel",
+        borderSpacing = opts.borderSpacing or { Left = 6, Right = 6, Top = 6, Bottom = 3 }
+    })
+    local buttonRow = forms:CreatePanel(toolbar, {
+        align = alClient,
+        color = designTheme.COLOR_PANEL,
+        role = "panel"
+    })
+    local loadBtn = forms:CreateButton(buttonRow, {
+        caption = "Load Theme",
+        width = 132,
+        height = 30,
+        borderSpacing = { Right = 6 }
+    })
+    local exportBtn = forms:CreateButton(buttonRow, {
+        caption = "Export as JSON",
+        width = 144,
+        height = 30,
+        borderSpacing = { Right = 6 }
+    })
+    local applyBtn = forms:CreateButton(buttonRow, {
+        caption = "Apply Theme",
+        width = 132,
+        height = 30,
+        borderSpacing = { Right = 6 }
+    })
     return applyBtn, exportBtn, loadBtn
 end
 
@@ -2011,7 +2165,7 @@ end
 --- @param descEdit # The edit field for the theme's description.
 --
 function UI:SetupLoadButton(loadBtn, tokenInputs, nameEdit, authorEdit, descEdit)
-    loadBtn.OnClick = function()
+    self:SetFormsButtonHandler(loadBtn, function()
         local themePath = self:PromptThemeFile()
         if not themePath then return end
         local themeData = self:LoadThemeData(themePath)
@@ -2019,8 +2173,11 @@ function UI:SetupLoadButton(loadBtn, tokenInputs, nameEdit, authorEdit, descEdit
         local themeObj = self:NormalizeTheme(themeData)
         self:PopulateThemeUI(themeData, tokenInputs, nameEdit, authorEdit, descEdit)
         self:ApplyThemeObject(themeObj)
-        self:RebuildImageList(listView, themeData)
-        if listView.Selected and listView.Selected.Caption then
+        local listView = self.ThemeCreatorListView
+        if listView then
+            self:RebuildImageList(listView, self:GetColorsAndTokensFromListView(listView))
+        end
+        if listView and listView.Selected and listView.Selected.Caption then
             local hex = listView.Selected.Caption:match("^#?(%x%x%x%x%x%x)$")
             if hex then
                 local r = tonumber(hex:sub(1, 2), 16)
@@ -2030,7 +2187,8 @@ function UI:SetupLoadButton(loadBtn, tokenInputs, nameEdit, authorEdit, descEdit
             end
         end
         logger:Info("[UI] Theme loaded and applied successfully!")
-    end
+        self:SetThemeCreatorStatus("Theme loaded")
+    end)
 end
 
 --
@@ -2104,7 +2262,6 @@ function UI:PopulateThemeUI(themeData, tokenInputs, nameEdit, authorEdit, descEd
     nameEdit.Text = themeData.name or ""
     authorEdit.Text = themeData.author or ""
     descEdit.Text = themeData.description or ""
-    local colors = {}
     for _, token in ipairs(themeData.tokenColors or {}) do
         local element = token.element
         local color = token.setting and token.setting.color
@@ -2112,13 +2269,18 @@ function UI:PopulateThemeUI(themeData, tokenInputs, nameEdit, authorEdit, descEd
             local input = tokenInputs[element]
             if input then
                 input.Caption = color
-                logger:Info(("[UI] Setting token: %s to color: %s"):format(element, color))
+                if logger and logger.DebugF then
+                    logger:DebugF("[UI] Setting token: %s to color: %s", element, color)
+                end
             else
                 logger:Warning("[UI] Token input not found for element: " .. element)
             end
         end
     end
-    self:RebuildImageList(listView, self:GetColorsAndTokensFromListView(listView))
+    local listView = self.ThemeCreatorListView
+    if listView then
+        self:RebuildImageList(listView, self:GetColorsAndTokensFromListView(listView))
+    end
 end
 
 --
@@ -2152,6 +2314,7 @@ function UI:ApplyThemeObject(themeObj)
     self:ApplyThemeToMainForm(builtTheme)
     self:ApplyThemeToAddressRecords(builtTheme)
     self:ApplyThemeToLuaEngine(builtTheme)
+    forms:ApplyTheme(builtTheme)
     if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
         self:ApplyThemeToTeleporter(teleporter, builtTheme)
     end
@@ -2167,7 +2330,7 @@ end
 --- @param descEdit # The edit field for the theme's description.
 --
 function UI:SetupApplyButton(applyBtn, tokenInputs, nameEdit, authorEdit, descEdit)
-    applyBtn.OnClick = function()
+    self:SetFormsButtonHandler(applyBtn, function()
         local themeObj = {
             Name = nameEdit.Text or "Unnamed Theme",
             Author = authorEdit.Text or "Unknown Author",
@@ -2178,7 +2341,8 @@ function UI:SetupApplyButton(applyBtn, tokenInputs, nameEdit, authorEdit, descEd
             themeObj.Tokens[token] = item.Caption or "#FFFFFF"
         end
         self:ApplyThemeObject(themeObj)
-    end
+        self:SetThemeCreatorStatus("Theme applied")
+    end)
 end
 
 --
@@ -2191,7 +2355,7 @@ end
 --- @param tokenInputs # A table of token input fields associated with theme elements.
 --
 function UI:SetupExportButton(exportBtn, nameEdit, authorEdit, descEdit, tokenInputs)
-    exportBtn.OnClick = function()
+    self:SetFormsButtonHandler(exportBtn, function()
         local themeData = {
             name        = nameEdit.Text,
             author      = authorEdit.Text,
@@ -2231,10 +2395,40 @@ function UI:SetupExportButton(exportBtn, nameEdit, authorEdit, descEdit, tokenIn
             file:write(jsonStr)
             file:close()
             logger:Info("[UI] Theme exported successfully!")
+            self:SetThemeCreatorStatus("Theme exported")
         else
             logger:Error("[UI] Failed to write file.")
         end
+    end)
+end
+
+function UI:SetThemeCreatorStatus(text)
+    if self.ThemeCreatorStatusLabel then
+        self.ThemeCreatorStatusLabel.Caption = text or "Theme Creator ready"
     end
+end
+
+function UI:CreateThemeCreatorStatusBar(parent)
+    local statusPanel = forms:CreatePanel(parent, {
+        align = alBottom,
+        height = 26,
+        role = "border",
+        bevelOuter = "bvNone",
+        borderSpacing = { Left = 6, Top = 6, Right = 6, Bottom = 6 }
+    })
+    local innerPanel = forms:CreatePanel(statusPanel, {
+        align = alClient,
+        role = "panel",
+        borderSpacing = { Around = 1 }
+    })
+    self.ThemeCreatorStatusLabel = forms:CreateLabel(innerPanel, {
+        align = alLeft,
+        caption = "Theme Creator ready",
+        borderSpacing = { Left = 8, Top = 3 },
+        transparent = true,
+        role = "label"
+    })
+    return statusPanel
 end
 
 --
@@ -2255,16 +2449,71 @@ function UI:InitializeThemeCreator()
     if not self.ThemeCreatorForm then
         self.ThemeCreatorForm = self:CreateThemeCreatorForm()
         local tokenInputs = {}
-        local descEdit, nameEdit, authorEdit = self:CreateThemeInfoPanel(self.ThemeCreatorForm)
-        listView = self:CreateListViewControl(self.ThemeCreatorForm)
+        local descEdit, nameEdit, authorEdit
+        local listView
+        local applyBtn, exportBtn, loadBtn
+        local root = forms:CreatePanel(self.ThemeCreatorForm, {
+            align = alClient,
+            role = "background"
+        })
+        self.ThemeCreatorRootPanel = root
+        self:CreateThemeCreatorStatusBar(root)
+        applyBtn, exportBtn, loadBtn = self:CreateButtonPanel(root, {
+            align = alTop,
+            height = 30,
+            borderSpacing = { Left = 6, Top = 6, Right = 6, Bottom = 3 }
+        })
+        local body = forms:CreatePanel(root, {
+            align = alClient,
+            role = "background",
+            borderSpacing = { Left = 6, Right = 6 }
+        })
+        self.ThemeCreatorBodyPanel = body
+        local editorHost = forms:CreatePanel(body, {
+            align = alClient,
+            role = "background"
+        })
+        editorHost.Constraints.MinWidth = 320
+        local splitter = createSplitter(body)
+        splitter.Align = alLeft
+        splitter.Width = 6
+        splitter.MinSize = 260
+        splitter.ResizeStyle = "rsUpdate"
+        self.ThemeCreatorSplitter = splitter
+        local tokenHost = forms:CreatePanel(body, {
+            align = alLeft,
+            width = 360,
+            role = "background"
+        })
+        tokenHost.Constraints.MinWidth = 280
+        self.ThemeCreatorTokenHost = tokenHost
+        self.ThemeCreatorEditorHost = editorHost
+        listView = self:CreateListViewControl(tokenHost, {
+            title = "THEME TOKENS",
+            align = alClient,
+            borderSpacing = { Right = 6 },
+            contentSpacing = { Around = 6 }
+        })
+        descEdit, nameEdit, authorEdit = self:CreateThemeInfoPanel(editorHost, {
+            title = "THEME EDITOR",
+            align = alTop,
+            height = 158,
+            borderSpacing = { Left = 6, Right = 6 },
+            contentSpacing = { Around = 8 }
+        })
+        self:CreateTokenPreviewPanel(editorHost, {
+            title = "TOKEN PREVIEW",
+            align = alClient,
+            borderSpacing = { Left = 6, Top = 6, Right = 6 },
+            contentSpacing = { Around = 8 }
+        })
+        self.ThemeCreatorTokenInputs = tokenInputs
         self:PopulateListView(listView, tokenInputs)
         self:OnListViewDblClick(listView, tokenInputs)
         self:OnListViewSelectItem(listView)
-        local applyBtn, exportBtn, loadBtn = self:CreateButtonPanel(self.ThemeCreatorForm)
         self:SetupApplyButton(applyBtn, tokenInputs, nameEdit, authorEdit, descEdit)
         self:SetupExportButton(exportBtn, nameEdit, authorEdit, descEdit, tokenInputs)
         self:SetupLoadButton(loadBtn, tokenInputs, nameEdit, authorEdit, descEdit)
-        self:CreateTokenPreviewPanel(self.ThemeCreatorForm)
         self.ThemeCreatorForm.OnClose = function(sender, action)
             self.ThemeCreatorForm.Hide()
             action = caHide
