@@ -1036,6 +1036,30 @@ end
 registerLuaFunctionHighlight("ApplyThemeToTeleporter")
 
 --
+--- ∑ Applies a processed theme to every registered Manifold.Forms control.
+---   This keeps already existing Forms windows in sync when themes are changed from the UI module.
+--- @param theme table # The processed theme token table.
+--- @param includeHidden boolean # Whether hidden registered forms should also be updated.
+--- @returns table|nil # The normalized Forms design theme, or nil when Forms is unavailable.
+--
+function UI:ApplyThemeToForms(theme, includeHidden)
+    if not forms or type(forms.ApplyTheme) ~= "function" then
+        return nil
+    end
+    local appliedTheme = nil
+    local function apply()
+        appliedTheme = forms:ApplyTheme(theme, includeHidden == true)
+    end
+    if type(inMainThread) == "function" and type(synchronize) == "function" and not inMainThread() then
+        synchronize(apply)
+    else
+        apply()
+    end
+    return appliedTheme
+end
+registerLuaFunctionHighlight("ApplyThemeToForms")
+
+--
 --- ∑ Applies a specified theme to all UI components.
 --- @param themeName string # The name of the theme to apply.
 --- @param allowReapply boolean # (Optional) If true, forces reapplication even if the theme is already active.
@@ -1058,7 +1082,7 @@ function UI:ApplyTheme(themeName, allowReapply)
     self:ApplyThemeToLuaEngine(theme)
     MainForm.repaint()
     self.ActiveTheme = themeName
-    forms:ApplyTheme(theme)
+    self:ApplyThemeToForms(theme, true)
     if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
         self:ApplyThemeToTeleporter(teleporter, theme)
     end
@@ -1092,12 +1116,12 @@ function UI:UpdateThemeSelector()
         mr.Type = vtAutoAssembler
         mr.Script = string.format([=[{$lua}
 [ENABLE]
+-- ...........................[ENABLE]...........................
 if syntaxcheck then return end
--- .................................................................
 ui:ApplyTheme(memrec.Description)
 utils:AutoDisable(memrec.ID)
--- .................................................................
 [DISABLE]
+-- ..........................[DISABLE]...........................
 
 --- Script generated using %s
 ---- Version: %s
@@ -2314,7 +2338,7 @@ function UI:ApplyThemeObject(themeObj)
     self:ApplyThemeToMainForm(builtTheme)
     self:ApplyThemeToAddressRecords(builtTheme)
     self:ApplyThemeToLuaEngine(builtTheme)
-    forms:ApplyTheme(builtTheme)
+    self:ApplyThemeToForms(builtTheme, true)
     if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
         self:ApplyThemeToTeleporter(teleporter, builtTheme)
     end
