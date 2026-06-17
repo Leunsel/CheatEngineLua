@@ -1,6 +1,6 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.3"
+local VERSION = "2.0.4"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
@@ -25,6 +25,9 @@ local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
     ∂ v2.0.3 (2026-04-21)
         Added missing PrintModuleInfo function to AutoAssembler.
+
+    ∂ v2.0.4 (2026-06-17)
+        Added missing Module Prefix and localized two utility functions to AutoAssembler.
 ]]--
 
 AutoAssembler = {
@@ -40,6 +43,8 @@ AutoAssembler = {
     _processChangedMsg = nil,
 }
 AutoAssembler.__index = AutoAssembler
+
+local MODULE_PREFIX = "[Auto-Assembler]"
 
 --
 --- ∑ Ensures all required modules are loaded and ready to use.
@@ -106,8 +111,8 @@ function AutoAssembler:GetInstance()
     return self._instance
 end
 
-function _isString(v) return type(v) == "string" end
-function _trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+local function _isString(v) return type(v) == "string" end
+local function _trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
 --
 --- ∑ Returns module metadata.
