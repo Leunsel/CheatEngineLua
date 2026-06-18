@@ -1,6 +1,6 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.4"
+local VERSION = "2.0.5"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
@@ -28,6 +28,9 @@ local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
     ∂ v2.0.4 (2026-06-17)
         Added missing Module Prefix and localized two utility functions to AutoAssembler.
+
+    v2.0.5 (2026-06-18)
+        Delegated process lifecycle cleanup exclusively to Manifold.ProcessHandler.
 ]]--
 
 AutoAssembler = {
@@ -214,19 +217,10 @@ registerLuaFunctionHighlight('Reset')
 --- @return boolean # Returns 'true' if the call succeeded, otherwise 'false'.
 --
 function AutoAssembler:DisableAllWithoutExecute()
-    if not AddressList or not AddressList.disableAllWithoutExecute then
-        logger:Warning("[Auto-Assembler] Could not disable records safely (AddressList.disableAllWithoutExecute is not available).")
-        return false
+    if processHandler and type(processHandler.DisableAllWithoutExecute) == "function" then
+        return processHandler:DisableAllWithoutExecute()
     end
-    local ok, err = pcall(function()
-        AddressList.disableAllWithoutExecute()
-        deleteAllRegisteredSymbols()
-    end)
-    if ok then
-        logger:Info("[Auto-Assembler] All table records were disabled safely (without executing disable scripts).")
-        return true
-    end
-    logger:Error("[Auto-Assembler] Failed to disable records safely. Reason: " .. tostring(err))
+    logger:Error("[Auto-Assembler] ProcessHandler is required for DisableAllWithoutExecute.")
     return false
 end
 registerLuaFunctionHighlight('DisableAllWithoutExecute')
@@ -629,15 +623,11 @@ function MainForm.OnProcessOpened()
     local oldPid = inst._lastKnownPid
     inst._lastKnownPid = newPid
     if oldPid ~= 0 and oldPid ~= nil and newPid ~= nil and oldPid ~= newPid then
-        logger:Warning("[Auto-Assembler] A new game session was detected. Resetting to keep everything safe...")
-        inst:DisableAllWithoutExecute()
-        inst:Reset("New game session opened")
-        logger:Info("[Auto-Assembler] Everything was reset. Please run the script again.")
-        -- Clear the active patches to avoid confusion.
-        -- This is rather vague given the instance needs to be called exactly "assemblerCommands" and the patch list needs to be exactly
-        -- "ActivePatches", but it's better than nothing for now.
-        assemblerCommands.ActivePatches = {}
-        logger:Info("[Auto-Assembler] Cleared active patches list to avoid confusion after process change.")
+        if processHandler and type(processHandler.HandleProcessChanged) == "function" then
+            processHandler:HandleProcessChanged(oldPid, newPid)
+        else
+            logger:Error("[Auto-Assembler] ProcessHandler is required to handle process changes.")
+        end
     end
     if _o_MainForm_OnProcessOpened then
         _o_MainForm_OnProcessOpened()
