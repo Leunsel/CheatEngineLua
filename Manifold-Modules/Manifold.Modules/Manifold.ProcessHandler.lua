@@ -1,6 +1,6 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
@@ -12,19 +12,40 @@ local DESCRIPTION = "Manifold Framework ProcessHandler"
 
     ∂ v1.0.2 (2026-06-17)
         AutoAttach Tick Reset upon start and removed duplicate StartAutoAttachTimer function.
+
+    v1.1.0 (2026-06-18)
+        Reworked the process lifecycle flow into AutoAttach, Attach/PostAttach, and ProcessWatch stages.
+        Added safe cleanup and automatic AutoAttach restart when the process disappears.
 ]]--
 
 ProcessHandler = {
+    ProcessName = nil,
     AutoAttachTimerInterval = 100,
-    AutoAttachTimerTicks = 0,     
+    AutoAttachTimerTicks = 0,
     AutoAttachTimerTickMax = 5000,
+    AutoAttachTimer = nil,
+    AutoAttachOptions = nil,
+    ProcessWatchTimerInterval = 1000,
+    ProcessWatchTimer = nil,
+    IsAutoAttaching = false,
+    IsWatchingProcess = false,
+    AttachedProcessName = nil,
+    AttachedProcessID = nil,
 }
 ProcessHandler.__index = ProcessHandler
 
 function ProcessHandler:New()
     local instance = setmetatable({}, self)
-    self:CheckDependencies()
+    instance:CheckDependencies()
     instance.Name = NAME or "Unnamed Module"
+    instance.AutoAttachTimerTicks = 0
+    instance.AutoAttachTimer = nil
+    instance.AutoAttachOptions = nil
+    instance.ProcessWatchTimer = nil
+    instance.IsAutoAttaching = false
+    instance.IsWatchingProcess = false
+    instance.AttachedProcessName = nil
+    instance.AttachedProcessID = nil
     return instance
 end
 registerLuaFunctionHighlight('New')
@@ -74,6 +95,7 @@ function ProcessHandler:CheckDependencies()
     local dependencies = {
         { name = "logger", path = "Manifold.Logger",  init = function() logger = Logger:New() end },
         { name = "utils", path = "Manifold.Utils",  init = function() utils = Utils:New() end },
+        { name = "helper", path = "Manifold.Helper",  init = function() helper = Helper:New() end },
     }
     for _, dep in ipairs(dependencies) do
         local depName = dep.name
@@ -100,23 +122,24 @@ end
 ---   This function attempts to read from the process memory. If the read is successful and the result is not 'nil', it confirms that the process is attached.
 ---   If an error occurs while reading the memory, a warning message is logged to indicate whether the process is no longer available.
 --
-function ProcessHandler:IsProcessAttached()
-    if not process then
-        logger:Warning("[ProcessHandler] No process attached.")
+function ProcessHandler:IsAttachedProcessAvailable()
+    if helper and type(helper.IsProcessAvailable) == "function" then
+        return helper:IsProcessAvailable()
+    end
+    if not process or process == "" then
         return false
     end
     local success, result = pcall(readInteger, process)
-    if success and result ~= nil then
-        -- ProcessHandler is attached and accessible
+    return success and result ~= nil
+end
+registerLuaFunctionHighlight('IsAttachedProcessAvailable')
+
+function ProcessHandler:IsProcessAttached()
+    if self:IsAttachedProcessAvailable() then
         return true
-    else
-        if not success then
-            logger:Warning("[ProcessHandler] Failed to read process memory: '" .. result .. "'.")
-        else
-            logger:Warning("[ProcessHandler] Process is no longer or was never accessible.")
-        end
-        return false
     end
+    logger:Warning("[ProcessHandler] No process attached or process is no longer accessible.")
+    return false
 end
 registerLuaFunctionHighlight('IsProcessAttached')
 
@@ -128,11 +151,8 @@ registerLuaFunctionHighlight('IsProcessAttached')
 ---   If no process is attached, it returns 'nil'.
 --
 function ProcessHandler:GetAttachedProcessName()
-    if self:IsProcessAttached() then
-        return process
-    else
-        return nil
-    end
+    if self:IsAttachedProcessAvailable() then return process end
+    return nil
 end
 registerLuaFunctionHighlight('GetAttachedProcessName')
 
@@ -188,20 +208,36 @@ registerLuaFunctionHighlight('OpenLink')
 ---   This function automatically attempts to attach to a process by its name at regular intervals, using the 'AutoAttachTimer'.
 ---   If the process is found, the 'TryAttachToProcess' function is called to attach to it. If the process is not found within the maximum retries, the timer stops.
 --
-function ProcessHandler:AutoAttach(processName)
-    processName = processName or self.ProcessName
+function ProcessHandler:ResolveProcessName(processName)
+    processName = processName or self.ProcessName or self.AttachedProcessName
+    if not processName or processName == "" then
+        logger:Error("[ProcessHandler] No process name configured.")
+        return nil
+    end
+    self.ProcessName = processName
+    return processName
+end
+registerLuaFunctionHighlight('ResolveProcessName')
+
+function ProcessHandler:AutoAttach(processName, options)
+    processName = self:ResolveProcessName(processName)
+    if not processName then return false end
+    self.AutoAttachOptions = options
+    self:StopProcessWatchTimer()
+    self:StopAutoAttachTimer()
     self.AutoAttachTimerTicks = 0
+    self.IsAutoAttaching = true
     logger:Debug("[ProcessHandler] Starting AutoAttach for process: " .. tostring(processName))
     local function autoAttachTimer_tick(timer)
-        -- logger:Info("[ProcessHandler] Timer fired!")
         if self:ShouldStopAutoAttach(timer) then return end
         local processID = getProcessIDFromProcessName(processName)
         if processID then
-            self:TryAttachToProcess(timer, processName, processID)
+            self:TryAttachToProcess(timer, processName, processID, options)
         end
         self.AutoAttachTimerTicks = self.AutoAttachTimerTicks + 1
     end
     self:StartAutoAttachTimer(autoAttachTimer_tick)
+    return true
 end
 registerLuaFunctionHighlight('AutoAttach')
 
@@ -215,7 +251,7 @@ registerLuaFunctionHighlight('AutoAttach')
 --
 function ProcessHandler:ShouldStopAutoAttach(timer)
     if self.AutoAttachTimerTickMax > 0 and self.AutoAttachTimerTicks >= self.AutoAttachTimerTickMax then
-        timer.destroy()
+        self:StopAutoAttachTimer(timer)
         logger:Error("[ProcessHandler] Auto-Attach couldn't find the process in time. You may attach manually from now!")
         return true
     end
@@ -232,23 +268,79 @@ end
 ---   This function attempts to attach to the specified process by checking if the process is already attached. If not, it attempts to attach to it.
 ---   It also performs necessary post-attachment tasks and handles any process mismatches.
 --
-function ProcessHandler:TryAttachToProcess(timer, processName, processID)
+function ProcessHandler:TryAttachToProcess(timer, processName, processID, options)
     logger:Debug("[ProcessHandler] Found " .. processName .. " with PID " .. processID .. ". Attempting to attach...")
-    timer.destroy()
+    self:StopAutoAttachTimer(timer)
+    if not self:AttachToProcess(processName, processID) then
+        self:AutoAttach(processName, options)
+        return false
+    end
+    self:OnProcessAttached(processName, processID, options)
+    return true
+end
+
+--
+--- ∑ Attaches Cheat Engine to a process by name and/or process id.
+--- @param processName string # The expected process name.
+--- @param processID number|nil # Optional process id. If nil, the id is resolved by name.
+--- @return boolean # True if the attach succeeded and the process is available.
+--
+function ProcessHandler:AttachToProcess(processName, processID)
+    processName = self:ResolveProcessName(processName)
+    if not processName then return false end
+    processID = processID or getProcessIDFromProcessName(processName)
+    if not processID then
+        logger:Error("[ProcessHandler] Process '" .. tostring(processName) .. "' not found.")
+        return false
+    end
     local currentProcessID = getOpenedProcessID()
     if currentProcessID == processID then
-        logger:Debug("[ProcessHandler] Process is already attached (PID: " .. currentProcessID .. "). Skipping reattachment.")
+        logger:Debug("[ProcessHandler] Process is already attached (PID: " .. tostring(currentProcessID) .. ").")
     else
         logger:Debug("[ProcessHandler] Previously attached PID: " .. tostring(currentProcessID))
-        logger:Debug("[ProcessHandler] Attempting to open process with ID: " .. processID)
-        openProcess(processID) 
-        logger:Debug("[ProcessHandler] Called openProcess with process ID: " .. processID)
+        logger:Debug("[ProcessHandler] Attempting to open process with ID: " .. tostring(processID))
+        local ok, err = pcall(openProcess, processID)
+        if not ok then
+            logger:Error("[ProcessHandler] Failed to open process '" .. tostring(processName) .. "': " .. tostring(err))
+            return false
+        end
     end
-    -- Always execute the post-attachment tasks regardless of reattachment
     self:HandleProcessMismatch(processName, processID)
-    self:PerformPostAttachTasks()
-    logger:Debug("[ProcessHandler] Auto Attach Complete. Process: '" .. processName .. "' | PID: " .. tostring(processID) .. " | Status: " .. (processID and "Success" or "Failed"))
+    if not self:IsAttachedProcessAvailable() then
+        logger:Error("[ProcessHandler] Process '" .. tostring(processName) .. "' was found but is not accessible after attach.")
+        return false
+    end
+    self.AttachedProcessName = processName
+    self.AttachedProcessID = processID
+    return true
 end
+registerLuaFunctionHighlight('AttachToProcess')
+
+--
+--- ∑ Runs post-attach tasks and starts the process watch timer.
+--- @param processName string # The attached process name.
+--- @param processID number # The attached process id.
+--- @param options table|nil # Optional flow options.
+--- @return # void
+--
+function ProcessHandler:OnProcessAttached(processName, processID, options)
+    options = options or {}
+    if options.runPostAttachTasks ~= false then
+        local ok, err = pcall(function() self:PerformPostAttachTasks() end)
+        if not ok then
+            logger:Error("[ProcessHandler] Post-attach tasks failed: " .. tostring(err))
+        end
+    end
+    if type(options.onAttached) == "function" then
+        local ok, err = pcall(options.onAttached, self, processName, processID)
+        if not ok then
+            logger:Error("[ProcessHandler] Post-attach callback failed: " .. tostring(err))
+        end
+    end
+    logger:Debug("[ProcessHandler] Auto Attach Complete. Process: '" .. tostring(processName) .. "' | PID: " .. tostring(processID))
+    self:StartProcessWatchTimer(processName)
+end
+registerLuaFunctionHighlight('OnProcessAttached')
 
 --
 --- ∑ Ensures the attached process matches the expected process name and ID.
@@ -265,7 +357,10 @@ function ProcessHandler:HandleProcessMismatch(processName, processID)
         logger:Warning("[ProcessHandler] Process mismatch detected! Expected: " .. processName .. ", Found: " .. tostring(attachedProcess))
         if getOpenedProcessID() ~= processID then
             logger:Debug("[ProcessHandler] Reattempting openProcess with process name: " .. processName)
-            openProcess(processName) 
+            local ok, err = pcall(openProcess, processName)
+            if not ok then
+                logger:Error("[ProcessHandler] Reattachment by process name failed: " .. tostring(err))
+            end
         else
             logger:Debug("[ProcessHandler] Process ID matches but name mismatch. No reattachment needed.")
         end
@@ -283,14 +378,168 @@ end
 ---   If a timer is already running, it will be destroyed to ensure only one instance is active.
 --
 function ProcessHandler:StartAutoAttachTimer(callback)
-    if self.AutoAttachTimer then
-        self.AutoAttachTimer.destroy()
-    end
+    self:StopAutoAttachTimer()
     self.AutoAttachTimer = createTimer(MainForm)
     self.AutoAttachTimer.Interval = self.AutoAttachTimerInterval
     self.AutoAttachTimer.OnTimer = callback
+    self.AutoAttachTimer.Enabled = true
+    self.IsAutoAttaching = true
     logger:Debug("[ProcessHandler] AutoAttach timer started with interval: " .. self.AutoAttachTimerInterval .. "ms")
 end
+
+function ProcessHandler:StopAutoAttachTimer(timer)
+    local activeTimer = timer or self.AutoAttachTimer
+    if activeTimer then
+        pcall(function() activeTimer.destroy() end)
+    end
+    if not timer or timer == self.AutoAttachTimer then
+        self.AutoAttachTimer = nil
+    end
+    self.IsAutoAttaching = false
+end
+registerLuaFunctionHighlight('StopAutoAttachTimer')
+
+--
+--- ∑ Starts the timer that watches the attached process.
+--- @param processName string|nil # Process name to use when AutoAttach needs to restart.
+--- @return boolean # True if the watch timer was started.
+--
+function ProcessHandler:StartProcessWatchTimer(processName)
+    processName = self:ResolveProcessName(processName)
+    if not processName then return false end
+    self:StopProcessWatchTimer()
+    self.ProcessWatchTimer = createTimer(MainForm)
+    self.ProcessWatchTimer.Interval = self.ProcessWatchTimerInterval
+    self.ProcessWatchTimer.OnTimer = function(timer)
+        self:CheckWatchedProcess(timer)
+    end
+    self.ProcessWatchTimer.Enabled = true
+    self.IsWatchingProcess = true
+    logger:Debug("[ProcessHandler] Process watch timer started with interval: " .. tostring(self.ProcessWatchTimerInterval) .. "ms")
+    return true
+end
+registerLuaFunctionHighlight('StartProcessWatchTimer')
+
+--
+--- ∑ Stops the process watch timer.
+--- @param timer Timer|nil # Optional timer instance to destroy.
+--- @return # void
+--
+function ProcessHandler:StopProcessWatchTimer(timer)
+    local activeTimer = timer or self.ProcessWatchTimer
+    if activeTimer then
+        pcall(function() activeTimer.destroy() end)
+    end
+    if not timer or timer == self.ProcessWatchTimer then
+        self.ProcessWatchTimer = nil
+    end
+    self.IsWatchingProcess = false
+end
+registerLuaFunctionHighlight('StopProcessWatchTimer')
+
+--
+--- ∑ Checks whether the watched process is still available.
+--- @param timer Timer|nil # The active watch timer.
+--- @return boolean # True while the process is still available.
+--
+function ProcessHandler:CheckWatchedProcess(timer)
+    if self:IsAttachedProcessAvailable() then
+        return true
+    end
+    self:HandleProcessUnavailable("Process is no longer available.", timer)
+    return false
+end
+registerLuaFunctionHighlight('CheckWatchedProcess')
+
+--
+--- ∑ Disables table records without executing their disable sections.
+--- @return boolean # True if the cleanup succeeded.
+--
+function ProcessHandler:DisableAllWithoutExecute()
+    local addressList = AddressList
+    if not addressList and type(getAddressList) == "function" then
+        addressList = getAddressList()
+    end
+    if not addressList or not addressList.disableAllWithoutExecute then
+        logger:Warning("[ProcessHandler] Could not disable records safely (AddressList.disableAllWithoutExecute is not available).")
+        return false
+    end
+    local ok, err = pcall(function()
+        addressList.disableAllWithoutExecute()
+        if type(deleteAllRegisteredSymbols) == "function" then
+            deleteAllRegisteredSymbols()
+        end
+    end)
+    if ok then
+        logger:Info("[ProcessHandler] All table records were disabled safely (without executing disable scripts).")
+        return true
+    end
+    logger:Error("[ProcessHandler] Failed to disable records safely. Reason: " .. tostring(err))
+    return false
+end
+registerLuaFunctionHighlight('DisableAllWithoutExecute')
+
+--
+--- ∑ Resets related module state after a process disappears.
+--- @param reason string|nil # Reason passed to reset-capable modules.
+--- @return # void
+--
+function ProcessHandler:ResetProcessBoundState(reason)
+    local assembler = rawget(_G, "autoAssembler") or rawget(_G, "autoassembler")
+    if not assembler and rawget(_G, "AutoAssembler") and AutoAssembler._instance then
+        assembler = AutoAssembler._instance
+    end
+    if assembler and type(assembler.Reset) == "function" then
+        assembler:Reset(reason or "Process unavailable")
+    end
+    if rawget(_G, "assemblerCommands") and type(assemblerCommands.ActivePatches) == "table" then
+        assemblerCommands.ActivePatches = {}
+        logger:Info("[ProcessHandler] Cleared active patches list after process loss.")
+    end
+end
+registerLuaFunctionHighlight('ResetProcessBoundState')
+
+--
+--- ∑ Handles an explicit process change reported by Cheat Engine.
+--- @param oldPid number|nil # Previous process id.
+--- @param newPid number|nil # New process id.
+--- @return # void
+--
+function ProcessHandler:HandleProcessChanged(oldPid, newPid)
+    self:StopAutoAttachTimer()
+    self:StopProcessWatchTimer()
+    logger:Warning("[ProcessHandler] A new game session was detected. Resetting process-bound state...")
+    self:DisableAllWithoutExecute()
+    self:ResetProcessBoundState("New game session opened")
+    self.AttachedProcessName = process
+    self.AttachedProcessID = newPid
+    if self.AttachedProcessName and self.AttachedProcessName ~= "" and self:IsAttachedProcessAvailable() then
+        self.ProcessName = self.AttachedProcessName
+        self:StartProcessWatchTimer(self.ProcessName)
+    end
+    logger:Info("[ProcessHandler] Process change cleanup complete. Previous PID: " .. tostring(oldPid) .. " | Current PID: " .. tostring(newPid))
+end
+registerLuaFunctionHighlight('HandleProcessChanged')
+
+--
+--- ∑ Handles the loss of the attached process and restarts AutoAttach.
+--- @param reason string|nil # Human-readable cleanup reason.
+--- @param timer Timer|nil # Optional watch timer instance.
+--- @return # void
+--
+function ProcessHandler:HandleProcessUnavailable(reason, timer)
+    local processName = self.ProcessName or self.AttachedProcessName
+    self:StopProcessWatchTimer(timer)
+    logger:Warning("[ProcessHandler] " .. tostring(reason or "Process became unavailable.") .. " Cleaning up and restarting AutoAttach.")
+    self:DisableAllWithoutExecute()
+    self:ResetProcessBoundState(reason or "Process unavailable")
+    self.AttachedProcessName = nil
+    self.AttachedProcessID = nil
+    if processName and processName ~= "" then
+        self:AutoAttach(processName, self.AutoAttachOptions)
+    end
+end
+registerLuaFunctionHighlight('HandleProcessUnavailable')
 
 --
 --- ∑ Performs tasks after a successful process attach.
@@ -323,33 +572,14 @@ end
 ---   Otherwise, it tries to attach to the process specified by 'processName'. If the process cannot be found or attached, an error is logged.
 ---
 function ProcessHandler:AttachToProcessByName(processName)
-    if not processName or processName == "" then
-        logger:Error("[ProcessHandler] Invalid process name provided.")
-        return false
-    end
-    if self:IsProcessAttached() then
-        local attachedProcess = process
-        if attachedProcess == processName then
-            logger:Debug("[ProcessHandler] Already attached to the correct process: " .. processName)
-            return true
-        else
-            logger:Warning("[ProcessHandler] Attached to '" .. tostring(attachedProcess) .. "', but expected '" .. processName .. "'. Reattaching...")
-        end
-    end
+    processName = self:ResolveProcessName(processName)
+    if not processName then return false end
     local processID = getProcessIDFromProcessName(processName)
-    if not processID then
-        logger:Error("[ProcessHandler] Process '" .. processName .. "' not found.")
+    if not self:AttachToProcess(processName, processID) then
         return false
     end
-    logger:Debug("[ProcessHandler] Attempting to attach to process '" .. processName .. "' (PID: " .. processID .. ").")
-    openProcess(processID)
-    if self:IsProcessAttached() and process == processName then
-        logger:Debug("[ProcessHandler] Successfully attached to process '" .. processName .. "' (PID: " .. processID .. ").")
-        return true
-    else
-        logger:Error("[ProcessHandler] Failed to attach to process '" .. processName .. "'.")
-        return false
-    end
+    self:OnProcessAttached(processName, processID)
+    return true
 end
 registerLuaFunctionHighlight('AttachToProcessByName')
 
