@@ -1,6 +1,6 @@
 local NAME = "Manifold.Helper.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Helper"
 
 --[[
@@ -9,6 +9,9 @@ local DESCRIPTION = "Manifold Framework Helper"
 
     ∂ v1.0.1 (2025-04-11)
         Minor comment adjustments.
+
+    v1.0.2 (2026-06-18)
+        Hardened IsProcessAvailable for process watch timers.
 ]]--
 
 Helper = {}
@@ -60,6 +63,19 @@ function Helper:GetProcess()
     return process
 end
 registerLuaFunctionHighlight('GetProcess')
+
+--
+--- ∑ Checks if the current process is available and valid.
+--- @return boolean # true if the process is available, false otherwise.
+--
+function Helper:IsProcessAvailable()
+    if not process or process == "" then
+        return false
+    end
+    local ok, result = pcall(readInteger, process)
+    return ok and result ~= nil
+end
+registerLuaFunctionHighlight('IsProcessAvailable')
 
 --
 --- ∑ Retrieves the current process name without the ".exe" extension.
