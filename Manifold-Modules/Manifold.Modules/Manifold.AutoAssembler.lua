@@ -1,11 +1,15 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.5"
+local VERSION = "2.0.6"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
     v2.0.5 (2026-06-18)
         Delegated process lifecycle cleanup exclusively to Manifold.ProcessHandler.
+
+    v2.0.6 (2026-06-19)
+        Added support for rolling back Detour Transactions via Manifold.Trampolines if a script fails after applying changes.
+        This helps maintain a safe state even when using complex trampoline-based hooks.
 ]]--
 
 AutoAssembler = {
@@ -468,6 +472,44 @@ function AutoAssembler:_txRollback()
     self._txDepth = 0
 end
 
+function AutoAssembler:_scriptUsesTrampolines(scriptText)
+    if type(scriptText) ~= "string" then return false end
+    return scriptText:find("ManifoldInstallDetour", 1, true) ~= nil
+        or scriptText:find("ManifoldDestroyDetour", 1, true) ~= nil
+        or scriptText:find("ManifoldEmitOriginal", 1, true) ~= nil
+        or scriptText:find("ManifoldEmitReturn", 1, true) ~= nil
+end
+
+function AutoAssembler:_getTrampolineApi()
+    local api = rawget(_G, "trampolines")
+    if api and type(api.BeginTransaction) == "function" then return api end
+    if not rawget(_G, "Trampolines") then
+        local requireFn = rawget(_G, "CETrequire")
+        if type(requireFn) == "function" then
+            pcall(requireFn, "Manifold.Trampolines")
+        end
+    end
+    if rawget(_G, "Trampolines") then
+        local ok, instance = pcall(function() return Trampolines:New() end)
+        if ok and instance and type(instance.BeginTransaction) == "function" then
+            trampolines = instance
+            return instance
+        end
+    end
+    return nil
+end
+
+function AutoAssembler:_beginTrampolineTransaction(scriptText)
+    if not self:_scriptUsesTrampolines(scriptText) then return nil end
+    local api = self:_getTrampolineApi()
+    if not api then
+        logger:Warning("[Auto-Assembler] Detour transaction cleanup is unavailable because Manifold.Trampolines could not be loaded.")
+        return nil
+    end
+    api:BeginTransaction()
+    return api
+end
+
 --
 --- ∑ Runs an Auto-Assembler script by file name (side-loaded) or by raw script text.
 ---   This function is process-aware, supports toggling via disableInfo, and supports rollback on failure.
@@ -478,6 +520,7 @@ end
 --
 function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
     local isTopLevel = (self._txDepth == 0)
+    local trampolineTx = nil
     self:_txBegin()
     local ok, resultOrErr = pcall(function()
         self:_validateProcessOrThrow()
@@ -489,6 +532,7 @@ function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
         if not scriptText then
             error("[Auto-Assembler] Cannot continue. " .. tostring(logicalNameOrErr), 0)
         end
+        trampolineTx = self:_beginTrampolineTransaction(scriptText)
         local key = self:_stateKey(logicalNameOrErr, memrec)
         local st = self:_getOrCreateState(key)
         st.TargetSelf = ts
@@ -519,11 +563,19 @@ function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
         else
             logger:Info("[Auto-Assembler] Done: " .. tostring(logicalNameOrErr) .. " is now OFF.")
         end
+        if trampolineTx then
+            trampolineTx:CommitTransaction()
+            trampolineTx = nil
+        end
         return true
     end)
     if ok then
         self:_txCommit()
         return true
+    end
+    if trampolineTx then
+        trampolineTx:RollbackTransaction(tostring(resultOrErr))
+        trampolineTx = nil
     end
     if not isTopLevel then
         self._txDepth = math.max(0, self._txDepth - 1)
