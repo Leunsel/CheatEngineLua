@@ -4,54 +4,6 @@ local VERSION = "1.1.4"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-06-27)
-        Updated Teleporter UI as well as the Save System.
-
-    ∂ v1.0.2 (2025-06-27)
-        Fixed the UI Search Query to work with the new system.
-
-    ∂ v1.0.3 (2025-06-27)
-        Added support for an Author.
-        Added support for a Category.
-        Updated the Teleporter UI to display categories.
-
-    ∂ v1.0.4 (2025-06-27)
-        Added a Theme to the Teleporter UI.
-
-    ∂ v1.0.5 (2025-12-04)
-        Updated the Teleporter to support different Value Types
-        for position read and write operations. (Thank you, Hitman 2!)
-
-    ∂ v1.0.6 (2025-12-07)
-        Added Waypoint Specific Value Type support.
-
-    ∂ v1.0.7 (2025-12-08)
-        Added Pause Flag support to Teleporter functions, pausing
-        the process while teleporting if set.
-
-    ∂ v1.1.0 (2026-04-02)
-        Refactored the Teleporter UI.
-        Added automatic UI refresh after save mutations.
-        Added a menu strip, toolbar, status bar and improved context menu.
-        Removed obsolete legacy UI helpers and editor coupling.
-        Added new Theme support to the Teleporter UI.
-        Added support for a Y-Coordinate adjustment when teleporting, with configurable index and amount.
-    
-    ∂ v1.1.1 (2026-04-02)
-        Perhaps it's smart to add a splitter between the Save Panel and the Editor Panel...
-        Added the PrintSave and CreateTeleporterSaves Function back and improved the CreateTeleporterSaves function to prevent TreeIndex errors.
-        Made the Main Menu Strip Entry conditionally appear based on the presence of a Waypoint Symbol in the config.
-
-    ∂ v1.1.2 (2026-04-03)
-        Adjusted the Teleporter UI Panel Width to be 50% by default for both, Editor and TreeView.
-
-    ∂ v1.1.3 (2026-04-04)
-        Manifold.UI Themes now properly apply to the Teleporter UI at runtime, eliminating the need for a bruteforced UI Restart.
-        Minor Adjustment towards the TreeHost Constraints to prevent it from going off the screen.
-
     ∂ v1.1.4 (2026-06-17)
         Requires Manifold.Forms for Teleporter UI control generation.
         Removed legacy CE-control fallback builders from the Teleporter UI path.
