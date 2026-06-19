@@ -1716,8 +1716,13 @@ function UI:InitializeForm()
     self:CreateSloganStr(self.SloganStr)
     self:CreateSignatureStr(self.SignatureStr)
     -- ........................
-    self:LoadThemes()
-    self:ApplyTheme(self.Theme)
+    if self.ActiveTheme ~= self.Theme then
+        logger:Info("[UI] Active theme '" .. tostring(self.ActiveTheme) .. "' does not match configured theme '" .. tostring(self.Theme) .. "'. Applying configured theme.")
+        self:LoadThemes()
+        self:ApplyTheme(self.Theme)
+    else
+        logger:Info("[UI] Active theme '" .. tostring(self.ActiveTheme) .. "' matches configured theme. No need to apply.")
+    end 
 end
 
 --
