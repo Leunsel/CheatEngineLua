@@ -4,12 +4,6 @@ local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Helper"
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-04-11)
-        Minor comment adjustments.
-
     v1.0.2 (2026-06-18)
         Hardened IsProcessAvailable for process watch timers.
 ]]--
