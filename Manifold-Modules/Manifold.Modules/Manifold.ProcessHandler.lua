@@ -458,6 +458,9 @@ function ProcessHandler:ResetProcessBoundState(reason)
     if rawget(_G, "assemblerCommands") and type(assemblerCommands.ActivePatches) == "table" then
         assemblerCommands.ActivePatches = {}
     end
+    if rawget(_G, "trampolines") and type(trampolines.Reset) == "function" then
+        trampolines:Reset()
+    end
 end
 registerLuaFunctionHighlight('ResetProcessBoundState')
 
