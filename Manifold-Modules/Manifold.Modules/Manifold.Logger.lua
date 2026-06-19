@@ -4,13 +4,6 @@ local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Logger"
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-04-11)
-        Minor comment adjustments.
-        Added a dedicated "Logs" Directory to log to.
-
     ∂ v1.0.2 (2026-04-21)
         Refactored duplicated log wrapper and file output logic into shared helpers.
         Reduced module size by dynamically registering level-specific logging functions.
