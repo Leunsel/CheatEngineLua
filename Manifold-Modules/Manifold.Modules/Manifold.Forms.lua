@@ -4,9 +4,6 @@ local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Forms"
 
 --[[
-    v1.0.0 (2026-06-17)
-        Initial retained-mode form helper API.
-        Registers created controls so Manifold.UI themes can be applied live.
     v1.0.1 (2026-06-17)
         Resolve registered control roots through the parent chain for reliable live theming.
 ]]--
@@ -108,6 +105,10 @@ function Forms:PrintModuleInfo()
     logger:Info("\tDescription: " .. description .. "\n")
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
+
+--------------------------------------------------------
+--                  Module Start                      --
+--------------------------------------------------------
 
 --
 --- ∑ Ensures that the retained Forms control registry exists.
@@ -868,5 +869,9 @@ function Forms:CreateListView(parent, opts)
     return list
 end
 registerLuaFunctionHighlight('CreateListView')
+
+--------------------------------------------------------
+--                   Module End                       --
+--------------------------------------------------------
 
 return Forms
