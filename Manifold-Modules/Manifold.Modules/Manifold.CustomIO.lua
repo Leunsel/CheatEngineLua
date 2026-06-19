@@ -4,19 +4,6 @@ local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework CustomIO"
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-03-27)
-        Improved error handling, reduced 'string.format' usage.
-        Added CSV read/write support and safe file deletion.
-
-    ∂ v1.0.2 (2025-12-05)
-        Fixed JSON encoding issues in Table File read/write functions.
-            - (CustomIO:WriteToTableFileAsJson)
-        Adjusted the write procedure to correctly handle byte streams.
-            - (CustomIO:WriteToTableFile and CustomIO:WriteToTableFileAsJson)
-
     ∂ v1.0.3 (2026-04-21)
         Reduced low-value log noise and focused logging on failures and meaningful state changes.
 ]]--
