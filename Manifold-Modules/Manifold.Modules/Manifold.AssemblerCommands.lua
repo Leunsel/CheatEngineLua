@@ -1,52 +1,13 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.5"
+local VERSION = "1.1.6"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
-    ∂ v1.0.0 (2026-01-31)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2026-02-01)
-        Minor changes to logging logic.
-
-    ∂ v1.0.2 (2026-02-02)
-        Added custom Manifold Assert Logic.
-
-    ∂ v1.0.3 (2026-03-29)
-        Added Manifold Resolve Static Command.
-        Adjusted Resolve Static to read disp32 with readInteger (true) for signed value.
-
-    ∂ v1.0.4 (2026-03-31)
-        Added command argument validation and improved error handling with consistent logging.
-        Adjusted logger calls to use structured formatting and included more debug info on errors.
-        Added a few utility functions for argument parsing and validation to reduce code duplication and improve maintainability.
-        Added some usage example comments.
-
-    ∂ v1.0.5 (2026-04-15)
-        Adjusted Logging.
-        Added ManifoldPatch command for runtime patching with detailed logging of before/after bytes.
-        Added ManifoldNop command for applying NOP patches with verification and logging.
-
-    ∂ v1.1.0 (2026-04-20)
-        Refactored command lifecycle, validation, and registration into shared helpers.
-        Centralized patch/assert logic and reduced command-specific boilerplate for scalability.
-
-    ∂ v1.1.1 (2026-04-25)
-        Adjusted ManifoldScanModule module validation to check against loaded modules in attach context, not just main module name.
-        There was no real module validation before, so this is a significant improvement to prevent CE from crashing.
-
-    v1.1.2 (2026-05-30)
-        Added ManifoldResolveStatic mode handling for x86 abs32 operands while keeping x64 RIP-relative defaults.
-
-    v1.1.3 (2026-06-03)
-        Adjusted ManifoldResolveStatic output to emit raw address literals instead of resolved symbol names.
-
-    v1.1.4 (2026-06-03)
-        Adjusted ManifoldResolveStatic to dereference the resolved operand address and emit the loaded pointer value.
-
-    v1.1.5 (2026-06-13)
-        Adjusted ManifoldResolveStatic to define the static operand address by default and added pointer/value output mode.
+    v1.1.6 (2026-06-19)
+        _isModuleSuitableForAttachContext verifies the presence of a module using getAddressSafe.
+        enumModules is still used as a fallback, but as it turns out, that's not reliable in all contexts (e.g. early attach)
+        and can cause false positives when the target has a large number of modules.
 ]]--
 
 AssemblerCommands = {
@@ -796,8 +757,9 @@ function AssemblerCommands:_resolveAddress(expr)
 end
 
 --
---- ∑ Checks whether a module argument can belong to the current attach context.
----   The main process module is valid, but loaded DLL modules are valid targets too.
+--- ∑ Checks whether a module can be resolved in the current attach context.
+---   Uses Cheat Engine's symbol resolver first, because it knows both the main
+---   process module and loaded DLL modules.
 --- @param moduleName any
 --- @return boolean
 --- @return string|nil
@@ -805,8 +767,17 @@ end
 function AssemblerCommands:_isModuleSuitableForAttachContext(moduleName)
     local normalizedModule = self:_stripQuotes(moduleName)
     if normalizedModule == "" then return false, "moduleName empty" end
-    if type(process) == "string" and process ~= "" and normalizedModule:lower() == process:lower() then
-        return true, nil
+    local getAddressSafeFn = rawget(_G, "getAddressSafe")
+    if type(getAddressSafeFn) == "function" then
+        local ok, address = pcall(function() return getAddressSafeFn(normalizedModule, false, true) end)
+        if not ok then
+            ok, address = pcall(function() return getAddressSafeFn(normalizedModule) end)
+        end
+        if ok and address then
+            logger:Info(string.format("%s Resolved module '%s' to address 0x%X", MODULE_PREFIX, normalizedModule, address))
+            return true, nil
+        end
+        if not ok then return false, "module could not be resolved: " .. tostring(address) end
     end
     local enumModulesFn = rawget(_G, "enumModules")
     if type(enumModulesFn) == "function" then
@@ -819,16 +790,8 @@ function AssemblerCommands:_isModuleSuitableForAttachContext(moduleName)
                 return true, nil
             end
         end
-        return false, "module ('" .. moduleName .. "') is not loaded in the current attach context"
     end
-    local getAddressSafeFn = rawget(_G, "getAddressSafe")
-    if type(getAddressSafeFn) == "function" then
-        local ok, address = pcall(function() return getAddressSafeFn(normalizedModule) end)
-        if ok and address then return true, nil end
-        if not ok then return false, "module could not be resolved: " .. tostring(address) end
-        return false, "module ('" .. moduleName .. "') is not loaded in the current attach context"
-    end
-    return true, nil
+    return false, "module ('" .. normalizedModule .. "') is not loaded in the current attach context"
 end
 
 --
