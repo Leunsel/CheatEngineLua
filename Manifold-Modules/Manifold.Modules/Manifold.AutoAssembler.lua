@@ -4,31 +4,6 @@ local VERSION = "2.0.5"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-    
-    ∂ v1.0.1 (2025-07-06)
-        Fixed a typo in the MainForm.OnProcessOpened Override which prevented the States from being reset correctly.
-
-    ∂ v2.0.0 (2026-02-12)
-        Refactored the entire module to improve maintainability and extensibility.
-        Added detailed logging for better debugging and user feedback.
-        Implemented a transactional system to allow rolling back changes if a script fails.
-        Improved error handling to provide clearer messages and prevent partial application of scripts.
-
-    ∂ v2.0.1 (2026-02-13)
-        Fixed a minor inconvenience that caused a forced log message about resetting after a process change, though not
-        necessary.
-
-    ∂ v2.0.2 (2026-02-13)
-        Adjusted Logging for AutoAssemble Failures.
-
-    ∂ v2.0.3 (2026-04-21)
-        Added missing PrintModuleInfo function to AutoAssembler.
-
-    ∂ v2.0.4 (2026-06-17)
-        Added missing Module Prefix and localized two utility functions to AutoAssembler.
-
     v2.0.5 (2026-06-18)
         Delegated process lifecycle cleanup exclusively to Manifold.ProcessHandler.
 ]]--
@@ -611,27 +586,8 @@ function AutoAssembler:Disable(fileOrKey, memrec)
 end
 registerLuaFunctionHighlight('Disable')
 
---
---- ∑ Hook called by Cheat Engine when a new process is opened.
----   If the process changed, the Auto-Assembler will safe-disable all records and reset its internal state.
---- @return nil
---
-local _o_MainForm_OnProcessOpened = MainForm.OnProcessOpened
-function MainForm.OnProcessOpened()
-    local inst = AutoAssembler:GetInstance()
-    local newPid = getOpenedProcessID()
-    local oldPid = inst._lastKnownPid
-    inst._lastKnownPid = newPid
-    if oldPid ~= 0 and oldPid ~= nil and newPid ~= nil and oldPid ~= newPid then
-        if processHandler and type(processHandler.HandleProcessChanged) == "function" then
-            processHandler:HandleProcessChanged(oldPid, newPid)
-        else
-            logger:Error("[Auto-Assembler] ProcessHandler is required to handle process changes.")
-        end
-    end
-    if _o_MainForm_OnProcessOpened then
-        _o_MainForm_OnProcessOpened()
-    end
-end
+--------------------------------------------------------
+--                   Module End                       --
+--------------------------------------------------------
 
 return AutoAssembler
