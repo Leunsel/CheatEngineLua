@@ -4,22 +4,6 @@ local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework Memory"
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-04-11)
-        Minor comment adjustments.
-
-    ∂ v1.0.2 (2025-12-27)
-        Minor log formatting adjustments.
-
-    ∂ v1.0.3 (2026-04-04)
-        Added Signed-Flag Support to Word and Integer functions.
-
-    ∂ v1.0.4 (2026-04-11)
-        Hardened all memory helpers with type validation, safer address resolution,
-        and consistent logger formatting.
-
     ∂ v1.0.5 (2026-04-20)
         Refactored duplicated read/write/add logic into shared operation helpers.
         Reduced repeated address resolution and centralized validation/log formatting.
