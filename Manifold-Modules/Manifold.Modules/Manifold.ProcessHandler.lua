@@ -1,12 +1,11 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
-    v1.2.0 (2026-06-19)
-        Reduced ProcessHandler to the core lifecycle:
-        AutoAttach -> openProcess -> validate target -> PostAttach -> Watch -> Cleanup -> AutoAttach.
+    v1.2.1 (2026-06-19)
+        Added logs for StopProcessWatchTimer to help identify cases where the timer is missing but the watch state is active, which should not happen.
 ]]--
 
 ProcessHandler = {
@@ -25,12 +24,25 @@ ProcessHandler = {
 }
 ProcessHandler.__index = ProcessHandler
 
+--
+--- ∑ Internal helper to compare process names in a case-insensitive manner, treating nil and empty strings as non-matching.
+--- @param left string|nil # First process name.
+--- @param right string|nil # Second process name.
+--- @return boolean # True when both names are non-empty and match case-insensitively.
+--
 local function _SameProcessName(left, right)
     left = tostring(left or "")
     right = tostring(right or "")
     return left ~= "" and right ~= "" and left:lower() == right:lower()
 end
 
+--
+--- ∑ Safely destroys a timer, suppressing any errors that may occur during destruction.
+--- @param timer timer|nil # The timer to destroy.
+--- @return void
+--- @note This function uses pcall to catch and ignore any errors that may arise from destroying
+---       a timer, ensuring that the calling code can continue executing without interruption.
+--
 local function _DestroyTimer(timer)
     if timer then
         pcall(function() timer.destroy() end)
@@ -49,7 +61,7 @@ end
 registerLuaFunctionHighlight('New')
 
 --
---- Returns module metadata.
+--- ∑ Returns module metadata.
 --- @return table # {name, version, author, description}
 --
 function ProcessHandler:GetModuleInfo()
@@ -58,7 +70,7 @@ end
 registerLuaFunctionHighlight('GetModuleInfo')
 
 --
---- Prints module metadata.
+--- ∑ Prints module metadata.
 --
 function ProcessHandler:PrintModuleInfo()
     local info = self:GetModuleInfo()
@@ -70,7 +82,7 @@ end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
 --
---- Loads required dependencies when missing.
+--- ∑ Loads required dependencies when missing.
 --
 function ProcessHandler:CheckDependencies()
     local dependencies = {
@@ -91,7 +103,7 @@ function ProcessHandler:CheckDependencies()
 end
 
 --
---- Resolves and stores the target process name.
+--- ∑ Resolves and stores the target process name.
 --- @param processName string|nil # Process name.
 --- @return string|nil # Resolved process name.
 --
@@ -107,7 +119,7 @@ end
 registerLuaFunctionHighlight('ResolveProcessName')
 
 --
---- Checks whether the current process can still be read.
+--- ∑ Checks whether the current process can still be read.
 --- @return boolean # True when readInteger(process) succeeds.
 --
 function ProcessHandler:IsAttachedProcessAvailable()
@@ -162,7 +174,7 @@ end
 registerLuaFunctionHighlight('OpenLink')
 
 --
---- Checks whether Cheat Engine is attached to the expected target.
+--- ∑ Checks whether Cheat Engine is attached to the expected target.
 --- @param processName string|nil # Expected process name.
 --- @param processID number|nil # Expected process id.
 --- @return boolean # True when process name and PID match.
@@ -175,7 +187,7 @@ end
 registerLuaFunctionHighlight('IsAttachedToTarget')
 
 --
---- Checks whether the expected target is attached and still readable.
+--- ∑ Checks whether the expected target is attached and still readable.
 --- @param processName string|nil # Expected process name.
 --- @param processID number|nil # Expected process id.
 --- @return boolean # True when target and read check are valid.
@@ -185,17 +197,30 @@ function ProcessHandler:IsTargetProcessValid(processName, processID)
 end
 registerLuaFunctionHighlight('IsTargetProcessValid')
 
+--
+--- ∑ Checks whether Cheat Engine is currently attached to a process.
+--- @return boolean # True when a process is attached and readable.
+--
 function ProcessHandler:IsProcessAttached()
     return self:IsAttachedProcessAvailable()
 end
 registerLuaFunctionHighlight('IsProcessAttached')
 
+--
+--- ∑ Retrieves the name of the currently attached process if available.
+--- @return string|nil # The name of the currently attached process, or nil if not available.
+--
 function ProcessHandler:GetAttachedProcessName()
     if self:IsAttachedProcessAvailable() then return process end
     return nil
 end
 registerLuaFunctionHighlight('GetAttachedProcessName')
 
+--
+--- ∑ Stops and destroys the auto-attach timer if it exists, and resets related state.
+--- @param timer timer|nil # Optional timer to stop. If nil, stops the current auto-attach timer.
+--- @return void
+--
 function ProcessHandler:StopAutoAttachTimer(timer)
     local activeTimer = timer or self.AutoAttachTimer
     _DestroyTimer(activeTimer)
@@ -206,18 +231,37 @@ function ProcessHandler:StopAutoAttachTimer(timer)
 end
 registerLuaFunctionHighlight('StopAutoAttachTimer')
 
+--
+--- ∑ Stops and destroys the process watch timer if it exists, and resets related state.
+--- @param timer timer|nil # Optional timer to stop. If nil, stops the current process watch timer.
+--- @return boolean # True when the timer was stopped.
+--
 function ProcessHandler:StopProcessWatchTimer(timer)
     local activeTimer = timer or self.ProcessWatchTimer
-    _DestroyTimer(activeTimer)
-    if not timer or timer == self.ProcessWatchTimer then
-        self.ProcessWatchTimer = nil
+    if not activeTimer then
+        if self.IsWatchingProcess then
+            logger:Warning("[ProcessHandler] Process watch state was active, but no timer existed. Resetting watch state.")
+            self.IsWatchingProcess = false
+        else
+            logger:Debug("[ProcessHandler] No process watch timer to stop.")
+        end
+        return false
     end
-    self.IsWatchingProcess = false
+    local isCurrentTimer = not timer or timer == self.ProcessWatchTimer
+    _DestroyTimer(activeTimer)
+    if isCurrentTimer then
+        self.ProcessWatchTimer = nil
+        self.IsWatchingProcess = false
+        logger:Info("[ProcessHandler] Process watch timer stopped.")
+    else
+        logger:Debug("[ProcessHandler] Stale process watch timer destroyed.")
+    end
+    return true
 end
 registerLuaFunctionHighlight('StopProcessWatchTimer')
 
 --
---- Starts a timer that attaches to the target process when it appears.
+--- ∑ Starts a timer that attaches to the target process when it appears.
 --- @param processName string|nil # Target process name.
 --- @param options number|table|nil # maxSecs number or options table.
 --- @return boolean # True when the timer was started.
@@ -261,7 +305,7 @@ end
 registerLuaFunctionHighlight('AutoAttach')
 
 --
---- Attaches Cheat Engine to a process and validates that it is the expected target.
+--- ∑ Attaches Cheat Engine to a process and validates that it is the expected target.
 --- @param processName string # Expected process name.
 --- @param processID number|nil # Optional process id.
 --- @return boolean # True when attach and validation succeed.
@@ -296,6 +340,11 @@ function ProcessHandler:AttachToProcess(processName, processID, options)
 end
 registerLuaFunctionHighlight('AttachToProcess')
 
+--
+--- ∑ Attaches to a process by name using AutoAttach, which will keep trying until the process is found or a timeout occurs.
+--- @param processName string # Target process name.
+--- @return boolean # True when the attach process was initiated.
+--
 function ProcessHandler:AttachToProcessByName(processName)
     processName = self:ResolveProcessName(processName)
     if not processName then return false end
@@ -309,7 +358,7 @@ end
 registerLuaFunctionHighlight('AttachToProcessByName')
 
 --
---- Runs post-attach work and starts the process watch timer.
+--- ∑ Runs post-attach work and starts the process watch timer.
 --- @param processName string # Attached process name.
 --- @param processID number # Attached process id.
 --- @param options table|nil # Optional post-attach options.
@@ -333,6 +382,11 @@ function ProcessHandler:OnProcessAttached(processName, processID, options)
 end
 registerLuaFunctionHighlight('OnProcessAttached')
 
+--
+--- ∑ Starts a timer that periodically checks if the attached process is still available, and triggers cleanup if it is not.
+--- @param processName string|nil # Optional process name to watch. If nil, uses the currently attached process name.
+--- @return boolean # True when the timer was started.
+--
 function ProcessHandler:StartProcessWatchTimer(processName)
     processName = self:ResolveProcessName(processName)
     if not processName then return false end
@@ -349,6 +403,11 @@ function ProcessHandler:StartProcessWatchTimer(processName)
 end
 registerLuaFunctionHighlight('StartProcessWatchTimer')
 
+--
+--- ∑ Checks if the watched process is still available.
+--- @param timer Timer # The timer that triggered the check.
+--- @return boolean # True if the process is available. False if the process is unavailable and cleanup was triggered.
+--
 function ProcessHandler:CheckWatchedProcess(timer)
     if self:IsTargetProcessValid(self.AttachedProcessName, self.AttachedProcessID) then
         return true
@@ -358,6 +417,10 @@ function ProcessHandler:CheckWatchedProcess(timer)
 end
 registerLuaFunctionHighlight('CheckWatchedProcess')
 
+--
+--- ∑ Disables all active records without executing their disable scripts, and clears registered symbols.
+--- @return boolean # True when the cleanup was performed successfully. False if the required AddressList functions were not available or if an error occurred during cleanup.
+--
 function ProcessHandler:DisableAllWithoutExecute()
     local addressList = AddressList or (type(getAddressList) == "function" and getAddressList() or nil)
     if not addressList or not addressList.disableAllWithoutExecute then
@@ -379,6 +442,11 @@ function ProcessHandler:DisableAllWithoutExecute()
 end
 registerLuaFunctionHighlight('DisableAllWithoutExecute')
 
+--
+--- ∑ Resets the state of the auto-assembler and clears active patches, ensuring that any process-bound state is cleared.
+--- @param reason string|nil # Optional reason for the reset, used for logging.
+--- @return void
+--
 function ProcessHandler:ResetProcessBoundState(reason)
     local assembler = rawget(_G, "autoAssembler") or rawget(_G, "autoassembler")
     if not assembler and rawget(_G, "AutoAssembler") and AutoAssembler._instance then
@@ -393,6 +461,12 @@ function ProcessHandler:ResetProcessBoundState(reason)
 end
 registerLuaFunctionHighlight('ResetProcessBoundState')
 
+--
+--- ∑ Cleans up the current state and restarts the auto-attach process.
+--- @param reason string|nil # Optional reason for the cleanup, used for logging.
+--- @param timer timer|nil # Optional timer to stop during cleanup. If nil, stops the current process watch timer.
+--- @return void
+--
 function ProcessHandler:CleanupAndReattach(reason, timer)
     local processName = self.ProcessName or self.AttachedProcessName
     self:StopAutoAttachTimer()
@@ -408,16 +482,32 @@ function ProcessHandler:CleanupAndReattach(reason, timer)
 end
 registerLuaFunctionHighlight('CleanupAndReattach')
 
+--
+--- ∑ Handles the case when the process is unavailable.
+--- @param reason string|nil # Optional reason for the unavailability, used for logging.
+--- @param timer timer|nil # Optional timer to stop during handling. If nil, stops the current process watch timer.
+--- @return void
+--
 function ProcessHandler:HandleProcessUnavailable(reason, timer)
     self:CleanupAndReattach(reason, timer)
 end
 registerLuaFunctionHighlight('HandleProcessUnavailable')
 
+--
+--- ∑ Handles the case when the process changes (e.g., due to a new process with the same name appearing), by performing cleanup and attempting to reattach.
+--- @param oldPid number|nil # The previous process ID, if known.
+--- @param newPid number|nil # The new process ID, if known.
+--- @return void
+--
 function ProcessHandler:HandleProcessChanged(oldPid, newPid)
     self:CleanupAndReattach("Process changed. Previous PID: " .. tostring(oldPid) .. " | Current PID: " .. tostring(newPid))
 end
 registerLuaFunctionHighlight('HandleProcessChanged')
 
+--
+--- ∑ Performs necessary tasks after successfully attaching to the target process, such as initializing utilities and verifying file hashes.
+--- @return void
+--
 function ProcessHandler:PerformPostAttachTasks()
     if utils and type(utils.InitializeTable) == "function" then
         utils:InitializeTable()
