@@ -4,27 +4,6 @@ local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework Callbacks"
 
 --[[
-    ∂ v1.0.0 (2025-07-06)
-        Started the development of the Callbacks module
-
-    ∂ v1.0.1 (2025-11-18)
-        Fixed a variety of bugs within the callback overrides.
-        - Missing Return-Values
-    
-    ∂ v1.0.2 (2025-12-08)
-        Adjusted logging levels from Info to Debug for allowed
-        changes/edits to reduce log noise.
-    
-    ∂ v1.0.3 (2025-12-08)
-        Prepared MainForm OnClose override for proper deactivation
-        of active Auto Assembler scripts before closing.
-        TODO: Implement the deactivation logic.
-        
-    ∂ v1.0.4 (2025-12-30)
-        Removed the MainForm OnClose override temporarily due to issues
-        with Cheat Engine's closing process. Will revisit later.
-        (Error: Cheat Engine does not close properly when this override is active.)
-
     ∂ v1.0.5 (2026-04-21)
         Refactored callback config flags into a shared configuration system.
         Reduced callback log noise by focusing on blocked actions and actual errors.
