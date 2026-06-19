@@ -4,18 +4,6 @@ local VERSION = "1.0.4"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
-    ∂ v1.0.0 (2025-03-24)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-04-16)
-        Minor comment adjustments.
-
-    ∂ v1.0.2 (2025-12-27)
-        Some minor adjustments to state restoration logic. - LeFiXER
-    
-    ∂ v1.0.3 (2024-06-12)
-        Improved async memory record handling during state restoration. - Leunsel
-
     ∂ v1.0.4 (2026-04-21)
         Reduced duplicated state serialization and validation logic.
         Simplified restore/save flows and trimmed low-value debug logging.
