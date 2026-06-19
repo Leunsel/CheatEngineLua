@@ -4,24 +4,6 @@ local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework Utils"
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-02-26)
-        Minor comment adjustments.
-
-    ∂ v1.0.2 (2025-04-27)
-        Added EnsureCompatibleCEVersion.
-        Attempting to notify users of CE 7.6
-        that a Table may be malfunctioning.
-
-    ∂ v1.0.3 (2025-07-06)
-        Synchronized some functions to ensure they run in the main thread.
-        This is required for CE 7.6 to execute the functions properly.
-
-    ∂ v1.0.4 (2026-01-09)
-        Added missing property "IsRelease" to Utils class.
-
     ∂ v1.0.5 (2026-02-16)
         Added new Custom Type for "Mewgenics".
 ]]--

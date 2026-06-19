@@ -5,23 +5,6 @@ local DESCRIPTION = "Manifold Framework UI"
  --
 
 --[[
-    ∂ v1.0.0 (2025-02-26)
-        Initial release with core functions.
-
-    ∂ v1.0.1 (2025-07-12)
-        Added support for theming the Lua Engine.
-        Uses Manifold.Callbacks > OnShow
-
-    ∂ v1.0.2 (2025-12-27)
-        Adjusted Theme Selector AA script generation.
-
-    ∂ v1.0.3 (2026-04-02)
-        Added "support" for theming the Teleporter UI.
-    
-    ∂ v1.0.4 (2026-04-04)
-        Manifold.UI now properly handles the Teleporter UI theming at runtime, eliminating
-        the need for a bruteforced UI Restart.
-    
     ∂ v1.0.5 (2026-06-17)
         Added Manifold.Forms integration for live theming of registered forms.
         Requires Manifold.Forms for Theme Creator UI control generation.
