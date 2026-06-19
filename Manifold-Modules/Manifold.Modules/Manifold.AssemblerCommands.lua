@@ -1,13 +1,29 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.6"
+local VERSION = "1.2.4"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
-    v1.1.6 (2026-06-19)
-        _isModuleSuitableForAttachContext verifies the presence of a module using getAddressSafe.
-        enumModules is still used as a fallback, but as it turns out, that's not reliable in all contexts (e.g. early attach)
-        and can cause false positives when the target has a large number of modules.
+    v1.2.0 (2026-06-19)
+        Added ManifoldInstallDetour and ManifoldDestroyDetour.
+        Detours use a 5-byte jmp rel32 into a near AA-allocated relay block.
+        The relay jumps absolutely to the destination and exposes an Original trampoline
+        generated from captured original bytes.
+        
+    v1.2.1 (2026-06-19)
+        Moved trampoline and detour runtime logic into Manifold.Trampolines.
+        AssemblerCommands now only owns AA command parsing and command registration.
+                
+    v1.2.2 (2026-06-19)
+        --- Change Removed ---
+
+    v1.2.3 (2026-06-19)
+        ManifoldEmitOriginal no longer accepts an emit mode parameter.
+        It now delegates to the default trampoline original emission path.
+
+    v1.2.4 (2026-06-19)
+        Added ManifoldEmitReturn for skipping original code and jumping back to the detour return address.
+        ManifoldEmitOriginal now uses the relocated original emitter from Manifold.Trampolines.
 ]]--
 
 AssemblerCommands = {
@@ -31,6 +47,10 @@ local COMMAND_SPECS = {
     { name = "ManifoldAssert", factory = "_cmdManifoldAssert" },
     { name = "ManifoldPatch", factory = "_cmdManifoldPatch" },
     { name = "ManifoldNop", factory = "_cmdManifoldNop" },
+    { name = "ManifoldInstallDetour", factory = "_cmdManifoldInstallDetour" },
+    { name = "ManifoldEmitOriginal", factory = "_cmdManifoldEmitOriginal" },
+    { name = "ManifoldEmitReturn", factory = "_cmdManifoldEmitReturn" },
+    { name = "ManifoldDestroyDetour", factory = "_cmdManifoldDestroyDetour" },
     { name = "ManifoldResolveStatic", factory = "_cmdManifoldResolveStatic" }
 }
 
@@ -94,7 +114,8 @@ end
 --
 function AssemblerCommands:CheckDependencies()
     local dependencies = {
-        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end }
+        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end },
+        { name = "trampolines", path = "Manifold.Trampolines", init = function() trampolines = Trampolines:New() end }
     }
     for _, dep in ipairs(dependencies) do
         self:_ensureDependency(dep)
@@ -958,8 +979,20 @@ end
 
 --
 --- ∑ Performs a unique AOB scan within a module and logs both request and result.
----   This exists as a wrapper around the native scan call so users get consistent
----   diagnostics, signature summaries, and failure reasons without duplicating that logic.
+--- ∑ Ensures the runtime detour store exists and returns it.
+--- @return table
+--
+function AssemblerCommands:_getTrampolines()
+    if rawget(_G, "trampolines") then return trampolines end
+    if rawget(_G, "Trampolines") then
+        trampolines = Trampolines:New()
+        return trampolines
+    end
+    return nil
+end
+
+--
+--- Performs a unique AOB scan within a module and logs both request and result.
 --- @param moduleName string
 --- @param signature string
 --- @param protectionFlags number|nil
@@ -1182,27 +1215,147 @@ end
 
 --
 --- ∑ Creates the Auto Assembler command handler for ManifoldResolveStatic.
+--
+--- ∑ Creates the Auto Assembler command handler for ManifoldInstallDetour.
 ---   Why this command exists:
----     x64 scripts often start from a scanned instruction, but what we really need is
----     the static address used by its memory operand. x86 scripts can hit absolute
----     imm32/moffs operands instead. This command resolves either form and emits a
----     define(), so later script sections can stay readable.
+---     Full 14-byte absolute jumps are often too invasive at compact hook sites.
+---     This command overwrites only whole instructions covering at least 5 bytes,
+---     jumps to a PE-header relay and stores original bytes for ManifoldEmitOriginal.
+---   Usage examples:
+---     ManifoldInstallDetour(MyHook, MyHookInject, MyHookCode)
+---     ManifoldInstallDetour(MyHook, MyHookInject, MyHookCode, 7)
+---     ManifoldInstallDetour(MyHook, MyHookInject) -- uses MyHookCode by convention
+---   Place ManifoldEmitOriginal(MyHook) inside MyHookCode where original bytes should run.
+---   Generated symbols:
+---     MyHook_Block, MyHook_Relay, MyHook_Destination, MyHook_Original, MyHook_Return
+--- @return function
+--
+function AssemblerCommands:_cmdManifoldInstallDetour()
+    return function(parameters, syntaxcheck)
+        local ctx = self:_beginCommand("ManifoldInstallDetour", parameters, syntaxcheck)
+        local trampolineApi = self:_getTrampolines()
+        if not trampolineApi then
+            return self:_commandError(ctx.Name, ctx.Name .. ": Manifold.Trampolines is not available")
+        end
+        if ctx.Syntaxcheck then
+            local name = self:_stripQuotes(ctx.Args[1] or "ManifoldDetour")
+            local okName = self:_isValidSymbolName(name)
+            if not okName then name = "ManifoldDetour" end
+            return trampolineApi:BuildSyntaxScript(name)
+        end
+
+        local name, nameErr = self:_requireSymbolArg(ctx.Args, 1, ctx.Name, "name")
+        if not name then return self:_commandError(ctx.Name, nameErr) end
+        local injectExpr, injectErr = self:_requireArg(ctx.Args, 2, ctx.Name, "inject address")
+        if not injectExpr then return self:_commandError(ctx.Name, injectErr) end
+        local minOverwriteSize, minErr = self:_parseOptionalNumberArg(ctx.Args, 4, ctx.Name, "minimum overwrite size", 5)
+        if minErr then return self:_commandError(ctx.Name, minErr) end
+        minOverwriteSize = math.max(5, math.floor(minOverwriteSize or 5))
+        local _, script, installErr = trampolineApi:InstallDetour(name, injectExpr, ctx.Args[3], minOverwriteSize)
+        if not script then return self:_commandError(ctx.Name, ctx.Name .. ": " .. tostring(installErr)) end
+        return script
+    end
+end
+
+--
+--- ∑ Creates the Auto Assembler command handler for ManifoldDestroyDetour.
 ---   Usage example:
----     ManifoldScanModule(GlobalLoadInsn, SomeGame.exe, 48 8B 05 ?? ?? ?? ??)
----     ManifoldResolveStatic(GlobalPtr, GlobalLoadInsn, 3, 7, rip)
----     ManifoldResolveStatic(GlobalValue, GlobalLoadInsn, 3, 7, rip, pointer)
----     ManifoldResolveStatic(SavegamePtr, SavegameHook, absolute)
----   Formulas:
----     rip/relative: operandAddress = instructionAddress + instructionLength + disp32
----     absolute/abs32: operandAddress = abs32
----     address output: target = operandAddress
----     pointer output: target = readPointer(operandAddress)
----   Why the defaults are 3 and 7:
----     Many common x64 RIP-relative instructions store the displacement after 3 bytes
----     and have a total instruction length of 7 bytes.
----   Auto mode:
----     Defaults to RIP-relative behavior, but detects A0-A3 moffs opcodes as absolute
----     with an operand offset of 1 and instruction length of 5.
+---     ManifoldDestroyDetour(MyHook)
+---   Notes:
+---     The command restores the original bytes captured during install, unregisters
+---     detour symbols, and deallocates the relay/original block.
+--- @return function
+--
+--
+--- ∑ Creates the Auto Assembler command handler for ManifoldEmitOriginal.
+---   Place this command inside the injection section after custom logic.
+---   Usage example:
+---     MyHookCode:
+---       xorps xmm0,xmm0
+---       ManifoldEmitOriginal(MyHook)
+--- @return function
+--
+function AssemblerCommands:_cmdManifoldEmitOriginal()
+    return function(parameters, syntaxcheck)
+        local ctx = self:_beginCommand("ManifoldEmitOriginal", parameters, syntaxcheck)
+        local trampolineApi = self:_getTrampolines()
+        if not trampolineApi then
+            return self:_commandError(ctx.Name, ctx.Name .. ": Manifold.Trampolines is not available")
+        end
+        local name = self:_stripQuotes(ctx.Args[1] or "ManifoldDetour")
+        local okName = self:_isValidSymbolName(name)
+        if not okName then name = "ManifoldDetour" end
+        if ctx.Syntaxcheck then
+            return trampolineApi:BuildOriginalSyntaxScript(name)
+        end
+        local symbol, nameErr = self:_requireSymbolArg(ctx.Args, 1, ctx.Name, "name")
+        if not symbol then return self:_commandError(ctx.Name, nameErr) end
+        if not self:_isBlank(ctx.Args[2]) then
+            return self:_commandError(ctx.Name, ctx.Name .. ": emit mode parameters are no longer supported; use ManifoldEmitOriginal(" .. symbol .. ")")
+        end
+        local _, script, emitErr = trampolineApi:EmitOriginal(symbol)
+        if not script then return self:_commandError(ctx.Name, ctx.Name .. ": " .. tostring(emitErr)) end
+        return script
+    end
+end
+
+--
+--- ∑ Creates the Auto Assembler command handler for ManifoldDestroyDetour.
+---   Usage example:
+---     ManifoldDestroyDetour(MyHook)
+---   Notes:
+---     The command restores the original bytes captured during install, unregisters
+---     detour symbols, and deallocates the relay/original block.
+--- @return function
+--
+--
+--- Creates the Auto Assembler command handler for ManifoldEmitReturn.
+--- Use this inside the injection section when custom logic should skip the original code.
+--- @return function
+--
+function AssemblerCommands:_cmdManifoldEmitReturn()
+    return function(parameters, syntaxcheck)
+        local ctx = self:_beginCommand("ManifoldEmitReturn", parameters, syntaxcheck)
+        local trampolineApi = self:_getTrampolines()
+        if not trampolineApi then
+            return self:_commandError(ctx.Name, ctx.Name .. ": Manifold.Trampolines is not available")
+        end
+        local name = self:_stripQuotes(ctx.Args[1] or "ManifoldDetour")
+        local okName = self:_isValidSymbolName(name)
+        if not okName then name = "ManifoldDetour" end
+        if ctx.Syntaxcheck then
+            return trampolineApi:BuildReturnSyntaxScript(name)
+        end
+        local symbol, nameErr = self:_requireSymbolArg(ctx.Args, 1, ctx.Name, "name")
+        if not symbol then return self:_commandError(ctx.Name, nameErr) end
+        if not self:_isBlank(ctx.Args[2]) then
+            return self:_commandError(ctx.Name, ctx.Name .. ": unexpected extra parameter for ManifoldEmitReturn(" .. symbol .. ")")
+        end
+        local _, script, emitErr = trampolineApi:EmitReturn(symbol)
+        if not script then return self:_commandError(ctx.Name, ctx.Name .. ": " .. tostring(emitErr)) end
+        return script
+    end
+end
+
+function AssemblerCommands:_cmdManifoldDestroyDetour()
+    return function(parameters, syntaxcheck)
+        local ctx = self:_beginCommand("ManifoldDestroyDetour", parameters, syntaxcheck)
+        if ctx.Syntaxcheck then return EMPTY_RESULT end
+        local trampolineApi = self:_getTrampolines()
+        if not trampolineApi then
+            return self:_commandError(ctx.Name, ctx.Name .. ": Manifold.Trampolines is not available")
+        end
+        local name, nameErr = self:_requireSymbolArg(ctx.Args, 1, ctx.Name, "name")
+        if not name then return self:_commandError(ctx.Name, nameErr) end
+        local _, script, destroyErr = trampolineApi:DestroyDetour(name)
+        if not script then return self:_commandError(ctx.Name, ctx.Name .. ": " .. tostring(destroyErr)) end
+        return script
+    end
+end
+
+--
+--- Creates the Auto Assembler command handler for ManifoldResolveStatic.
+--- Resolves static operands from a scanned instruction and emits a define().
 --- @return function
 --
 function AssemblerCommands:_cmdManifoldResolveStatic()
