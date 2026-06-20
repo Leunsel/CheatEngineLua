@@ -159,6 +159,12 @@ registerLuaFunctionHighlight('VerifyFileHash')
 --- @return # void
 --
 function Utils:SetAllScriptsToAsync()
+    if not inMainThread() then
+        synchronize(function()
+            self:SetAllScriptsToAsync()
+        end)
+        return
+    end
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr.Type == vtAutoAssembler then
@@ -174,6 +180,12 @@ registerLuaFunctionHighlight('SetAllScriptsToAsync')
 --- @return # void
 --
 function Utils:SetAllScriptsToNotAsync()
+    if not inMainThread() then
+        synchronize(function()
+            self:SetAllScriptsToNotAsync()
+        end)
+        return
+    end
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr.Type == vtAutoAssembler then
@@ -599,6 +611,12 @@ registerLuaFunctionHighlight('GetTitleComponents')
 --- @return # void
 --
 function Utils:InitializeTable()
+    if not inMainThread() then
+        synchronize(function()
+            self:InitializeTable()
+        end)
+        return
+    end
     ui:InitializeForm()
     self:SetTitle()
 end
