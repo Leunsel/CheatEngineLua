@@ -206,6 +206,14 @@ registerLuaFunctionHighlight('GetIndexedAddressList')
 --- @note The file path is constructed using the process name and the state name.
 --
 function State:GetStateFilePath(stateName)
+    if not inMainThread() then
+        local filePath
+        synchronize(function()
+            filePath = self:GetStateFilePath(stateName)
+        end)
+        return filePath
+    end
+
     if not _isValidString(stateName) then
         logger:Error(MODULE_PREFIX .. " Invalid state name!")
         return nil
@@ -248,6 +256,13 @@ registerLuaFunctionHighlight('_BuildStateRecord')
 --- @note This function retrieves the active memory records and writes them to the state file.
 --
 function State:SaveTableState(stateName)
+    if not inMainThread() then
+        local result
+        synchronize(function()
+            result = self:SaveTableState(stateName)
+        end)
+        return result
+    end
     if not _isValidString(stateName) then
         logger:Error(MODULE_PREFIX .. " Invalid state name!")
         return false
@@ -293,6 +308,13 @@ registerLuaFunctionHighlight('SaveTableState')
 --- @return boolean # Returns true if the state was set, false otherwise.
 --
 function State:_SetMemoryRecordStateOnMainThread(mr, state, timeoutMs)
+    if not inMainThread() then
+        local outcome
+        synchronize(function()
+            outcome = self:_SetMemoryRecordStateOnMainThread(mr, state, timeoutMs)
+        end)
+        return outcome
+    end
     local outcome = {
         success = false,
         changed = false,
@@ -383,6 +405,13 @@ registerLuaFunctionHighlight('SetMemoryRecordState')
 
 -- Replaces a record's hotkeys. This helper is called exclusively from the main thread.
 function State:_RestoreHotkeysOnMainThread(mr, hotkeys)
+    if not inMainThread() then
+        local ok, record, err
+        synchronize(function()
+            ok, record, err = self:_RestoreHotkeysOnMainThread(mr, hotkeys)
+        end)
+        return ok, record, err
+    end
     local record = _describeRecord(mr)
     local ok, err = pcall(function()
         for hotkeyIndex = mr.HotkeyCount - 1, 0, -1 do
@@ -482,6 +511,13 @@ registerLuaFunctionHighlight('RestoreState')
 --- @return boolean  # Returns true if the state was successfully loaded, otherwise false.
 --
 function State:LoadTableState(stateName)
+    if not inMainThread() then
+        local result
+        synchronize(function()
+            result = self:LoadTableState(stateName)
+        end)
+        return result
+    end
     if not _isValidString(stateName) then
         logger:Error(MODULE_PREFIX .. " Invalid state name!")
         return false
