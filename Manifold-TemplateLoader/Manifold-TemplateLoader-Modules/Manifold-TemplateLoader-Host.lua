@@ -65,7 +65,11 @@ function Host:Attach(loader)
         self:Log("Registered the persistent Auto Assembler form notification.")
     end
     self:Log("Attached Loader instance and refreshed global Loader references.")
-    self:TrackOpenForms()
+    -- Cheat Engines "Execute Table Lua Script" Form is considered a TfrmAutoInject, so it's possible for
+    -- the Host to attempt to that form instead of an actual Auto Assembler form, causing a silent failure that is
+    -- nearly impossible to track down. To avoid this, the Host will defer the initial form scan and only emit for
+    -- the notification callback, which will cover both existing and newly opened forms without risk of a silent failure.
+    self:Log("Initial Auto Assembler form scan skipped; waiting for newly opened windows.")
 end
 
 function Host:LoadCandidate()
