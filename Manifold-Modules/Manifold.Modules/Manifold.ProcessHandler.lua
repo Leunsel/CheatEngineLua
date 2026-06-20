@@ -1,9 +1,13 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
+    v1.2.3 (2026-06-20)
+        Validate process attachment with the opened PID and readInteger(process).
+        Keep AutoAttach alive while CE resolves the process main module.
+
     v1.2.2 (2026-06-19)
         Forced Message Dialogs to main thread to prevent issues in CE 7.6.
 ]]--
@@ -186,15 +190,14 @@ end
 registerLuaFunctionHighlight('OpenLink')
 
 --
---- ∑ Checks whether Cheat Engine is attached to the expected target.
---- @param processName string|nil # Expected process name.
+--- ∑ Checks whether Cheat Engine has opened the expected target PID.
+--- @param processName string|nil # Retained for call-site compatibility; PID is authoritative.
 --- @param processID number|nil # Expected process id.
---- @return boolean # True when process name and PID match.
+--- @return boolean # True when CE's opened PID matches the expected PID.
 --
 function ProcessHandler:IsAttachedToTarget(processName, processID)
-    processName = processName or self.AttachedProcessName or self.ProcessName
     processID = processID or self.AttachedProcessID
-    return processID ~= nil and getOpenedProcessID() == processID and _SameProcessName(process, processName)
+    return processID ~= nil and getOpenedProcessID() == processID
 end
 registerLuaFunctionHighlight('IsAttachedToTarget')
 
@@ -302,9 +305,10 @@ function ProcessHandler:AutoAttach(processName, options)
         end
         local processID = getProcessIDFromProcessName(processName)
         if processID then
-            self:StopAutoAttachTimer(timer)
-            if not self:AttachToProcess(processName, processID, options) then
-                self:AutoAttach(processName, options)
+            -- openProcess may return before CE has populated `process`. Keep this
+            -- timer alive until the final process/readInteger validation succeeds.
+            if self:AttachToProcess(processName, processID, options) then
+                self:StopAutoAttachTimer(timer)
             end
         end
         self.AutoAttachTimerTicks = self.AutoAttachTimerTicks + 1
@@ -338,11 +342,11 @@ function ProcessHandler:AttachToProcess(processName, processID, options)
         end
     end
     if not self:IsAttachedToTarget(processName, processID) then
-        logger:Error("[ProcessHandler] Attach validation failed. Expected '" .. tostring(processName) .. "' (PID: " .. tostring(processID) .. "), found '" .. tostring(process) .. "' (PID: " .. tostring(getOpenedProcessID()) .. ").")
+        logger:Error("[ProcessHandler] Attach validation failed. Expected PID " .. tostring(processID) .. ", found PID " .. tostring(getOpenedProcessID()) .. ".")
         return false
     end
     if not self:IsAttachedProcessAvailable() then
-        logger:Error("[ProcessHandler] Process '" .. tostring(processName) .. "' is attached but not readable.")
+        logger:Debug("[ProcessHandler] PID " .. tostring(processID) .. " is open, but CE has not finished resolving 'process' for readInteger(process) yet.")
         return false
     end
     self.AttachedProcessName = processName
