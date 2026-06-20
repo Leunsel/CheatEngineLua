@@ -1,11 +1,11 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.1"
+local VERSION = "1.2.2"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
-    v1.2.1 (2026-06-19)
-        Added logs for StopProcessWatchTimer to help identify cases where the timer is missing but the watch state is active, which should not happen.
+    v1.2.2 (2026-06-19)
+        Forced Message Dialogs to main thread to prevent issues in CE 7.6.
 ]]--
 
 ProcessHandler = {
@@ -138,6 +138,12 @@ registerLuaFunctionHighlight('IsAttachedProcessAvailable')
 ---   If no process is attached, an error message is shown.
 --
 function ProcessHandler:CloseProcess()
+    if not inMainThread() then
+        synchronize(function()
+            self:CloseProcess()
+        end)
+        return
+    end
     if not self:IsProcessAttached() then
         utils:ShowError("Not attached to a process!\nWhat do you expect me to close? :(")
         return
@@ -163,6 +169,12 @@ registerLuaFunctionHighlight('CloseProcess')
 ---   If the user confirms, the link is opened using 'ShellExecute'.
 --
 function ProcessHandler:OpenLink(link)
+    if not inMainThread() then
+        synchronize(function()
+            self:OpenLink(link)
+        end)
+        return
+    end
     local result = messageDialog(
         "Do you really want to open this link?\n" .. link,
         mtConfirmation,
