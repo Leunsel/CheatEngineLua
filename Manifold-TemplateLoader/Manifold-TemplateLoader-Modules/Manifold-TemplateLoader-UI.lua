@@ -279,7 +279,7 @@ function UI:CategorizeMenuItems(loader, rootMenu, indices)
         end
     end
 
-    log:ForceInfo(string.format("[UI] Categorized %d root template item(s) into %d category group(s).", matched, #categories))
+    log:Info(string.format("[UI] Categorized %d root template item(s) into %d category group(s).", matched, #categories))
     return true
 end
 

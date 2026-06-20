@@ -121,7 +121,7 @@ function Loader:LogReload(message, isError)
     if isError then
         log:ForceError(prefix)
     else
-        log:ForceInfo(prefix)
+        log:Info(prefix)
     end
 end
 
@@ -242,7 +242,7 @@ function Loader:ResetConfig()
     self.Config = deepCopy(self.DefaultConfig)
     self:ApplyConfig()
     if self:SaveConfig() then
-        log:ForceInfo("[Loader] Configuration reset to defaults.")
+        log:Info("[Loader] Configuration reset to defaults.")
     end
 end
 
@@ -622,6 +622,11 @@ function Loader:ApplyCompiledTemplate(text, script)
 end
 
 function Loader:ReportTemplateError(template, message)
+    if not inMainThread() then
+        local result
+        synchronize(function() result = self:ReportTemplateError(template, message) end)
+        return result
+    end
     local label = template and template.settings and template.settings.Caption or "Template"
     local text = string.format("%s could not be generated.\n\n%s\n\nSee the Template Loader log for details.", label, tostring(message))
     log:Error("[Loader] " .. text)
@@ -740,6 +745,15 @@ function Loader:BuildUICallbacks()
             end
         end,
         onResetConfig = function()
+            if not inMainThread() then
+                synchronize(function() 
+                    if messageDialog("Reset Template Loader configuration?", mtConfirmation, mbYes, mbNo) == mrYes then
+                        self:ResetConfig()
+                        self:RebuildOptionsMenus()
+                    end    
+                end)
+                return
+            end
             if messageDialog("Reset Template Loader configuration?", mtConfirmation, mbYes, mbNo) == mrYes then
                 self:ResetConfig()
                 self:RebuildOptionsMenus()
@@ -865,7 +879,7 @@ function Loader:ReloadDependencies()
         log:ForceError("[Loader] " .. tostring(err))
         return false
     end
-    log:ForceInfo("[Loader] Modules and templates were reloaded safely for new Auto Assembler windows.")
+    log:Info("[Loader] Modules and templates were reloaded safely for new Auto Assembler windows.")
     return true
 end
 
