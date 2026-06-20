@@ -1,9 +1,13 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.3"
+local VERSION = "1.2.4"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
+    v1.2.4 (2026-06-20)
+        Use readInteger(process) as the sole process-availability check.
+        Reattach by opening the first process found by the AutoAttach timer.
+
     v1.2.3 (2026-06-20)
         Validate process attachment with the opened PID and readInteger(process).
         Keep AutoAttach alive while CE resolves the process main module.
@@ -124,12 +128,13 @@ registerLuaFunctionHighlight('ResolveProcessName')
 
 --
 --- ∑ Checks whether the current process can still be read.
---- @return boolean # True when readInteger(process) succeeds.
+--- @return integer|nil # The value returned by readInteger(process), if attached.
 --
 function ProcessHandler:IsAttachedProcessAvailable()
-    if not process or process == "" then return false end
+    if not process or process == "" then return nil end
     local ok, result = pcall(readInteger, process)
-    return ok and result ~= nil
+    if not ok then return nil end
+    return result
 end
 registerLuaFunctionHighlight('IsAttachedProcessAvailable')
 
@@ -203,12 +208,12 @@ registerLuaFunctionHighlight('IsAttachedToTarget')
 
 --
 --- ∑ Checks whether the expected target is attached and still readable.
---- @param processName string|nil # Expected process name.
---- @param processID number|nil # Expected process id.
---- @return boolean # True when target and read check are valid.
+--- @param processName string|nil # Retained for call-site compatibility.
+--- @param processID number|nil # Retained for call-site compatibility.
+--- @return boolean # True when readInteger(process) succeeds.
 --
 function ProcessHandler:IsTargetProcessValid(processName, processID)
-    return self:IsAttachedToTarget(processName, processID) and self:IsAttachedProcessAvailable()
+    return self:IsAttachedProcessAvailable() ~= nil
 end
 registerLuaFunctionHighlight('IsTargetProcessValid')
 
@@ -217,7 +222,7 @@ registerLuaFunctionHighlight('IsTargetProcessValid')
 --- @return boolean # True when a process is attached and readable.
 --
 function ProcessHandler:IsProcessAttached()
-    return self:IsAttachedProcessAvailable()
+    return self:IsAttachedProcessAvailable() ~= nil
 end
 registerLuaFunctionHighlight('IsProcessAttached')
 
@@ -305,11 +310,17 @@ function ProcessHandler:AutoAttach(processName, options)
         end
         local processID = getProcessIDFromProcessName(processName)
         if processID then
-            -- openProcess may return before CE has populated `process`. Keep this
-            -- timer alive until the final process/readInteger validation succeeds.
-            if self:AttachToProcess(processName, processID, options) then
-                self:StopAutoAttachTimer(timer)
+            self:StopAutoAttachTimer(timer)
+            local opened, openResultOrErr = pcall(openProcess, processID)
+            if not opened or openResultOrErr == false then
+                logger:Error("[ProcessHandler] Failed to open process '" .. tostring(processName) .. "': " .. tostring(openResultOrErr))
+                self:AutoAttach(processName, options)
+                return
             end
+            self.AttachedProcessName = processName
+            self.AttachedProcessID = processID
+            self:OnProcessAttached(processName, processID, options)
+            return
         end
         self.AutoAttachTimerTicks = self.AutoAttachTimerTicks + 1
     end
@@ -425,7 +436,7 @@ registerLuaFunctionHighlight('StartProcessWatchTimer')
 --- @return boolean # True if the process is available. False if the process is unavailable and cleanup was triggered.
 --
 function ProcessHandler:CheckWatchedProcess(timer)
-    if self:IsTargetProcessValid(self.AttachedProcessName, self.AttachedProcessID) then
+    if self:IsAttachedProcessAvailable() then
         return true
     end
     self:HandleProcessUnavailable("Process is no longer available.", timer)
