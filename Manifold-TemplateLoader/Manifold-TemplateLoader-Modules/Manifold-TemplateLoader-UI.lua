@@ -1,309 +1,286 @@
 --[[
-    Manifold-TemplateLoader-UI.lua
-    --------------------------------
+    Dynamic Auto Assembler menu construction.
 
-    AUTHOR  : Leunsel
-    VERSION : 1.0.0
-    LICENSE : MIT
-    CREATED : 2025-11-15
-    UPDATED : 2025-11-16
-    
-    MIT License:
-        Copyright (c) 2025 Leunsel
-
-        Permission is hereby granted, free of charge, to any person obtaining a copy
-        of this software and associated documentation files (the "Software"), to deal
-        in the Software without restriction, including without limitation the rights
-        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        copies of the Software, and to permit persons to whom the Software is
-        furnished to do so, subject to the following conditions:
-
-        The above copyright notice and this permission notice shall be included in all
-        copies or substantial portions of the Software.
-
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-        SOFTWARE.
-
-    This file is part of the Manifold TemplateLoader system.
+    All items created by this module carry a Tag marker, allowing a reload to
+    remove only its own UI and leave Cheat Engine and user-provided menu entries
+    untouched.
 ]]
 
-local UI = {
-    instance = nil
-}
+local Log = require("Manifold-TemplateLoader-Log")
+local log = Log:New()
+
+local UI = { ManagedMenuTag = 1297374284 }
 UI.__index = UI
 
-local Log     = require("Manifold-TemplateLoader-Log")
-local log     = Log:New()
+local instance = nil
 
-function UI:New()
-    if not self.instance then
-        self.instance = setmetatable({}, UI)
-    end
-    return self.instance
+local function trim(value)
+    return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
 end
 
-local function createMenu(parent, opts)
-    local item = createMenuItem(parent)
-    for k, v in pairs(opts or {}) do
-        item[k] = v
-    end
-    -- Add to correct parent location
-    if parent == parent.Owner.MainMenu1 then
+local function itemContainer(menu)
+    if menu and menu.ClassName == "TMainMenu" then return menu.Items end
+    return menu
+end
+
+local function childCount(menu)
+    local container = itemContainer(menu)
+    return container and tonumber(container.Count) or 0
+end
+
+local function getChild(menu, index)
+    local container = itemContainer(menu)
+    return container and container.getItem and container:getItem(index) or nil
+end
+
+local function addToParent(parent, item)
+    if parent.ClassName == "TMainMenu" then
         parent.Items:add(item)
     else
         parent:add(item)
     end
+end
+
+local function createMenu(parent, options)
+    local item = createMenuItem(parent)
+    for key, value in pairs(options or {}) do item[key] = value end
+    item.Tag = UI.ManagedMenuTag
+    addToParent(parent, item)
     return item
 end
 
-local function getLogLevelMenu(currentLevel, indices, onLevelChange)
-    local levels = { "DEBUG", "INFO", "WARNING", "ERROR" }
-    local items = {}
-    for _, level in ipairs(levels) do
-        table.insert(items, {
-            caption = level,
-            name = "LogLevel_" .. level,
-            radio = true,
-            checked = (level == currentLevel),
-            onClick = function(sender)
-                onLevelChange(level, sender)
-            end
-        })
+local function categoryParts(value)
+    local parts = {}
+    -- '>' is the explicit hierarchy separator. '/' stays available for labels
+    -- such as the bundled "x86/x64" categories.
+    for part in tostring(value or "Templates"):gmatch("[^>]+") do
+        part = trim(part)
+        if part ~= "" then parts[#parts + 1] = part end
     end
-    return items
+    return #parts > 0 and parts or { "Templates" }
 end
 
-local function getLoggerMenu(config, indices, onLevelChange, onLogToFile, onViewLog)
-    return {
-        {
-            caption = "Log Level",
-            name = "LogLevelMenu",
-            image = indices.Level,
-            sub = getLogLevelMenu(config.Logger.Level or "INFO", indices, onLevelChange)
-        },
-        {
-            caption = "Log to File",
-            name = "LogToFile",
-            image = indices.Log,
-            autoCheck = true,
-            checked = config.Logger.LogToFile == true,
-            onClick = onLogToFile
-        },
-        {
-            caption = "View Log File",
-            name = "ViewLogFile",
-            image = indices.Eye,
-            onClick = onViewLog
-        }
-    }
+local function categoryCaption(value)
+    local order, caption = value:match("^%s*%[([%-]?%d+)%]%s*(.-)%s*$")
+    return caption and caption ~= "" and caption or value, tonumber(order) or math.huge
 end
 
-local function getInjectionMenu(config, indices, memory, onSetLineCount, onSetAppend, onToggle, onOpenFolder)
-    return {
-        {
-            caption = "Set Info Line Count...",
-            name = "SetInjInfoLineCount",
-            onClick = onSetLineCount
-        },
-        {
-            caption = "Set Append To Hook Name...",
-            name = "SetAppendToHookName",
-            onClick = onSetAppend
-        },
-        {
-            caption = "Remove Spaces",
-            name = "SetInjInfoRemoveSpaces",
-            autoCheck = true,
-            checked = config.InjectionInfo.RemoveSpaces == true,
-            onClick = onToggle("RemoveSpaces", function(v) memory:SetInjInfoRemoveSpaces(v) end)
-        },
-        {
-            caption = "Add Tabs",
-            name = "SetInjInfoAddTabs",
-            autoCheck = true,
-            checked = config.InjectionInfo.AddTabs == true,
-            onClick = onToggle("AddTabs", function(v) memory:SetInjInfoAddTabs(v) end)
-        },
-        {
-            caption = "Open Template Folder",
-            name = "ViewTemplateFolder",
-            image = indices.Eye,
-            onClick = onOpenFolder
-        }
-    }
+function UI:New()
+    if not instance then instance = setmetatable({}, UI) end
+    return instance
+end
+
+function UI:RemoveManagedItems(parent)
+    if not parent then return end
+    local container = itemContainer(parent)
+    for index = childCount(parent) - 1, 0, -1 do
+        local item = getChild(parent, index)
+        if item and item.Tag == self.ManagedMenuTag then
+            container:delete(index)
+        end
+    end
 end
 
 function UI:BuildTree(parent, tree)
-    for _, entry in ipairs(tree) do
-        local item = createMenu(parent, {
-            Caption   = entry.caption,
-            Name      = entry.name,
-            ImageIndex = entry.image,
-            AutoCheck = entry.autoCheck,
-            RadioItem = entry.radio,
-            Checked   = entry.checked,
-            OnClick   = entry.onClick
-        })
-        if entry.sub then
-            self:BuildTree(item, entry.sub)
+    for _, entry in ipairs(tree or {}) do
+        if entry.separator then
+            createMenu(parent, { Caption = "-", Name = entry.name or "ManifoldSeparator" })
+        else
+            local item = createMenu(parent, {
+                Caption = entry.caption,
+                Name = entry.name,
+                ImageIndex = entry.image,
+                AutoCheck = entry.autoCheck == true,
+                RadioItem = entry.radio == true,
+                Checked = entry.checked == true,
+                OnClick = entry.onClick
+            })
+            if entry.sub then self:BuildTree(item, entry.sub) end
         end
     end
 end
 
-function UI:GetMainMenuTree(config, indices, callbacks)
-    return {
-        {
-            caption = "Template Options",
-            name = "TemplateOptions",
-            sub = {
-                {
-                    caption = "Logger Settings",
-                    name = "LoggerSettings",
-                    image = indices.Log,
-                    sub = getLoggerMenu(
-                        config,
-                        indices,
-                        callbacks.onLevelChange,
-                        callbacks.onLogToFile,
-                        callbacks.onViewLog
-                    )
-                },
-                {
-                    caption = "Injection Settings",
-                    name = "InjectionSettings",
-                    image = indices.Template,
-                    sub = getInjectionMenu(
-                        config,
-                        indices,
-                        callbacks.memory,
-                        callbacks.onSetLineCount,
-                        callbacks.onSetAppend,
-                        callbacks.onToggle,
-                        callbacks.onOpenFolder
-                    )
-                },
-                {
-                    caption = "Reload Dependencies",
-                    name = "ReloadDependencies",
-                    image = indices.Toggle,
-                    onClick = callbacks.onReloadDependencies
-                },
-                {
-                    caption = "Reload Templates",
-                    name = "ReloadTemplates",
-                    image = indices.Toggle,
-                    onClick = callbacks.onReloadTemplates
-                },
-                {
-                    caption = "Reset Configuration",
-                    name = "ResetConfig",
-                    image = indices.Toggle,
-                    onClick = callbacks.onResetConfig
-                }
-            }
-        }
-    }
-end
-
 function UI:FindMenuItem(form, name)
-    for i = 0, form.ComponentCount - 1 do
-        local comp = form.Component[i]
-        if comp.ClassName == "TMenuItem" and comp.Name == name then
-            return comp
+    local function visit(menu)
+        if not menu then return nil end
+        if menu.Name == name then return menu end
+        for index = 0, childCount(menu) - 1 do
+            local found = visit(getChild(menu, index))
+            if found then return found end
         end
+        return nil
+    end
+
+    if form and form.MainMenu1 and form.MainMenu1.Items then
+        local found = visit(form.MainMenu1.Items)
+        if found then return found end
+    end
+    for index = 0, (form and form.ComponentCount or 0) - 1 do
+        local component = form.Component[index]
+        if component and component.ClassName == "TMenuItem" and component.Name == name then return component end
     end
     return nil
 end
 
 function UI:AddSeparatorAfter(parentMenu, itemName)
-    if not parentMenu or parentMenu.Count == 0 then
-        return false
-    end
-    for i = 0, parentMenu.Count - 1 do
-        local item = parentMenu:getItem(i)
-        if item.Name == itemName then
-            local nextIndex = i + 1
-            if nextIndex < parentMenu.Count then
-                local nextItem = parentMenu:getItem(nextIndex)
-                if nextItem.Caption == "-" then
-                    return false
-                end
-            end
-            local sep = createMenuItem(parentMenu)
-            sep:setCaption("-")
-            parentMenu:insert(nextIndex, sep)
+    if not parentMenu then return false end
+    for index = 0, childCount(parentMenu) - 1 do
+        local item = getChild(parentMenu, index)
+        if item and item.Name == itemName then
+            local nextItem = getChild(parentMenu, index + 1)
+            if nextItem and nextItem.Caption == "-" then return false end
+            local separator = createMenuItem(parentMenu)
+            separator.Caption = "-"
+            parentMenu:insert(index + 1, separator)
             return true
         end
     end
     return false
 end
 
-function UI:CategorizeMenuItems(loader, menu, indices)
-    log:Info("[UI] Starting menu categorization...")
-    local template1 = menu
-    if not template1 then
-        log:Error("[UI] Cannot categorize: menu reference is nil!")
-        return
+local function loggerMenu(config, indices, callbacks)
+    local levels, levelItems = { "DEBUG", "INFO", "WARNING", "ERROR" }, {}
+    for _, level in ipairs(levels) do
+        levelItems[#levelItems + 1] = {
+            caption = level,
+            name = "ManifoldLogLevel_" .. level,
+            radio = true,
+            checked = config.Logger.Level == level,
+            onClick = function(sender) callbacks.onLevelChange(level, sender) end
+        }
     end
-    if not loader or not loader.RegisteredTemplates then
-        log:Error("[UI] Cannot categorize: loader or templates missing!")
-        return
-    end
-    log:Info(string.format("[UI] Loaded %d registered templates to categorize.",
-        #loader.RegisteredTemplates))
+    return {
+        { caption = "Log level", name = "ManifoldLogLevel", image = indices.Level, sub = levelItems },
+        { caption = "Write log file", name = "ManifoldLogToFile", image = indices.Log, autoCheck = true,
+          checked = config.Logger.LogToFile == true, onClick = callbacks.onLogToFile },
+        { caption = "View log file", name = "ManifoldViewLog", image = indices.Eye, onClick = callbacks.onViewLog }
+    }
+end
+
+local function injectionMenu(config, callbacks)
+    return {
+        { caption = "Set info line count...", name = "ManifoldSetInfoLines", onClick = callbacks.onSetLineCount },
+        { caption = "Remove spaces", name = "ManifoldRemoveSpaces", autoCheck = true,
+          checked = config.InjectionInfo.RemoveSpaces == true,
+          onClick = callbacks.onToggle("InjectionInfo", "RemoveSpaces", function(value) callbacks.memory:SetInjInfoRemoveSpaces(value) end) },
+        { caption = "Indent information", name = "ManifoldAddTabs", autoCheck = true,
+          checked = config.InjectionInfo.AddTabs == true,
+          onClick = callbacks.onToggle("InjectionInfo", "AddTabs", function(value) callbacks.memory:SetInjInfoAddTabs(value) end) },
+        { caption = "Hook-name suffix...", name = "ManifoldSetSuffix", onClick = callbacks.onSetAppend }
+    }
+end
+
+local function memoryMenu(config, callbacks)
+    return {
+        { caption = "Ask for hook name", name = "ManifoldAskHookName", autoCheck = true,
+          checked = config.Memory.AskForHookName == true,
+          onClick = callbacks.onToggle("Memory", "AskForHookName", function(value) callbacks.memory:SetAskForHookName(value) end) },
+        { caption = "Ask for injection address", name = "ManifoldAskAddress", autoCheck = true,
+          checked = config.Memory.AskForInjectionAddress == true,
+          onClick = callbacks.onToggle("Memory", "AskForInjectionAddress", function(value) callbacks.memory:SetAskForInjectionAddress(value) end) },
+        { caption = "Allocate near injection", name = "ManifoldAllocationNear", autoCheck = true,
+          checked = config.Memory.AllocationNear == true,
+          onClick = callbacks.onToggle("Memory", "AllocationNear", function(value) callbacks.memory:SetAllocationNear(value) end) },
+        { caption = "Set allocation size...", name = "ManifoldAllocationSize", onClick = callbacks.onSetAllocationSize },
+        { caption = "Default hook name...", name = "ManifoldDefaultHookName", onClick = callbacks.onSetDefaultHookName }
+    }
+end
+
+function UI:GetMainMenuTree(config, indices, callbacks)
+    return {
+        {
+            caption = "Template Loader", name = "ManifoldTemplateLoader", image = indices.Template,
+            sub = {
+                { caption = "Template settings", name = "ManifoldInjectionSettings", image = indices.Template,
+                  sub = injectionMenu(config, callbacks) },
+                { caption = "Memory defaults", name = "ManifoldMemorySettings", image = indices.Inject,
+                  sub = memoryMenu(config, callbacks) },
+                { caption = "Logging", name = "ManifoldLoggerSettings", image = indices.Log,
+                  sub = loggerMenu(config, indices, callbacks) },
+                { separator = true, name = "ManifoldActionsSeparator" },
+                { caption = "Reload templates (new AA windows)", name = "ManifoldReloadTemplates", image = indices.Toggle,
+                  onClick = callbacks.onReloadTemplates },
+                { caption = "Hot reload modules and templates", name = "ManifoldReloadModules", image = indices.Toggle,
+                  onClick = callbacks.onReloadDependencies },
+                { caption = "Open template folder", name = "ManifoldOpenFolder", image = indices.Eye,
+                  onClick = callbacks.onOpenFolder },
+                { caption = "Reset configuration", name = "ManifoldResetConfig", image = indices.Toggle,
+                  onClick = callbacks.onResetConfig }
+            }
+        }
+    }
+end
+
+function UI:CategorizeMenuItems(loader, rootMenu, indices)
+    if not rootMenu then return false, "Template root menu was not found" end
+
+    -- Categories own their children; they are only removed immediately before a
+    -- full template re-registration creates fresh root entries.
+    local templates = loader:GetTemplateDefinitions()
     local lookup = {}
-    for _, t in ipairs(loader.RegisteredTemplates) do
-        local caption = (t.settings and t.settings.Caption) or t.fileName
-        local sub = (t.settings and t.settings.SubMenuName) or "Templates"
-        lookup[caption] = { template = t, sub = sub }
-        log:Debug(string.format("[UI] Registered template '%s' → category '%s'", caption, sub))
+    for _, template in ipairs(templates) do
+        lookup[template.settings.Caption] = template
     end
-    local itemsPerCategory = {}
-    for i = template1.Count - 1, 0, -1 do
-        local item = template1:getItem(i)
-        if item and item.ClassName == "TMenuItem" then
-            local info = lookup[item.Caption]
-            if info then
-                itemsPerCategory[info.sub] = itemsPerCategory[info.sub] or {}
-                table.insert(itemsPerCategory[info.sub], item)
-                template1:delete(i)
-                log:Info(string.format("[UI] Removed '%s' from root menu (will categorize under '%s').",
-                    item.Caption, info.sub))
+
+    local grouped, rootItems, matched = {}, {}, 0
+    for index = childCount(rootMenu) - 1, 0, -1 do
+        local item = getChild(rootMenu, index)
+        local template = item and lookup[item.Caption]
+        if template then
+            matched = matched + 1
+            rootMenu:delete(index)
+            local settings = template.settings
+            if settings.InSubMenu == false then
+                rootItems[#rootItems + 1] = { item = item, template = template }
+            else
+                local category = settings.SubMenuName or "Templates"
+                grouped[category] = grouped[category] or {}
+                grouped[category][#grouped[category] + 1] = { item = item, template = template }
             end
         end
     end
-    local names = {}
-    for n in pairs(itemsPerCategory) do table.insert(names, n) end
-    table.sort(names, function(a, b) return a:lower() < b:lower() end)
-    log:Info(string.format("[UI] Found %d category group(s).", #names))
-    local categories = {}
-    for _, sub in ipairs(names) do
-        local items = itemsPerCategory[sub]
-        log:Info(string.format("[UI] Creating submenu for category '%s' with %d item(s).",
-            sub, #items))
-        table.sort(items, function(a, b) return a.Caption:lower() < b.Caption:lower() end)
-        local subMenu = categories[sub]
-        if not subMenu then
-            subMenu = createMenuItem(template1)
-            subMenu:setCaption(sub)
-            subMenu.ImageIndex = indices.Inject
-            template1:add(subMenu)
-            categories[sub] = subMenu
-            log:Info(string.format("[UI] Submenu '%s' created.", sub))
-        end
-        for _, item in ipairs(items) do
-            item.ImageIndex = indices.Template
-            subMenu:add(item)
-            log:Info(string.format("[UI] Placed template '%s' → '%s'", item.Caption, sub))
-        end
-        log:Info(string.format("[UI] Finished category '%s'.", sub))
+
+    table.sort(rootItems, function(a, b) return a.template.settings.Caption:lower() < b.template.settings.Caption:lower() end)
+    for _, entry in ipairs(rootItems) do
+        entry.item.ImageIndex = indices.Template
+        rootMenu:add(entry.item)
     end
-    log:Info("[UI] Menu categorization completed.")
+
+    local categories = {}
+    for category in pairs(grouped) do categories[#categories + 1] = category end
+    table.sort(categories, function(a, b)
+        local aCaption, aOrder = categoryCaption(a)
+        local bCaption, bOrder = categoryCaption(b)
+        return aOrder == bOrder and aCaption:lower() < bCaption:lower() or aOrder < bOrder
+    end)
+
+    local menuByPath, categorySequence = {}, 0
+    for _, category in ipairs(categories) do
+        local parent, path = rootMenu, ""
+        for _, rawPart in ipairs(categoryParts(category)) do
+            path = path == "" and rawPart or path .. "/" .. rawPart
+            if not menuByPath[path] then
+                local caption = categoryCaption(rawPart)
+                categorySequence = categorySequence + 1
+                menuByPath[path] = createMenu(parent, { Caption = caption, Name = "ManifoldCategory" .. tostring(categorySequence), ImageIndex = indices.Inject })
+            end
+            parent = menuByPath[path]
+        end
+
+        local entries = grouped[category]
+        table.sort(entries, function(a, b)
+            local aOrder = tonumber(a.template.settings.MenuOrder) or math.huge
+            local bOrder = tonumber(b.template.settings.MenuOrder) or math.huge
+            return aOrder == bOrder and a.item.Caption:lower() < b.item.Caption:lower() or aOrder < bOrder
+        end)
+        for _, entry in ipairs(entries) do
+            entry.item.ImageIndex = indices.Template
+            parent:add(entry.item)
+        end
+    end
+
+    log:ForceInfo(string.format("[UI] Categorized %d root template item(s) into %d category group(s).", matched, #categories))
+    return true
 end
 
 return UI

@@ -1,543 +1,567 @@
 --[[
-    Manifold.TemplateLoader.Memory.lua
-    --------------------------------
+    Memory context collection for templates.
 
-    AUTHOR  : Leunsel, LeFiXER
-    VERSION : 2.0.0
-    LICENSE : MIT
-    CREATED : 2025-06-21
-    UPDATED : 2025-11-15
-
-    MIT License:
-        Copyright (c) 2025 Leunsel
-
-        Permission is hereby granted, free of charge, to any person obtaining a copy
-        of this software and associated documentation files (the "Software"), to deal
-        in the Software without restriction, including without limitation the rights
-        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        copies of the Software, and to permit persons to whom the Software is
-        furnished to do so, subject to the following conditions:
-
-        The above copyright notice and this permission notice shall be included in all
-        copies or substantial portions of the Software.
-
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-        SOFTWARE.
-
-    This file is part of the Manifold TemplateLoader system.
+    Every public function avoids raising errors for an invalid selection. A failed
+    memory read must result in a useful template error, never in a half-generated
+    Auto Assembler script.
 ]]
 
 local sep = package.config:sub(1, 1)
 package.path = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "?.lua;" .. package.path
 
 local Log = require("Manifold-TemplateLoader-Log")
-
 local log = Log:New()
 
-Memory = {}
+local Memory = {}
 Memory.__index = Memory
 
 local instance = nil
 
+local function trim(value)
+    return type(value) == "string" and value:match("^%s*(.-)%s*$") or nil
+end
+
+local function callSafely(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, a, b, c, d = pcall(fn, ...)
+    if not ok then return nil end
+    return a, b, c, d
+end
+
+local function isPositiveInteger(value)
+    return type(value) == "number" and value > 0 and value == math.floor(value)
+end
+
 function Memory:New()
     if not instance then
         instance = setmetatable({}, Memory)
+        instance.InjInfoLineCount = 3
+        instance.InjInfoRemoveSpaces = true
+        instance.InjInfoAddTabs = true
+        instance.AppendToHookName = "Hook"
+        instance.AskForHookName = true
+        instance.AskForInjectionAddress = false
+        instance.AllocationSize = "$1000"
+        instance.AllocationNear = true
+        instance.DefaultHookName = "Injection"
     end
-    instance.InjInfoLineCount = 3
-    instance.InjInfoRemoveSpaces = true
-    instance.InjInfoAddTabs = true
-    instance.AppendToHookName = "Hook"
-    instance.AskForHookName = true
     return instance
 end
 
--- ...........................................
--- Configuration Data
--- ...........................................
+-- Configuration -------------------------------------------------------------
 
 function Memory:SetInjInfoLineCount(count)
-    if type(count) == "number" and count > 0 then
-        log:Debug(string.format("[Memory] SetInjInfoLineCount: %d", count))
-        self.InjInfoLineCount = count
-    else
-        log:Warning("[Memory] Invalid InjInfoLineCount value: " .. tostring(count))
-        return
+    if not isPositiveInteger(count) then
+        log:Warning("[Memory] Injection info line count must be a positive integer.")
+        return false
     end
+    self.InjInfoLineCount = count
+    log:Debug("[Memory] Injection info line count set to " .. tostring(count))
+    return true
 end
 
-function Memory:SetInjInfoRemoveSpaces(remove)
-    if type(remove) == "boolean" then
-        log:Debug(string.format("[Memory] SetInjInfoRemoveSpaces: %s", tostring(remove)))
-        self.InjInfoRemoveSpaces = remove
-    else
-        log:Warning("[Memory] Invalid InjInfoRemoveSpaces value: " .. tostring(remove))
-        return
+function Memory:SetInjInfoRemoveSpaces(value)
+    if type(value) ~= "boolean" then return false end
+    self.InjInfoRemoveSpaces = value
+    log:Debug("[Memory] Injection info remove spaces: " .. tostring(value))
+    return true
+end
+
+function Memory:SetInjInfoAddTabs(value)
+    if type(value) ~= "boolean" then return false end
+    self.InjInfoAddTabs = value
+    log:Debug("[Memory] Injection info indentation: " .. tostring(value))
+    return true
+end
+
+function Memory:SetAppendToHookName(value)
+    if type(value) ~= "string" then return false end
+    self.AppendToHookName = trim(value) or ""
+    log:Debug("[Memory] Hook-name suffix set to '" .. self.AppendToHookName .. "'")
+    return true
+end
+
+function Memory:SetAskForHookName(value)
+    if type(value) ~= "boolean" then return false end
+    self.AskForHookName = value
+    log:Debug("[Memory] AskForHookName: " .. tostring(value))
+    return true
+end
+
+function Memory:SetAskForInjectionAddress(value)
+    if type(value) ~= "boolean" then return false end
+    self.AskForInjectionAddress = value
+    log:Debug("[Memory] AskForInjectionAddress: " .. tostring(value))
+    return true
+end
+
+function Memory:SetAllocationNear(value)
+    if type(value) ~= "boolean" then return false end
+    self.AllocationNear = value
+    log:Debug("[Memory] AllocationNear: " .. tostring(value))
+    return true
+end
+
+function Memory:SetDefaultHookName(value)
+    value = trim(value)
+    if not value or value == "" then return false end
+    self.DefaultHookName = value
+    log:Debug("[Memory] Default hook name set to '" .. value .. "'")
+    return true
+end
+
+function Memory:NormalizeAllocationSize(value)
+    if type(value) == "number" and isPositiveInteger(value) then
+        return string.format("$%X", value)
     end
-end
-
-function Memory:SetInjInfoAddTabs(addTabs)
-    if type(addTabs) == "boolean" then
-        log:Debug(string.format("[Memory] SetInjInfoAddTabs: %s", tostring(addTabs)))
-        self.InjInfoAddTabs = addTabs
-    else
-        log:Warning("[Memory] Invalid InjInfoAddTabs value: " .. tostring(addTabs))
-        return
-    end
-end
-
-function Memory:SetAppendToHookName(appendToHookName)
-    if type(appendToHookName) == "string" then
-        log:Debug(string.format("[Memory] SetAppendToHookName: %s", appendToHookName))
-        self.AppendToHookName = appendToHookName
-    else
-        log:Warning("[Memory] Invalid AppendToHookName value: " .. tostring(appendToHookName))
-        return
-    end
-end
-
-function Memory:GetConfig()
-    return self.InjInfoLineCount,
-           self.InjInfoRemoveSpaces,
-           self.InjInfoAddTabs,
-           self.AppendToHookName
-end
-
--- ...........................................
--- For "Template Metadata"...
--- ...........................................
-
-function Memory:GetCurrentDate()
-    local dateFormat = "%Y-%m-%d"
-    local date = os.date(dateFormat)
-    log:Debug("[Memory] GetCurrentDate: " .. date)
-    return date
-end
-
-function Memory:GetCurrentDateTime()
-    local dateTimeFormat = "%Y-%m-%d %H:%M:%S"
-    local dateTime = os.date(dateTimeFormat)
-    log:Debug("[Memory] GetCurrentDateTime: " .. dateTime)
-    return dateTime
-end
-
-function Memory:GetCurrentTime()
-    local timeFormat = "%H:%M:%S"
-    local time = os.date(timeFormat)
-    log:Debug("[Memory] GetCurrentTime: " .. time)
-    return time
-end
-
--- ...........................................
--- Neccessities
--- ...........................................
-
-function Memory:GetDefaultPointerSize()
-    local ptrType, size
-    if self:IsTarget64Bit() then
-        ptrType, size = "dq", 8
-    else
-        ptrType, size = "dd", 4
-    end
-    log:Debug(string.format("[Memory] GetDefaultPointerSize: %s, %d", ptrType, size))
-    return ptrType, size
-end
-
-function Memory:IsTarget64Bit()
-    local result = targetIs64Bit()
-    log:Debug("[Memory] IsTarget64Bit: " .. tostring(result))
-    return result
-end
-
-function Memory:Is14ByteJump()
-    for i = 0, getFormCount() - 1 do
-        local f = getForm(i)
-        if f.ClassName == "TfrmAutoInject" then
-            local isChecked = f.mi14ByteJMP.Checked
-            log:Debug("[Memory] Is14ByteJump: " .. tostring(isChecked))
-            return isChecked
-        end
-    end
-    log:Debug("[Memory] Is14ByteJump: false (form not found)")
-    return false
-end
-
--- ...........................................
--- Hook Data
--- ...........................................
-
-function Memory:PromptForHookName()
-    local name = inputQuery("Hook Name", "Enter the hook name", "ExampleName")
-    log:Debug("[Memory] PromptForHookName: " .. tostring(name))
-    if not name or name == "" then
-        log:Warning("[Memory] PromptForHookName: No name entered")
-        return
-    end
-    return name
-end
-
-function Memory:FormatHookName(hookName)
-    local hookNameParsed
-    if not hookName:match(self.AppendToHookName .. "$") then
-        hookNameParsed = hookName .. self.AppendToHookName
-    else
-        hookNameParsed = hookName
-    end
-    log:Debug(string.format("[Memory] FormatHookName: input='%s', output='%s'", hookName, hookNameParsed))
-    return hookNameParsed
-end
-
-function Memory:GetHookNames()
-    local hookName = self:PromptForHookName()
-    if not hookName or hookName == "" then
-        log:Warning("[Memory] GetHookNames: No hook name provided")
-        return nil, nil
-    end
-    local hookNameParsed = self:FormatHookName(hookName)
-    log:Debug(string.format("[Memory] GetHookNames: hookName='%s', hookNameParsed='%s'", hookName, hookNameParsed))
-    return hookName, hookNameParsed
-end
-
-function Memory:GetAllocStatement(hookName, hookNameParsed)
-    local statement
-    if self:Is14ByteJump() then
-        statement = string.format("alloc(n_%s,$1000)", hookName)
-    else
-        statement = string.format("alloc(n_%s,$1000,%s)", hookName, hookNameParsed)
-    end
-    log:Debug(string.format("[Memory] GetAllocStatement: %s", statement))
-    return statement
-end
-
--- ...........................................
--- Selection Data
--- ...........................................
-
-function Memory:IsValidInstructionSize(size, addr)
-    local valid = size and size > 0
-    log:Debug(string.format("[Memory] IsValidInstructionSize: addr=%s, size=%s, valid=%s", tostring(addr), tostring(size), tostring(valid)))
-    return valid
-end
-
-function Memory:GetInstructionSize(addr)
-    local size = getInstructionSize(addr)
-    if not self:IsValidInstructionSize(size, addr) then
-        log:Warning(string.format("[Memory] GetInstructionSize: Invalid size at addr=%s", tostring(addr)))
-        return nil
-    end
-    log:Debug(string.format("[Memory] GetInstructionSize: addr=%s, size=%d", tostring(addr), size))
-    return size
-end
-
-function Memory:GetSelection()
-    local sel = getNameFromAddress(getMemoryViewForm().DisassemblerView.SelectedAddress, true, true, true)
-    log:Debug("[Memory] GetSelection: " .. tostring(sel))
-    return sel
-end
-
-function Memory:GetSelectionSize(addr)
-    local size = self:GetInstructionSize(addr) or 0
-    log:Debug(string.format("[Memory] GetSelectionSize: addr=%s, size=%d", tostring(addr), size))
-    return size
-end
-
--- ...........................................
--- Original Data
--- ...........................................
-
-function Memory:GetOpcodes(startAddr, requiredSize)
-    local opcodes = {}
-    local address = getAddressSafe(startAddr)
-    local totalSize = 0
-    local disassembler = getVisibleDisassembler()
-    log:Debug(string.format("[Memory] GetOpcodes: startAddr=%s, requiredSize=%d", tostring(startAddr), requiredSize))
-    while totalSize < requiredSize do
-        local instructionSize = self:GetInstructionSize(address)
-        if not instructionSize or instructionSize <= 0 then break end
-        local _, opcode = splitDisassembledString(disassembler.disassemble(address))
-        opcode = opcode:gsub("%{.-%}", "")
-        opcodes[#opcodes + 1] = "  " .. opcode
-        totalSize = totalSize + instructionSize
-        address = address + instructionSize
-    end
-    local result = table.concat(opcodes, "\n")
-    log:Debug("[Memory] GetOpcodes result:\n" .. result)
-    return result
-end
-
-function Memory:GetBytes(startAddr, size)
-    local bytes = {}
-    local address = getAddressSafe(startAddr)
-    local bytesRead = 0
-    log:Debug(string.format("[Memory] GetBytes: startAddr=%s, size=%d", tostring(startAddr), size))
-    while bytesRead < size do
-        local instructionSize = self:GetInstructionSize(address)
-        if not instructionSize or instructionSize <= 0 then break end
-        local byteTable = readBytes(address, instructionSize, true)
-        if type(byteTable) == "table" then
-            for _, b in ipairs(byteTable) do
-                table.insert(bytes, string.format("%02X", b))
-            end
-        else
-            table.insert(bytes, string.format("%02X", byteTable))
-        end
-        bytesRead = bytesRead + instructionSize
-        address = address + instructionSize
-    end
-    local result = table.concat(bytes, " ")
-    log:Debug("[Memory] GetBytes result: " .. result)
-    return result
-end
-
-function Memory:GetNopPadding(size, minSize)
-    local pad = size - minSize
-    local result = ""
-    if pad > 0 then
-        result = ("db " .. ("90 "):rep(pad):sub(1, -2)) .. "\n"
-    end
-    log:Debug(string.format("[Memory] GetNopPadding: size=%d, minSize=%d, result='%s'", size, minSize, result))
-    return result
-end
-
--- ...........................................
--- Jump Data
--- ...........................................
-
-function Memory:GetMinJumpSize()
-    local minSize = self:Is14ByteJump() and 14 or 5
-    log:Debug("[Memory] GetMinJumpSize: " .. tostring(minSize))
-    return minSize
-end
-
-function Memory:GetJumpType()
-    local jumpType = self:Is14ByteJump() and "jmp far" or "jmp"
-    log:Debug("[Memory] GetJumpType: " .. jumpType)
-    return jumpType
-end
-
-function Memory:GetJumpSize(addr, minSize)
-    local address = getAddressSafe(addr)
-    local totalSize = 0
-    log:Debug(string.format("[Memory] GetJumpSize: addr=%s, minSize=%d", tostring(addr), minSize))
-    while totalSize < minSize do
-        local instructionSize = self:GetInstructionSize(address)
-        if not instructionSize or instructionSize <= 0 then
-            break
-        end
-        totalSize = totalSize + instructionSize
-        address = address + instructionSize
-    end
-    log:Debug("[Memory] GetJumpSize result: " .. tostring(totalSize))
-    return totalSize
-end
-
--- ...........................................
--- Module and Process Data
--- ...........................................
-
-function Memory:GetProcessName()
-    log:Debug("[Memory] GetProcessName: " .. tostring(process))
-    return process
-end
-
-function Memory:GetProcessBase()
-    local processName = self:GetProcessName()
-    if processName and processName ~= "" then
-        local base = getAddressSafe(processName)
-        log:Debug("[Memory] GetProcessBase: " .. tostring(base))
-        return base
-    end
-    log:Warning("[Memory] GetProcessBase: No process name found")
-end
-
-function Memory:GetProcessBaseStr()
-    local base = self:GetProcessBase()
-    local result = base and string.format("%016X", base) or "No process base found."
-    log:Debug("[Memory] GetProcessBaseStr: " .. result)
-    return result
-end
-
-function Memory:GetModuleName(addr)
-    local address = addr or self:GetSelection()
-    if inModule(address) then
-        local moduleName = getNameFromAddress(address, true, false)
-        local result = moduleName:match("^(.*)[+-]%x*$") or moduleName
-        log:Debug("[Memory] GetModuleName: " .. tostring(result))
-        return result
-    end
-    log:Warning("[Memory] GetModuleName: Not in module for address " .. tostring(address))
-end
-
-function Memory:GetModuleBase(addr)
-    local moduleName = self:GetModuleName(addr)
-    if moduleName then
-        local base = getAddressSafe(moduleName)
-        log:Debug("[Memory] GetModuleBase: " .. tostring(base))
-        return base
-    end
-    log:Warning("[Memory] GetModuleBase: No module name found")
+    value = trim(value)
+    if not value or value == "" then return nil end
+    local hexValue = value:match("^%$[%x]+$") and tonumber(value:sub(2), 16)
+    if hexValue and hexValue > 0 then return value:upper() end
+    if value:match("^%d+$") and tonumber(value) > 0 then return value end
     return nil
 end
 
-function Memory:GetModuleBaseStr()
-    local base = self:GetModuleBase()
-    local result = base and string.format("%016X", base) or "No module base found."
-    log:Debug("[Memory] GetModuleBaseStr: " .. result)
+function Memory:SetAllocationSize(value)
+    local normalized = self:NormalizeAllocationSize(value)
+    if not normalized then
+        log:Warning("[Memory] Allocation size must be a positive decimal or $HEX value.")
+        return false
+    end
+    self.AllocationSize = normalized
+    log:Debug("[Memory] Allocation size set to " .. normalized)
+    return true
+end
+
+function Memory:GetConfig()
+    return self.InjInfoLineCount, self.InjInfoRemoveSpaces, self.InjInfoAddTabs, self.AppendToHookName
+end
+
+function Memory:GetOptions(overrides)
+    overrides = type(overrides) == "table" and overrides or {}
+    local options = {
+        AskForHookName = self.AskForHookName,
+        AskForInjectionAddress = self.AskForInjectionAddress,
+        AppendToHookName = self.AppendToHookName,
+        AllocationSize = self.AllocationSize,
+        AllocationNear = self.AllocationNear,
+        DefaultHookName = self.DefaultHookName
+    }
+    for key, value in pairs(overrides) do
+        if value ~= nil then options[key] = value end
+    end
+    options.AllocationSize = self:NormalizeAllocationSize(options.AllocationSize) or self.AllocationSize
+    options.AppendToHookName = type(options.AppendToHookName) == "string" and options.AppendToHookName or self.AppendToHookName
+    return options
+end
+
+-- Runtime and metadata ------------------------------------------------------
+
+function Memory:GetCurrentDate() return os.date("%Y-%m-%d") end
+function Memory:GetCurrentTime() return os.date("%H:%M:%S") end
+function Memory:GetCurrentDateTime() return os.date("%Y-%m-%d %H:%M:%S") end
+
+function Memory:IsTarget64Bit()
+    return callSafely(targetIs64Bit) == true
+end
+
+function Memory:GetDefaultPointerSize()
+    if self:IsTarget64Bit() then return "dq", 8 end
+    return "dd", 4
+end
+
+function Memory:Is14ByteJump()
+    for index = 0, (callSafely(getFormCount) or 0) - 1 do
+        local form = callSafely(getForm, index)
+        if form and form.ClassName == "TfrmAutoInject" and form.mi14ByteJMP then
+            return form.mi14ByteJMP.Checked == true
+        end
+    end
+    return false
+end
+
+function Memory:GetMinJumpSize()
+    return self:Is14ByteJump() and 14 or 5
+end
+
+function Memory:GetJumpType()
+    return self:Is14ByteJump() and "jmp far" or "jmp"
+end
+
+function Memory:GetProcessName()
+    return type(process) == "string" and process ~= "" and process or nil
+end
+
+function Memory:FormatAddress(address)
+    if type(address) ~= "number" then return nil end
+    return self:IsTarget64Bit() and string.format("%016X", address) or string.format("%08X", address)
+end
+
+function Memory:GetProcessBase()
+    local name = self:GetProcessName()
+    return name and callSafely(getAddressSafe, name) or nil
+end
+
+function Memory:GetProcessBaseStr()
+    return self:FormatAddress(self:GetProcessBase()) or "No process base found."
+end
+
+function Memory:GetSelectionAddress()
+    local memoryView = callSafely(getMemoryViewForm)
+    local disassembler = memoryView and memoryView.DisassemblerView
+    local selected = disassembler and disassembler.SelectedAddress
+    if not selected then return nil end
+    return callSafely(getAddressSafe, selected) or selected
+end
+
+function Memory:GetSelection()
+    local address = self:GetSelectionAddress()
+    if not address then return nil end
+    local selection = callSafely(getNameFromAddress, address, true, true, true) or self:FormatAddress(address)
+    log:Debug("[Memory] Selected address: " .. tostring(selection))
+    return selection
+end
+
+function Memory:GetModuleName(address)
+    address = address and (callSafely(getAddressSafe, address) or address) or self:GetSelectionAddress()
+    if not address or callSafely(inModule, address) ~= true then return nil end
+    local value = callSafely(getNameFromAddress, address, true, false)
+    if type(value) ~= "string" then return nil end
+    return value:match("^(.*)[+-]%x+$") or value
+end
+
+function Memory:GetModuleBase(address)
+    local name = self:GetModuleName(address)
+    return name and callSafely(getAddressSafe, name) or nil
+end
+
+function Memory:GetModuleBaseStr(address)
+    return self:FormatAddress(self:GetModuleBase(address)) or "No module base found."
+end
+
+-- Selection and instruction data -------------------------------------------
+
+function Memory:IsValidInstructionSize(size)
+    return isPositiveInteger(size) and size <= 15
+end
+
+function Memory:GetInstructionSize(address)
+    address = callSafely(getAddressSafe, address) or address
+    local size = address and callSafely(getInstructionSize, address)
+    return self:IsValidInstructionSize(size) and size or nil
+end
+
+function Memory:GetInstructionSpan(address, minimumSize)
+    address = callSafely(getAddressSafe, address) or address
+    if not address or not isPositiveInteger(minimumSize) then return nil, "Invalid injection address or jump size" end
+
+    local current, total = address, 0
+    for _ = 1, 64 do
+        if total >= minimumSize then
+            log:Debug(string.format("[Memory] Overwrite span: %d byte(s) at $%X (minimum jump: %d).", total, address, minimumSize))
+            return total
+        end
+        local size = self:GetInstructionSize(current)
+        if not size then return nil, "Unable to determine instruction size at " .. tostring(current) end
+        total = total + size
+        current = current + size
+    end
+    return nil, "Too many instructions while calculating jump span"
+end
+
+function Memory:GetJumpSize(address, minimumSize)
+    return self:GetInstructionSpan(address, minimumSize or self:GetMinJumpSize())
+end
+
+function Memory:GetSelectionSize(address)
+    return self:GetInstructionSize(address or self:GetSelectionAddress()) or 0
+end
+
+function Memory:GetDisassembledOpcode(address)
+    local disassembler = callSafely(getVisibleDisassembler)
+    if not disassembler or not address then return nil end
+    local line = callSafely(function() return disassembler.disassemble(address) end)
+    if type(line) ~= "string" then return nil end
+    local _, opcode = callSafely(splitDisassembledString, line)
+    return type(opcode) == "string" and opcode:gsub("%{.-%}", "") or line:gsub("%{.-%}", "")
+end
+
+function Memory:GetOpcodes(startAddress, requiredSize)
+    startAddress = callSafely(getAddressSafe, startAddress) or startAddress
+    if not startAddress or not isPositiveInteger(requiredSize) then return nil, "Invalid opcode range" end
+
+    local result, current, total = {}, startAddress, 0
+    while total < requiredSize do
+        local size = self:GetInstructionSize(current)
+        if not size then return nil, "Unable to disassemble instruction at " .. tostring(current) end
+        local opcode = self:GetDisassembledOpcode(current)
+        if not opcode or opcode == "" then return nil, "Unable to disassemble instruction at " .. tostring(current) end
+        result[#result + 1] = "  " .. opcode
+        total = total + size
+        current = current + size
+    end
+    local opcodes = table.concat(result, "\n")
+    log:Debug(string.format("[Memory] Original instructions (%d byte(s)):\n%s", total, opcodes))
+    return opcodes
+end
+
+function Memory:GetBytes(startAddress, requiredSize)
+    startAddress = callSafely(getAddressSafe, startAddress) or startAddress
+    if not startAddress or not isPositiveInteger(requiredSize) then return nil, "Invalid byte range" end
+
+    local bytes, current, total = {}, startAddress, 0
+    while total < requiredSize do
+        local size = self:GetInstructionSize(current)
+        if not size then return nil, "Unable to read instruction at " .. tostring(current) end
+        local values = callSafely(readBytes, current, size, true)
+        if type(values) ~= "table" or #values ~= size then
+            return nil, "Unable to read bytes at " .. tostring(current)
+        end
+        for _, value in ipairs(values) do bytes[#bytes + 1] = string.format("%02X", value) end
+        total = total + size
+        current = current + size
+    end
+    local result = table.concat(bytes, " ")
+    log:Debug(string.format("[Memory] Original bytes (%d): %s", total, result))
     return result
 end
 
--- ...........................................
--- Processed Data
--- ...........................................
-
-function Memory:GetAoB()
-    local base = getAddressSafe(self:GetSelection())
-    if not base then
-        log:Warning("[Memory] GetAoB: Failed to resolve address")
-        return "Failed to resolve address: " .. tostring(base)
-    end
-    local currentModule = self:GetModuleName(base)
-    if not currentModule then
-        log:Warning("[Memory] GetAoB: Failed to retrieve the module name")
-        return "Failed to retrieve the module name."
-    end
-    local aobString, offset = getUniqueAOB(base)
-    if not aobString then
-        log:Warning("[Memory] GetAoB: No Unique AoB Found")
-        return "'No Unique AoB Found'", ""
-    end
-    log:Debug(string.format("[Memory] GetAoB: aobString='%s', offset='%s'", tostring(aobString), tostring(offset)))
-    if offset and offset ~= 0 then
-        return aobString, ("+%X"):format(offset)
-    else
-        return aobString, ""
-    end
+function Memory:GetNopPadding(actualSize, minimumSize)
+    local padding = (actualSize or 0) - (minimumSize or 0)
+    return padding > 0 and ("db " .. ("90 "):rep(padding):sub(1, -2) .. "\n") or ""
 end
 
-function Memory:GetRegisterData(instr)
-    local register, offset = instr:match("%[([%w]+)[-+]?([%x]*)%]")
-    if register then
-        if offset == "" then offset = "0" end
-        log:Debug(string.format("[Memory] GetRegisterData: register='%s', offset='%s'", register, offset))
-        return register, offset
-    end
-    register = instr:match("%[([%w]+)%]")
-    if register then
-        log:Debug(string.format("[Memory] GetRegisterData: register='%s', offset='0'", register))
-        return register, "0"
-    end
-    log:Warning("[Memory] GetRegisterData: No register data found in instruction: " .. tostring(instr))
-    return nil, nil
+function Memory:GetRegisterData(instruction)
+    if type(instruction) ~= "string" then return nil, nil end
+    local register, offset = instruction:match("%[([%a][%w]*)%s*([+-]%s*[%x]+)?%]")
+    if not register then return nil, nil end
+    offset = (offset or "0"):gsub("%s+", "")
+    if offset:sub(1, 1) == "+" then offset = offset:sub(2) end
+    return register, offset
 end
 
-function Memory:GetJumpData(addr, jmpSize)
-    log:Debug(string.format("[Memory] GetJumpData: addr=%s, jmpSize=%d", tostring(addr), jmpSize))
-    local jumpData = {}
-    jumpData.opcodes = self:GetOpcodes(addr, jmpSize)
-    jumpData.bytes = self:GetBytes(addr, jmpSize)
-    jumpData.nopPadding = self:GetNopPadding(jmpSize, self:GetMinJumpSize())
-    jumpData.jumpType = self:GetJumpType()
-    return jumpData
+-- Template-specific values --------------------------------------------------
+
+function Memory:NormalizeSymbolName(value)
+    value = trim(value)
+    if not value or value == "" then return nil end
+    local normalized = value:gsub("[^%w_]", "_")
+    if normalized:match("^%d") then normalized = "_" .. normalized end
+    return normalized ~= "" and normalized or nil
 end
 
-function Memory:GetInjectionInfo(addr, injectionInfoLinesCount, removeSpaces)
-    injectionInfoLinesCount = injectionInfoLinesCount or self.InjInfoLineCount
-    removeSpaces = removeSpaces or self.InjInfoRemoveSpaces
-    log:Debug(string.format("[Memory] GetInjectionInfo: addr=%s, lines=%s, removeSpaces=%s", tostring(addr), tostring(injectionInfoLinesCount), tostring(removeSpaces)))
-    local disassembler = getVisibleDisassembler()
-    local function getLine(lineAddr)
-        if not lineAddr then return "" end
-        local disassembledStr = disassembler.disassemble(lineAddr):gsub('{.-}', '')
-        local _, opcode, bytes, addrStr = splitDisassembledString(disassembledStr)
-        if not addrStr or addrStr == "" then
-            return ""
-        end
-        local name = getNameFromAddress(addrStr)
-        bytes = bytes:gsub("%s+", ""):gsub("..", "%1 "):sub(1, -2)
+function Memory:PromptForHookName(defaultName)
+    return callSafely(inputQuery, "Hook Name", "Name for the generated hook:", defaultName or self.DefaultHookName)
+end
+
+function Memory:FormatHookName(hookName, append)
+    append = type(append) == "string" and append or self.AppendToHookName
+    if append == "" or hookName:sub(-#append) == append then return hookName end
+    return hookName .. append
+end
+
+function Memory:GetHookNames(options)
+    options = self:GetOptions(options)
+    local requested = options.AskForHookName and self:PromptForHookName(options.DefaultHookName) or options.DefaultHookName
+    if not requested or requested == "" then return nil, nil, "No hook name was provided" end
+
+    local name = self:NormalizeSymbolName(requested)
+    if not name then return nil, nil, "Hook name is invalid" end
+    if name ~= requested then
+        log:Warning("[Memory] Hook name was normalized to a valid Auto Assembler symbol: " .. name)
+    end
+    local parsed = self:FormatHookName(name, options.AppendToHookName)
+    log:Debug(string.format("[Memory] Hook name: input='%s', symbol='%s', scan='%s'", tostring(requested), name, parsed))
+    return name, parsed
+end
+
+function Memory:GetInjectionAddress(options)
+    options = self:GetOptions(options)
+    local selected = self:GetSelection()
+    local requested = selected
+    if options.AskForInjectionAddress then
+        requested = callSafely(inputQuery, "Injection Address", "Address to use for the injection:", selected or "")
+    end
+    if not requested or requested == "" then return nil, nil, "No injection address was provided" end
+
+    local address = callSafely(getAddressSafe, requested)
+    if not address then return nil, nil, "Unable to resolve injection address '" .. tostring(requested) .. "'" end
+    local resolved = callSafely(getNameFromAddress, address, true, true, true) or tostring(requested)
+    log:Debug(string.format("[Memory] Injection address: %s ($%X)", resolved, address))
+    return resolved, address
+end
+
+function Memory:GetAllocStatement(hookName, hookNameParsed, options)
+    options = self:GetOptions(options)
+    local size = options.AllocationSize
+    if options.AllocationNear and not self:Is14ByteJump() then
+        local statement = string.format("alloc(n_%s,%s,%s)", hookName, size, hookNameParsed)
+        log:Debug("[Memory] Allocation statement: " .. statement)
+        return statement
+    end
+    local statement = string.format("alloc(n_%s,%s)", hookName, size)
+    log:Debug("[Memory] Allocation statement: " .. statement)
+    return statement
+end
+
+function Memory:GetGlobalAllocStatement(hookName, options)
+    options = self:GetOptions(options)
+    local size = options.AllocationSize
+    local statement = string.format("alloc(n_%s,%s)", hookName, size)
+    log:Debug("[Memory] Global allocation statement: " .. statement)
+    return statement
+end
+
+function Memory:GetAoB(address)
+    address = callSafely(getAddressSafe, address) or address
+    if not address then return nil, nil, "Unable to resolve injection address" end
+    if not self:GetModuleName(address) then return nil, nil, "Injection address is not in a module" end
+
+    local pattern, offset = callSafely(getUniqueAOB, address)
+    if not pattern or pattern == "" then return nil, nil, "No unique AoB was found" end
+    local suffix = offset and offset ~= 0 and ("+%X"):format(offset) or ""
+    log:Debug(string.format("[Memory] Unique AoB: '%s' (offset '%s')", pattern, suffix))
+    return pattern, suffix
+end
+
+function Memory:GetInjectionInfo(address, lineCount, removeSpaces)
+    lineCount = lineCount == nil and self.InjInfoLineCount or lineCount
+    removeSpaces = removeSpaces == nil and self.InjInfoRemoveSpaces or removeSpaces
+    if not isPositiveInteger(lineCount) then return {} end
+
+    local disassembler = callSafely(getVisibleDisassembler)
+    if not disassembler then return {} end
+
+    local current = callSafely(getAddressSafe, address) or address
+    if not current then return {} end
+    for _ = 1, math.floor(lineCount / 2) do
+        local previous = callSafely(getPreviousOpcode, current)
+        if not previous then break end
+        current = previous
+    end
+
+    local lines = {}
+    for _ = 1, lineCount do
+        local line = callSafely(function() return disassembler.disassemble(current) end)
+        if type(line) ~= "string" then break end
+        local cleanLine = line:gsub("{.-}", "")
+        local _, opcode, bytes, addressText = callSafely(splitDisassembledString, cleanLine)
+        if not addressText or addressText == "" then break end
+        local name = callSafely(getNameFromAddress, addressText) or addressText
+        bytes = type(bytes) == "string" and bytes:gsub("%s+", ""):gsub("(%x%x)", "%1 "):sub(1, -2) or ""
         if removeSpaces then
-            return string.format("%s - %s - %s", name, bytes, opcode)
+            lines[#lines + 1] = string.format("%s - %s - %s", name, bytes:gsub("%s+", ""), opcode or "")
         else
-            return string.format("%s - %-24s - %s", name, bytes, opcode)
+            lines[#lines + 1] = string.format("%s - %-24s - %s", name, bytes, opcode or "")
         end
+        local size = self:GetInstructionSize(current)
+        if not size then break end
+        current = current + size
     end
-    local code = {}
-    local currAddr = addr
-    for i = math.floor(injectionInfoLinesCount / 2), 1, -1 do
-        currAddr = getPreviousOpcode(currAddr)
-    end
-    for i = 1, injectionInfoLinesCount do
-        table.insert(code, getLine(currAddr))
-        currAddr = currAddr + (getInstructionSize(currAddr) or 1)
-    end
-    log:Debug("[Memory] GetInjectionInfo result:\n" .. table.concat(code, "\n"))
-    return code
+    log:Debug(string.format("[Memory] Injection info generated with %d line(s).", #lines))
+    return lines
 end
 
-function Memory:GetInjectionInfoStr(addr)
-    local injectionInfoLinesCount = self.InjInfoLineCount
-    local removeSpaces = self.InjInfoRemoveSpaces
-    local addTabs = self.InjInfoAddTabs
-    log:Debug(string.format("[Memory] GetInjectionInfoStr: addr=%s, lines=%s, removeSpaces=%s, addTabs=%s", tostring(addr), tostring(injectionInfoLinesCount), tostring(removeSpaces), tostring(addTabs)))
-    local code = self:GetInjectionInfo(addr, injectionInfoLinesCount, removeSpaces)
+function Memory:GetInjectionInfoStr(address, lineCount, removeSpaces, addTabs)
+    addTabs = addTabs == nil and self.InjInfoAddTabs or addTabs
+    local lines = self:GetInjectionInfo(address, lineCount, removeSpaces)
     if addTabs then
-        for i, line in ipairs(code) do
-            code[i] = "\t  " .. line
-        end
+        for index, line in ipairs(lines) do lines[index] = "\t  " .. line end
     end
-    local result = table.concat(code, "\n")
-    log:Debug("[Memory] GetInjectionInfoStr result:\n" .. result)
-    return result
+    return table.concat(lines, "\n")
 end
 
--- ...........................................
--- Finalize
--- ...........................................
+-- Mono / managed runtime support -------------------------------------------
+-- TODO: Add an opt-in Mono context provider here. It should resolve a managed
+-- method to its JIT address, class and field offsets without changing the native
+-- memory workflow above. Until then templates receive only native x86/x64 data.
 
-function Memory:GetMemoryInfo()
-    local info = {
-        Version = "1.0.0",
+function Memory:GetMonoSupportStatus()
+    return "TODO: managed Mono metadata and JIT-address resolution are not implemented yet."
+end
+
+-- Context assembly ----------------------------------------------------------
+
+function Memory:GetMemoryInfo(overrides)
+    local options = self:GetOptions(overrides)
+    log:Debug(string.format(
+        "[Memory] Building context (askAddress=%s, askHook=%s, allocation=%s, near=%s).",
+        tostring(options.AskForInjectionAddress), tostring(options.AskForHookName),
+        tostring(options.AllocationSize), tostring(options.AllocationNear)))
+    local processName = self:GetProcessName()
+    if not processName then return nil, "No target process is attached" end
+
+    local addressText, address, addressErr = self:GetInjectionAddress(options)
+    if not address then return nil, addressErr end
+    local module = self:GetModuleName(address)
+    if not module then return nil, "Injection address is not inside a loaded module" end
+
+    local hookName, hookNameParsed, hookErr = self:GetHookNames(options)
+    if not hookName then return nil, hookErr end
+
+    local minimumJumpSize = self:GetMinJumpSize()
+    local jumpSize, jumpErr = self:GetJumpSize(address, minimumJumpSize)
+    if not jumpSize then return nil, jumpErr end
+
+    local originalOpcodes, opcodeErr = self:GetOpcodes(address, jumpSize)
+    local originalBytes, bytesErr = self:GetBytes(address, jumpSize)
+    if not originalOpcodes or not originalBytes then return nil, opcodeErr or bytesErr end
+
+    local aob, aobOffset, aobErr = self:GetAoB(address)
+    if not aob then return nil, aobErr end
+
+    local pointerType, pointerSize = self:GetDefaultPointerSize()
+    local originalInstruction = self:GetDisassembledOpcode(address)
+    local baseAddressRegister, baseAddressOffset = self:GetRegisterData(originalInstruction)
+
+    local context = {
+        Version = "2.1.0",
         Date = self:GetCurrentDate(),
         Time = self:GetCurrentTime(),
         DateTime = self:GetCurrentDateTime(),
+        Process = processName,
+        ProcessBase = self:GetProcessBaseStr(),
+        Module = module,
+        ModuleBase = self:GetModuleBaseStr(address),
+        Address = addressText,
+        AddressValue = address,
+        PointerType = pointerType,
+        PointerSize = pointerSize,
+        DefaultPointerBytes = pointerSize,
+        IsTarget64Bit = self:IsTarget64Bit(),
+        Is14ByteJump = self:Is14ByteJump(),
+        MinJumpSize = minimumJumpSize,
+        JumpType = self:GetJumpType(),
+        JumpSize = jumpSize,
+        SelectionSize = self:GetSelectionSize(address),
+        OriginalInstruction = originalInstruction,
+        OriginalOpcodes = originalOpcodes,
+        OriginalBytes = originalBytes,
+        NopPadding = self:GetNopPadding(jumpSize, minimumJumpSize),
+        BaseAddressRegister = baseAddressRegister or "",
+        BaseAddressOffset = baseAddressOffset or "0",
+        AoBStr = aob,
+        AoBOffset = aobOffset,
+        HookName = hookName,
+        HookNameParsed = hookNameParsed,
+        Alloc = self:GetAllocStatement(hookName, hookNameParsed, options),
+        GlobalAlloc = self:GetGlobalAllocStatement(hookName, options),
+        InjectionInfo = self:GetInjectionInfoStr(address),
         InjInfoLineCount = self.InjInfoLineCount,
         InjInfoRemoveSpaces = self.InjInfoRemoveSpaces,
         InjInfoAddTabs = self.InjInfoAddTabs,
-        AppendToHookName = self.AppendToHookName,
-        AskForHookName = self.AskForHookName,
-        Process = self:GetProcessName(),
-        ProcessBase = self:GetProcessBaseStr(),
-        Module = self:GetModuleName(),
-        ModuleBase = self:GetModuleBaseStr(),
-        Address = self:GetSelection()
+        AppendToHookName = options.AppendToHookName,
+        AskForHookName = options.AskForHookName,
+        AskForInjectionAddress = options.AskForInjectionAddress,
+        AllocationSize = options.AllocationSize,
+        AllocationNear = options.AllocationNear,
+        MonoSupportStatus = self:GetMonoSupportStatus()
     }
-    if not info.Process then return nil end
-    info.PointerType, info.DefaultPointerBytes = self:GetDefaultPointerSize()
-    info.IsTarget64Bit = self:IsTarget64Bit()
-    info.Is14ByteJump = self:Is14ByteJump()
-    info.MinJumpSize = self:GetMinJumpSize()
-    info.JumpType = self:GetJumpType()
-    info.SelectionSize = self:GetSelectionSize(info.Address)
-    local aob, aobOffset = self:GetAoB()
-    info.AoBStr, info.AoBOffset = aob, aobOffset
-    local hookName, hookNameParsed = self:GetHookNames()
-    if not hookName then return nil end
-    info.HookName, info.HookNameParsed = hookName, hookNameParsed
-    info.Alloc = self:GetAllocStatement(hookName, hookNameParsed)
-    if info.Address then
-        local minJumpSize = info.MinJumpSize
-        local jumpSize = self:GetJumpSize(info.Address, minJumpSize)
-        info.JumpSize = jumpSize
-        info.OriginalOpcodes = self:GetOpcodes(info.Address, minJumpSize)
-        info.OriginalBytes = self:GetBytes(info.Address, minJumpSize)
-        info.NopPadding = self:GetNopPadding(jumpSize, minJumpSize)
-        info.InjectionInfo = self:GetInjectionInfoStr(info.Address, info.InjInfoLineCount, info.InjInfoRemoveSpaces, info.InjInfoAddTabs)
-        info.BaseAddressRegister = self:GetRegisterData(info.OriginalOpcodes)
-    end
-    return info
+    log:Debug(string.format(
+        "[Memory] Context ready: %s | %s | %s | x%s | jump=%d | hook=%s.",
+        context.Process, context.Module, context.Address,
+        context.IsTarget64Bit and "64" or "86", context.JumpSize, context.HookName))
+    return context
 end
 
 return Memory
