@@ -1,6 +1,6 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.4"
+local VERSION = "1.2.5"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
@@ -24,6 +24,9 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
     v1.2.4 (2026-06-19)
         Added ManifoldEmitReturn for skipping original code and jumping back to the detour return address.
         ManifoldEmitOriginal now uses the relocated original emitter from Manifold.Trampolines.
+
+    v1.2.5 (2026-06-20)
+        Added ManifoldEmitOriginalNoReturn for emitting relocated original code without an automatic return jump.
 ]]--
 
 AssemblerCommands = {
@@ -49,6 +52,7 @@ local COMMAND_SPECS = {
     { name = "ManifoldNop", factory = "_cmdManifoldNop" },
     { name = "ManifoldInstallDetour", factory = "_cmdManifoldInstallDetour" },
     { name = "ManifoldEmitOriginal", factory = "_cmdManifoldEmitOriginal" },
+    { name = "ManifoldEmitOriginalNoReturn", factory = "_cmdManifoldEmitOriginalNoReturn" },
     { name = "ManifoldEmitReturn", factory = "_cmdManifoldEmitReturn" },
     { name = "ManifoldDestroyDetour", factory = "_cmdManifoldDestroyDetour" },
     { name = "ManifoldResolveStatic", factory = "_cmdManifoldResolveStatic" }
@@ -1308,6 +1312,36 @@ end
 ---     detour symbols, and deallocates the relay/original block.
 --- @return function
 --
+--
+--- Creates the Auto Assembler command handler for ManifoldEmitOriginalNoReturn.
+--- Use this inside the injection section when execution should continue with the
+--- following AA instructions after the relocated original code.
+--- @return function
+--
+function AssemblerCommands:_cmdManifoldEmitOriginalNoReturn()
+    return function(parameters, syntaxcheck)
+        local ctx = self:_beginCommand("ManifoldEmitOriginalNoReturn", parameters, syntaxcheck)
+        local trampolineApi = self:_getTrampolines()
+        if not trampolineApi then
+            return self:_commandError(ctx.Name, ctx.Name .. ": Manifold.Trampolines is not available")
+        end
+        local name = self:_stripQuotes(ctx.Args[1] or "ManifoldDetour")
+        local okName = self:_isValidSymbolName(name)
+        if not okName then name = "ManifoldDetour" end
+        if ctx.Syntaxcheck then
+            return trampolineApi:BuildOriginalSyntaxScript(name)
+        end
+        local symbol, nameErr = self:_requireSymbolArg(ctx.Args, 1, ctx.Name, "name")
+        if not symbol then return self:_commandError(ctx.Name, nameErr) end
+        if not self:_isBlank(ctx.Args[2]) then
+            return self:_commandError(ctx.Name, ctx.Name .. ": unexpected extra parameter for ManifoldEmitOriginalNoReturn(" .. symbol .. ")")
+        end
+        local _, script, emitErr = trampolineApi:EmitOriginalNoReturn(symbol)
+        if not script then return self:_commandError(ctx.Name, ctx.Name .. ": " .. tostring(emitErr)) end
+        return script
+    end
+end
+
 --
 --- Creates the Auto Assembler command handler for ManifoldEmitReturn.
 --- Use this inside the injection section when custom logic should skip the original code.
