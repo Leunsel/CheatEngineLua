@@ -477,6 +477,7 @@ function AutoAssembler:_scriptUsesTrampolines(scriptText)
     return scriptText:find("ManifoldInstallDetour", 1, true) ~= nil
         or scriptText:find("ManifoldDestroyDetour", 1, true) ~= nil
         or scriptText:find("ManifoldEmitOriginal", 1, true) ~= nil
+        or scriptText:find("ManifoldEmitOriginalNoReturn", 1, true) ~= nil
         or scriptText:find("ManifoldEmitReturn", 1, true) ~= nil
 end
 
