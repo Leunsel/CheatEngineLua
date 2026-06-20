@@ -1,12 +1,16 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.4"
+local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
     ∂ v1.0.4 (2026-04-21)
         Reduced duplicated state serialization and validation logic.
         Simplified restore/save flows and trimmed low-value debug logging.
+
+    ∂ v1.0.5 (2026-06-20)
+        Synchronize all AddressList, MemoryRecord and Hotkey access with CE's main GUI thread. (CE7.6 Support)
+
 ]]--
 
 State = {
@@ -158,31 +162,37 @@ registerLuaFunctionHighlight('EnsureStateDirectory')
 --- @return table  # A table containing indexed memory records.
 --
 function State:GetIndexedAddressList()
-    if not AddressList then
-        logger:Error(MODULE_PREFIX .. " AddressList is nil!")
-        return nil
+    if not inMainThread() then
+        local indexedList, keyedList
+        synchronize(function()
+            indexedList, keyedList = self:GetIndexedAddressList()
+        end)
+        return indexedList, keyedList
     end
     local indexedList = {}
+    local keyedList = {}
+    if not AddressList then
+        logger:Error(MODULE_PREFIX .. " AddressList is nil!")
+        return nil, nil
+    end
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr then
-            indexedList[#indexedList + 1] = {
+            local entry = {
                 index = i,
                 id = mr.ID,
                 description = mr.Description,
                 active = mr.Active,
-                type = (mr.Type == vtAutoAssembler and "ScriptID") 
-                    or (mr.IsGroupHeader and "HeaderID") 
+                type = (mr.Type == vtAutoAssembler and "ScriptID")
+                    or (mr.IsGroupHeader and "HeaderID")
                     or "MemoryRecord",
                 HotkeyCount = mr.HotkeyCount,
                 Hotkeys = _serializeHotkeys(mr)
             }
-        end
-    end
-    local keyedList = {}
-    for _, entry in ipairs(indexedList) do
-        if entry.id then
-            keyedList[entry.id] = entry
+            indexedList[#indexedList + 1] = entry
+            if entry.id then
+                keyedList[entry.id] = entry
+            end
         end
     end
     return indexedList, keyedList
@@ -244,6 +254,9 @@ function State:SaveTableState(stateName)
     end
     local stateData = {}
     local indexedList = self:GetIndexedAddressList()
+    if not indexedList then
+        return false
+    end
     for _, rec in ipairs(indexedList) do
         local recordData = self:_BuildStateRecord(rec)
         if recordData then
@@ -272,23 +285,6 @@ end
 registerLuaFunctionHighlight('SaveTableState')
 
 --
---- ∑ Runs a function on CE's main thread (GUI thread) to safely touch MemoryRecords/Hotkeys.
---- @param fn function
---
-function State:_RunOnMainThread(fn)
-    if type(fn) ~= "function" then return end
-
-    -- Cheat Engine provides 'synchronize' to execute code on the main thread.
-    if type(synchronize) == "function" then
-        synchronize(fn)
-    else
-        -- Fallback: if not available, execute directly.
-        -- (In standard CE Lua, synchronize exists.)
-        fn()
-    end
-end
-
---
 --- ∑ Sets the active state of a memory record (direct) on the main thread.
 --- If the record is async, waits for completion up to timeoutMs (no infinite wait).
 --- @param mr MemoryRecord The memory record to modify.
@@ -296,68 +292,114 @@ end
 --- @param timeoutMs number|nil Max wait time for async processing in milliseconds (default: 2000).
 --- @return boolean # Returns true if the state was set, false otherwise.
 --
+function State:_SetMemoryRecordStateOnMainThread(mr, state, timeoutMs)
+    local outcome = {
+        success = false,
+        changed = false,
+        state = state,
+        record = _describeRecord(mr),
+        asyncWasProcessing = false,
+        didTimeout = false,
+        waitedMs = 0
+    }
+    if mr.Active == state then
+        outcome.success = true
+        outcome.active = mr.Active
+        return outcome
+    end
+    mr.Active = state
+    if type(processMessages) == "function" then processMessages() end
+    if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
+    if mr.Async then
+        outcome.asyncWasProcessing = true
+        local startMs = (type(getTickCount) == "function")
+            and getTickCount()
+            or math.floor(os.clock() * 1000)
+        while mr.AsyncProcessing do
+            if type(processMessages) == "function" then processMessages() end
+            if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
+            if type(sleep) == "function" then sleep(10) end
+            local nowMs = (type(getTickCount) == "function")
+                and getTickCount()
+                or math.floor(os.clock() * 1000)
+            outcome.waitedMs = nowMs - startMs
+            if outcome.waitedMs >= timeoutMs then
+                outcome.didTimeout = true
+                break
+            end
+        end
+        if outcome.waitedMs == 0 then
+            local endMs = (type(getTickCount) == "function")
+                and getTickCount()
+                or math.floor(os.clock() * 1000)
+            outcome.waitedMs = endMs - startMs
+        end
+    end
+    outcome.changed = true
+    outcome.active = mr.Active
+    outcome.async = mr.Async
+    outcome.asyncProcessing = mr.AsyncProcessing
+    outcome.success = outcome.active == state
+    return outcome
+end
+
+function State:_LogMemoryRecordStateOutcome(outcome)
+    if not outcome or not outcome.success then
+        logger:Warning(string.format("%s Failed to set %s. Active=%s Async=%s AsyncProcessing=%s", MODULE_PREFIX, tostring(outcome and outcome.record or "Unknown Record"), tostring(outcome and outcome.active), tostring(outcome and outcome.async), tostring(outcome and outcome.asyncProcessing)))
+        return
+    end
+    if not outcome.changed then
+        return
+    end
+    if outcome.asyncWasProcessing then
+        if outcome.didTimeout then
+            logger:Warning(string.format("%s %s timed out after %dms. AsyncProcessing=%s", MODULE_PREFIX, outcome.record, outcome.waitedMs, tostring(outcome.asyncProcessing)))
+        else
+            logger:Info(string.format("%s %s %s. Async completed in %dms.", MODULE_PREFIX, outcome.record, outcome.state and "activated" or "deactivated", outcome.waitedMs))
+        end
+    else
+        logger:Info(string.format("%s %s %s.", MODULE_PREFIX, outcome.record, outcome.state and "activated" or "deactivated"))
+    end
+end
+
 function State:SetMemoryRecordState(mr, state, timeoutMs)
+    if not inMainThread() then
+        local result
+        synchronize(function()
+            result = self:SetMemoryRecordState(mr, state, timeoutMs)
+        end)
+        return result
+    end
     if not mr then
         logger:Warning(MODULE_PREFIX .. " SetMemoryRecordState called with nil mr.")
         return false
     end
-    if mr.Active == state then
-        return true
-    end
     timeoutMs = tonumber(timeoutMs) or 10000
-    local didTimeout = false
-    local waitedMs = 0
-    local asyncWasProcessing = false
-    local id = tostring(mr.ID)
-    local desc = tostring(mr.Description)
-    self:_RunOnMainThread(function()
-        -- Apply state immediately
-        mr.Active = state
-        if type(processMessages) == "function" then processMessages() end
-        if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
-        -- If async, wait (bounded) until processing finishes
-        if mr.Async then
-            asyncWasProcessing = true
-            local startMs = (type(getTickCount) == "function")
-                and getTickCount()
-                or math.floor(os.clock() * 1000)
-            while mr.AsyncProcessing do
-                if type(processMessages) == "function" then processMessages() end
-                if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
-                if type(sleep) == "function" then sleep(10) end
-                local nowMs = (type(getTickCount) == "function")
-                    and getTickCount()
-                    or math.floor(os.clock() * 1000)
-                waitedMs = nowMs - startMs
-                if waitedMs >= timeoutMs then
-                    didTimeout = true
-                    break
-                end
-            end
-            if waitedMs == 0 then
-                local endMs = (type(getTickCount) == "function")
-                    and getTickCount()
-                    or math.floor(os.clock() * 1000)
-                waitedMs = endMs - startMs
-            end
-        end
-    end)
-    if mr.Active ~= state then
-        logger:Warning(string.format("%s Failed to set %s. Active=%s Async=%s AsyncProcessing=%s", MODULE_PREFIX, _describeRecord(mr), tostring(mr.Active), tostring(mr.Async), tostring(mr.AsyncProcessing)))
-        return false
-    end
-    if asyncWasProcessing then
-        if didTimeout then
-            logger:Warning(string.format("%s %s timed out after %dms. AsyncProcessing=%s", MODULE_PREFIX, _describeRecord(mr), waitedMs, tostring(mr.AsyncProcessing)))
-        else
-            logger:Info(string.format("%s %s %s. Async completed in %dms.", MODULE_PREFIX, _describeRecord(mr), state and "activated" or "deactivated", waitedMs))
-        end
-    else
-        logger:Info(string.format("%s %s %s.", MODULE_PREFIX, _describeRecord(mr), state and "activated" or "deactivated"))
-    end
-    return true
+    local outcome = self:_SetMemoryRecordStateOnMainThread(mr, state, timeoutMs)
+    self:_LogMemoryRecordStateOutcome(outcome)
+    return outcome.success
 end
 registerLuaFunctionHighlight('SetMemoryRecordState')
+
+-- Replaces a record's hotkeys. This helper is called exclusively from the main thread.
+function State:_RestoreHotkeysOnMainThread(mr, hotkeys)
+    local record = _describeRecord(mr)
+    local ok, err = pcall(function()
+        for hotkeyIndex = mr.HotkeyCount - 1, 0, -1 do
+            mr.Hotkey[hotkeyIndex].destroy()
+        end
+        for _, hotkeyData in ipairs(hotkeys) do
+            mr.createHotkey(
+                hotkeyData.keys,
+                hotkeyData.action,
+                hotkeyData.value,
+                hotkeyData.description)
+        end
+        if type(processMessages) == "function" then processMessages() end
+        if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
+    end)
+    return ok, record, err
+end
 
 --
 --- ∑ Restores the state of memory records based on the state file.
@@ -366,8 +408,15 @@ registerLuaFunctionHighlight('SetMemoryRecordState')
 --- @return void  # This function does not return a value.
 --
 function State:RestoreState(stateData)
-    if not (AddressList and stateData) then
-        logger:Error(MODULE_PREFIX .. " AddressList or stateData is not available.")
+    if not inMainThread() then
+        local stats
+        synchronize(function()
+            stats = self:RestoreState(stateData)
+        end)
+        return stats
+    end
+    if type(stateData) ~= "table" then
+        logger:Error(MODULE_PREFIX .. " stateData is not available.")
         return { activatedCount = 0, deactivatedCount = 0, unchangedCount = 0, failedCount = 0 }
     end
     local stateLookup = {}
@@ -375,6 +424,12 @@ function State:RestoreState(stateData)
         stateLookup[rec.id] = rec
     end
     local stats = { activatedCount = 0, deactivatedCount = 0, unchangedCount = 0, failedCount = 0 }
+    local stateOutcomes = {}
+    local hotkeyOutcomes = {}
+    if not AddressList then
+        logger:Error(MODULE_PREFIX .. " AddressList is nil!")
+        return stats
+    end
     for i = 0, AddressList.Count - 1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr then
@@ -383,7 +438,9 @@ function State:RestoreState(stateData)
             if mr.Active == targetState then
                 stats.unchangedCount = stats.unchangedCount + 1
             else
-                if self:SetMemoryRecordState(mr, targetState) then
+                local outcome = self:_SetMemoryRecordStateOnMainThread(mr, targetState, 10000)
+                stateOutcomes[#stateOutcomes + 1] = outcome
+                if outcome.success then
                     if targetState then
                         stats.activatedCount = stats.activatedCount + 1
                     else
@@ -394,22 +451,24 @@ function State:RestoreState(stateData)
                 end
             end
             if rec and rec.hotkeys and #rec.hotkeys > 0 then
-                self:_RunOnMainThread(function()
-                    for hotkeyIndex = mr.HotkeyCount - 1, 0, -1 do
-                        mr.Hotkey[hotkeyIndex].destroy()
-                    end
-                    for _, hotkeyData in ipairs(rec.hotkeys) do
-                        local hk = mr.createHotkey(
-                            hotkeyData.keys,
-                            hotkeyData.action,
-                            hotkeyData.value,
-                            hotkeyData.description)
-                    end
-                    if type(processMessages) == "function" then processMessages() end
-                    if MainForm and type(MainForm.repaint) == "function" then MainForm.repaint() end
-                end)
-                logger:Info(string.format("%s Restored %d hotkeys for %s.", MODULE_PREFIX, #rec.hotkeys, _describeRecord(mr)))
+                local ok, record, err = self:_RestoreHotkeysOnMainThread(mr, rec.hotkeys)
+                hotkeyOutcomes[#hotkeyOutcomes + 1] = {
+                    success = ok,
+                    record = record,
+                    count = #rec.hotkeys,
+                    err = err
+                }
             end
+        end
+    end
+    for _, outcome in ipairs(stateOutcomes) do
+        self:_LogMemoryRecordStateOutcome(outcome)
+    end
+    for _, outcome in ipairs(hotkeyOutcomes) do
+        if outcome.success then
+            logger:Info(string.format("%s Restored %d hotkeys for %s.", MODULE_PREFIX, outcome.count, outcome.record))
+        else
+            logger:Warning(string.format("%s Failed to restore hotkeys for %s: %s", MODULE_PREFIX, outcome.record, tostring(outcome.err)))
         end
     end
     logger:Info(string.format("%s Restore complete. Activated: %d, Deactivated: %d, Unchanged: %d, Failed: %d", MODULE_PREFIX, stats.activatedCount, stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
@@ -456,16 +515,26 @@ registerLuaFunctionHighlight('LoadTableState')
 --- @return void  # This function does not return a value.
 --
 function State:RestoreOriginalState()
-    if not AddressList then
-        logger:Error(MODULE_PREFIX .. " AddressList is not available.")
-        return { deactivatedCount = 0, unchangedCount = 0, failedCount = 0 }
+    if not inMainThread() then
+        local stats
+        synchronize(function()
+            stats = self:RestoreOriginalState()
+        end)
+        return stats
     end
     local stats = { deactivatedCount = 0, unchangedCount = 0, failedCount = 0 }
+    local stateOutcomes = {}
+    if not AddressList then
+        logger:Error(MODULE_PREFIX .. " AddressList is not available.")
+        return stats
+    end
     for i = AddressList.Count - 1, 0, -1 do
         local mr = AddressList.getMemoryRecord(i)
         if mr then
             if mr.Active then
-                if self:SetMemoryRecordState(mr, false) then
+                local outcome = self:_SetMemoryRecordStateOnMainThread(mr, false, 10000)
+                stateOutcomes[#stateOutcomes + 1] = outcome
+                if outcome.success then
                     stats.deactivatedCount = stats.deactivatedCount + 1
                 else
                     stats.failedCount = stats.failedCount + 1
@@ -474,6 +543,9 @@ function State:RestoreOriginalState()
                 stats.unchangedCount = stats.unchangedCount + 1
             end
         end
+    end
+    for _, outcome in ipairs(stateOutcomes) do
+        self:_LogMemoryRecordStateOutcome(outcome)
     end
     logger:Info(string.format("%s RestoreOriginalState completed. Deactivated: %d, Unchanged: %d, Failed: %d", MODULE_PREFIX, stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
     return stats
