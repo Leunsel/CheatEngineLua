@@ -1120,13 +1120,19 @@ registerLuaFunctionHighlight("ReleaseThemeApplyLock")
 --- @return # void
 --
 function UI:ApplyTheme(themeName, allowReapply)
+    if not inMainThread() then
+        local returnValue
+        synchronize(function()
+            returnValue = self:ApplyTheme(themeName, allowReapply)
+        end)
+        return returnValue
+    end
     local token, activeLock = self:AcquireThemeApplyLock(themeName)
     if not token then
         local activeName = activeLock and activeLock.ThemeName or "<unknown>"
         logger:WarningF("[UI] A theme is already being applied: '%s'. Skipping theme '%s'.", tostring(activeName), tostring(themeName))
         return false
     end
-
     local ok, result = pcall(function()
         local theme = self:GetTheme(themeName)
         if not theme then
@@ -1152,7 +1158,6 @@ function UI:ApplyTheme(themeName, allowReapply)
         logger:Info("[UI] Theme '" .. themeName .. "' applied.")
         return true
     end)
-
     self:ReleaseThemeApplyLock(token)
     if not ok then
         logger:Error("[UI] Failed to apply theme '" .. tostring(themeName) .. "': " .. tostring(result))
@@ -1179,6 +1184,12 @@ end
 --- @return # void
 --
 function UI:UpdateThemeSelector()
+    if not inMainThread() then
+        synchronize(function()
+            self:UpdateThemeSelector()
+        end)
+        return
+    end
     local addressList = getAddressList()
     local root = addressList.getMemoryRecordByDescription("[— UI : Theme Selector —] ()->")
     self:DeleteSubrecords(root) -- Helper function to remove all child records
@@ -1242,9 +1253,13 @@ end
 --- @return # void
 --
 function UI:SetControlVisibility(controlName, isVisible)
-    if MainForm and MainForm[controlName] then
-        MainForm[controlName].Visible = isVisible
-    end
+    self:RunInMainThread(
+        function()
+            if MainForm and MainForm[controlName] then
+                MainForm[controlName].Visible = isVisible
+            end
+        end
+    )
 end
 registerLuaFunctionHighlight("SetControlVisibility")
 
@@ -1268,9 +1283,13 @@ end
 --- @return # void
 --
 function UI:EnableCompactMode()
-    self.CompactMode = true
-    self:SetControlVisibility("Splitter1", false)
-    self:SetControlVisibility("Panel5", false)
+    self:RunInMainThread(
+        function()
+            self.CompactMode = true
+            self:SetControlVisibility("Splitter1", false)
+            self:SetControlVisibility("Panel5", false)
+        end
+    )
 end
 registerLuaFunctionHighlight("EnableCompactMode")
 
@@ -1359,9 +1378,13 @@ registerLuaFunctionHighlight("DisableHeaderSorting")
 --- @return # void
 --
 function UI:HideAddresslistBevel()
-    if MainForm then
-        AddressList.BevelOuter = "bvNone" -- AddressList; Original: bvRaised
-    end
+    self:RunInMainThread(
+        function()
+            if MainForm then
+                AddressList.BevelOuter = "bvNone" -- AddressList; Original: bvRaised
+            end
+        end
+    )
 end
 registerLuaFunctionHighlight("HideAddresslistBevel")
 
@@ -1706,6 +1729,12 @@ end
 --- @return None.
 --
 function UI:InitializeForm()
+    if not inMainThread() then
+        synchronize(function()
+            self:InitializeForm()
+        end)
+        return
+    end
     MainForm.Show()
     -- ........................
     self:EnableCompactMode()
