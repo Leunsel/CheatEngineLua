@@ -1,729 +1,872 @@
 --[[
-    Manifold.TemplateLoader.Loader.lua
-    --------------------------------
+    Manifold Template Loader
 
-    AUTHOR  : Leunsel
-    VERSION : 2.0.1
-    LICENSE : MIT
-    CREATED : 2025-06-21
-    UPDATED : 2025-11-16
-    
-    MIT License:
-        Copyright (c) 2025 Leunsel
-
-        Permission is hereby granted, free of charge, to any person obtaining a copy
-        of this software and associated documentation files (the "Software"), to deal
-        in the Software without restriction, including without limitation the rights
-        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        copies of the Software, and to permit persons to whom the Software is
-        furnished to do so, subject to the following conditions:
-
-        The above copyright notice and this permission notice shall be included in all
-        copies or substantial portions of the Software.
-
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-        SOFTWARE.
-
-    This file is part of the Manifold TemplateLoader system.
+    The loader keeps template definitions and active Cheat Engine registrations
+    separate. This makes reloads deterministic and permits a clean rollback when
+    a new template set cannot be registered.
 ]]
 
 local sep = package.config:sub(1, 1)
 package.path = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "?.lua;" .. package.path
 
-local Log     = require("Manifold-TemplateLoader-Log")
-local JSON    = require("Manifold-TemplateLoader-Json")
-local File    = require("Manifold-TemplateLoader-File")
-local Memory  = require("Manifold-TemplateLoader-Memory")
+local Log = require("Manifold-TemplateLoader-Log")
+local JSON = require("Manifold-TemplateLoader-Json")
+local File = require("Manifold-TemplateLoader-File")
+local Memory = require("Manifold-TemplateLoader-Memory")
 local Manager = require("Manifold-TemplateLoader-Manager")
-local UI      = require("Manifold-TemplateLoader-UI")
+local UI = require("Manifold-TemplateLoader-UI")
 
-local log     = Log:New()
-local file    = File:New()
-local memory  = Memory:New()
+local log = Log:New()
+local json = JSON:new()
+local file = File:New()
+local memory = Memory:New()
 local manager = Manager:New()
-local ui      = UI:New()
-local json    = JSON:new()
+local ui = UI:New()
 
 local Loader = {
-    RegisteredTemplates = {},
     ConfigPath = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "Manifold-TemplateLoader-Config.json",
-    Config = nil,
     DefaultConfig = {
+        SchemaVersion = 3,
         Logger = { Level = "ERROR", LogToFile = true },
-        InjectionInfo = { LineCount = 3, RemoveSpaces = true, AddTabs = true, AppendToHookName = "Hook" }
-    },
-    AutoInjectForm = nil,
-    AutoInjectForms = {}
+        InjectionInfo = { LineCount = 3, RemoveSpaces = true, AddTabs = true, AppendToHookName = "Hook" },
+        Memory = {
+            AskForHookName = true,
+            AskForInjectionAddress = false,
+            AllocationSize = "$1000",
+            AllocationNear = true,
+            DefaultHookName = "Injection"
+        }
+    }
 }
 Loader.__index = Loader
+
 local instance = nil
 
-local function deepCopy(src)
-    if type(src) ~= "table" then return src end
-    local dst = {}
-    for k, v in pairs(src) do
-        dst[k] = type(v) == "table" and deepCopy(v) or v
+local function deepCopy(source)
+    if type(source) ~= "table" then return source end
+    local copy = {}
+    for key, value in pairs(source) do copy[key] = deepCopy(value) end
+    return copy
+end
+
+local function mergeKnown(defaults, source)
+    local merged = deepCopy(defaults)
+    if type(source) ~= "table" then return merged end
+    for key, defaultValue in pairs(defaults) do
+        local candidate = source[key]
+        if candidate ~= nil then
+            if type(defaultValue) == "table" then
+                merged[key] = mergeKnown(defaultValue, candidate)
+            elseif type(candidate) == type(defaultValue) then
+                merged[key] = candidate
+            end
+        end
     end
-    return dst
+    return merged
+end
+
+local function isAliveAutoInjectForm(form)
+    if not form then return false end
+    local ok, className = pcall(function() return form.ClassName end)
+    if not ok or className ~= "TfrmAutoInject" then return false end
+    local handleOk, handle = pcall(function() return form.Handle end)
+    return not handleOk or handle == nil or handle ~= 0
+end
+
+local function getAutoInjectFormKey(form)
+    local handleOk, handle = pcall(function() return form.Handle end)
+    if handleOk and handle and handle ~= 0 then return "handle:" .. tostring(handle) end
+    -- TfrmAutoInject instances share the same Name while the add-notification
+    -- fires, so Name cannot safely identify a window here.
+    return "object:" .. tostring(form)
+end
+
+local function safeMenuImage(imageList, bitmap)
+    if not imageList or not bitmap then return -1 end
+    local ok, index = pcall(function() return imageList.add(bitmap) end)
+    return ok and index or -1
 end
 
 function Loader:New()
     if not instance then
-        instance = setmetatable({}, Loader)
+        instance = setmetatable({
+            Config = nil,
+            TemplateDefinitions = {},
+            RegisteredTemplates = {},
+            RegisteredByCaption = {},
+            AutoInjectForms = {},
+            FormIndices = setmetatable({}, { __mode = "k" }),
+            FormTemplateGeneration = setmetatable({}, { __mode = "k" }),
+            TemplateGeneration = 0,
+            ReloadInProgress = false,
+            DependencyReloadInProgress = false,
+            FormNotificationRegistered = false
+        }, Loader)
         instance:LoadConfig()
-        instance.RegisteredTemplates = manager:DiscoverTemplates()
+        instance:DiscoverTemplates()
     end
     return instance
 end
 
-function Loader:LoadConfig()
-    log:Info("[Loader] Loading configuration from " .. self.ConfigPath)
-    local configLoaded = false
-    if file:Exists(self.ConfigPath) then
-        local content = file:ReadFile(self.ConfigPath)
-        local ok, config = pcall(function() return json:decode(content) end)
-        if ok and type(config) == "table" then
-            self.Config = deepCopy(self.DefaultConfig)
-            for section, sectionData in pairs(config) do
-                if type(sectionData) == "table" and type(self.Config[section]) == "table" then
-                    for k, v in pairs(sectionData) do
-                        self.Config[section][k] = v
+function Loader:AdoptRuntimeState(previous)
+    self.AutoInjectForms = previous.AutoInjectForms or {}
+    self.AutoInjectForm = previous.AutoInjectForm
+    self.FormIndices = previous.FormIndices or setmetatable({}, { __mode = "k" })
+    self.FormTemplateGeneration = previous.FormTemplateGeneration or setmetatable({}, { __mode = "k" })
+    self.TemplateGeneration = previous.TemplateGeneration or 0
+end
+
+function Loader:LogReload(message, isError)
+    local prefix = "[Reload] " .. tostring(message)
+    if isError then
+        log:ForceError(prefix)
+    else
+        log:ForceInfo(prefix)
+    end
+end
+
+function Loader:AdvanceTemplateGeneration()
+    self.TemplateGeneration = (self.TemplateGeneration or 0) + 1
+    self.FormTemplateGeneration = self.FormTemplateGeneration or setmetatable({}, { __mode = "k" })
+    for _, form in ipairs(self:GetTrackedForms()) do
+        self.FormTemplateGeneration[form] = self.TemplateGeneration
+    end
+end
+
+function Loader:QueueHotReloadUIRefresh(onComplete)
+    local generation = self.TemplateGeneration or 0
+    local attempts = 0
+    local formCount = #self:GetTrackedForms()
+    self:LogReload(string.format("UI refresh queued for %d Auto Assembler window(s).", formCount))
+
+    local created, timer = pcall(createTimer)
+    if not created or not timer then
+        self:LogReload("Could not schedule UI refresh: " .. tostring(timer), true)
+        return false, timer
+    end
+    timer.Interval = 75
+    timer.OnTimer = function()
+        local refreshOk, refreshErr = pcall(function()
+            if self.TemplateGeneration ~= generation then
+                timer.destroy()
+                return
+            end
+            attempts = attempts + 1
+            if attempts == 1 then
+                self:LogReload("Rebuilding Template Loader settings menu.")
+                self:RebuildOptionsMenus()
+            end
+
+            local rebuilt = 0
+            for _, form in ipairs(self:GetTrackedForms()) do
+                local root = ui:FindMenuItem(form, "emplate1")
+                if root then
+                    local ok, err = self:BuildMenu(root, form)
+                    if ok then
+                        rebuilt = rebuilt + 1
+                    else
+                        log:Warning("[Loader] Menu rebuild failed: " .. tostring(err))
                     end
-                else
-                    self.Config[section] = sectionData
                 end
             end
-            configLoaded = true
-            log:Info("[Loader] Config loaded and applied from JSON.")
-        else
-            log:Warning("[Loader] Failed to parse config, using defaults.")
+            self:LogReload(string.format("Template menu categorization pass %d/4 completed for %d window(s).", attempts, rebuilt))
+
+            -- CE adds registered template items asynchronously. A few short passes
+            -- make the menu rebuild deterministic without touching user windows.
+            if attempts >= 4 then
+                timer.destroy()
+                self:LogReload("Hot reload UI refresh completed.")
+                if type(onComplete) == "function" then pcall(onComplete) end
+            end
+        end)
+        if not refreshOk then
+            pcall(function() timer.destroy() end)
+            self:LogReload("UI refresh failed: " .. tostring(refreshErr), true)
         end
     end
-    if not configLoaded then
-        self.Config = deepCopy(self.DefaultConfig)
-        self:SaveConfig()
-        log:Info("[Loader] Created default config at: " .. self.ConfigPath)
+    return true
+end
+
+function Loader:ScheduleTemplateMenuRebuild()
+    self:QueueHotReloadUIRefresh()
+end
+
+-- Configuration -------------------------------------------------------------
+
+function Loader:LoadConfig()
+    local loaded = nil
+    if file:Exists(self.ConfigPath) then
+        local source, readErr = file:ReadFile(self.ConfigPath)
+        if not source then
+            log:Error("[Loader] Could not read configuration: " .. tostring(readErr))
+        else
+            local ok, decoded = pcall(function() return json:decode(source) end)
+            if ok and type(decoded) == "table" then
+                loaded = decoded
+            else
+                log:Error("[Loader] Configuration is invalid; defaults are used without overwriting the file.")
+            end
+        end
     end
-    self:ApplyLoggerConfig()
-    self:ApplyInjectionInfoConfig()
+
+    self.Config = mergeKnown(self.DefaultConfig, loaded)
+    self:ApplyConfig()
+
+    if not loaded and not file:Exists(self.ConfigPath) then
+        self:SaveConfig()
+    end
+    return self.Config
 end
 
 function Loader:SaveConfig()
-    file:WriteFile(self.ConfigPath, json:encode_pretty(self.Config))
-    log:Info("[Loader] Configuration saved to " .. self.ConfigPath)
+    local ok, encoded = pcall(function() return json:encode_pretty(self.Config) end)
+    if not ok then
+        log:Error("[Loader] Failed to encode configuration: " .. tostring(encoded))
+        return false
+    end
+    local saved, err = file:WriteFile(self.ConfigPath, encoded)
+    if not saved then
+        log:Error("[Loader] Failed to save configuration: " .. tostring(err))
+        return false
+    end
+    return true
 end
 
 function Loader:CreateConfig()
     self.Config = deepCopy(self.DefaultConfig)
-    self:SaveConfig()
-    log:Info("[Loader] Created default config at: " .. self.ConfigPath)
+    self:ApplyConfig()
+    return self:SaveConfig()
 end
 
 function Loader:ResetConfig()
     self.Config = deepCopy(self.DefaultConfig)
-    self:SaveConfig()
-    self:ApplyLoggerConfig()
-    self:ApplyInjectionInfoConfig()
-    log:ForceInfo("[Loader] Configuration reset to defaults. Please open a new AutoAssembly form to see changes.")
-end
-
-function Loader:ApplyLoggerConfig()
-    local logger = self.Config.Logger or {}
-    if logger.Level and log.LogLevel[logger.Level] then
-        log:SetLogLevel(log.LogLevel[logger.Level])
-    end
-    if logger.LogToFile ~= nil then
-        log.LogToFile = logger.LogToFile
+    self:ApplyConfig()
+    if self:SaveConfig() then
+        log:ForceInfo("[Loader] Configuration reset to defaults.")
     end
 end
 
-function Loader:ApplyInjectionInfoConfig()
-    local inj = self.Config.InjectionInfo or {}
-    if inj.LineCount and type(inj.LineCount) == "number" and inj.LineCount > 0 then
-        memory:SetInjInfoLineCount(inj.LineCount)
-    end
-    if inj.RemoveSpaces ~= nil then
-        memory:SetInjInfoRemoveSpaces(inj.RemoveSpaces)
-    end
-    if inj.AddTabs ~= nil then
-        memory:SetInjInfoAddTabs(inj.AddTabs)
-    end
-    if inj.AppendToHookName ~= nil then
-        memory:SetAppendToHookName(inj.AppendToHookName)
-    end
+function Loader:ApplyConfig()
+    local logger = self.Config.Logger
+    local level = type(logger.Level) == "string" and logger.Level:upper() or "ERROR"
+    logger.Level = log.LogLevel[level] and level or "ERROR"
+    logger.LogToFile = logger.LogToFile == true
+    log:SetLogLevel(log.LogLevel[logger.Level])
+    log.LogToFile = logger.LogToFile
+
+    local injection = self.Config.InjectionInfo
+    if not memory:SetInjInfoLineCount(injection.LineCount) then injection.LineCount = self.DefaultConfig.InjectionInfo.LineCount end
+    injection.RemoveSpaces = injection.RemoveSpaces == true
+    injection.AddTabs = injection.AddTabs == true
+    if not memory:SetInjInfoRemoveSpaces(injection.RemoveSpaces) then injection.RemoveSpaces = true end
+    if not memory:SetInjInfoAddTabs(injection.AddTabs) then injection.AddTabs = true end
+    if not memory:SetAppendToHookName(injection.AppendToHookName) then injection.AppendToHookName = "Hook" end
+
+    local options = self.Config.Memory
+    options.AskForHookName = options.AskForHookName == true
+    options.AskForInjectionAddress = options.AskForInjectionAddress == true
+    options.AllocationNear = options.AllocationNear == true
+    if not memory:SetAskForHookName(options.AskForHookName) then options.AskForHookName = true end
+    if not memory:SetAskForInjectionAddress(options.AskForInjectionAddress) then options.AskForInjectionAddress = false end
+    if not memory:SetAllocationNear(options.AllocationNear) then options.AllocationNear = true end
+    if not memory:SetAllocationSize(options.AllocationSize) then options.AllocationSize = "$1000" end
+    options.AllocationSize = memory.AllocationSize
+    if not memory:SetDefaultHookName(options.DefaultHookName) then options.DefaultHookName = "Injection" end
 end
 
-function Loader:GetEnvironment()
-    local env = memory:GetMemoryInfo()
-    if not env then 
-        log:Error("[Loader] Failed to get memory info for environment")
-        return nil
-    end
-    env.FinalCompilation = false
-    setmetatable(env, { __index = _G })
-    env._safe = function(v) return v == nil and "" or tostring(v) end
-    return env
+-- Template discovery and registration --------------------------------------
+
+function Loader:DiscoverTemplates()
+    self.TemplateDefinitions = manager:DiscoverTemplates()
+    return self.TemplateDefinitions
 end
 
-function Loader:LoadTemplates()
-    if not self.RegisteredTemplates or #self.RegisteredTemplates == 0 then
-        log:Warning("[Loader] No templates to load")
-        return
-    end
-    local usedShortcuts = {}
-    for _, template in ipairs(self.RegisteredTemplates) do
-        local shortcut = template.settings and template.settings.Shortcut
-        if shortcut and shortcut ~= "" then
-            if usedShortcuts[shortcut] then
-                log:Error(string.format(
-                    "[Loader] Shortcut conflict for '%s': '%s' is already used by template '%s'.",
-                    template.fileName, shortcut, usedShortcuts[shortcut]))
-                template.settings.Shortcut = ""
+function Loader:GetTemplateDefinitions()
+    return self.TemplateDefinitions or {}
+end
+
+function Loader:CreateRegistrationPlan(definitions)
+    local shortcuts, captions, plan = {}, {}, {}
+    for _, template in ipairs(definitions or {}) do
+        local settings = template.settings or {}
+        local caption = settings.Caption
+        if type(caption) ~= "string" or caption == "" then
+            return nil, "Template '" .. tostring(template.fileName) .. "' has no caption"
+        end
+        if captions[caption] then return nil, "Duplicate template caption: " .. caption end
+        captions[caption] = true
+
+        local shortcut = settings.Shortcut or ""
+        if shortcut ~= "" then
+            if shortcuts[shortcut] then
+                log:Warning(string.format("[Loader] Shortcut '%s' for '%s' conflicts with '%s' and was disabled.",
+                    shortcut, caption, shortcuts[shortcut]))
+                shortcut = ""
             else
-                usedShortcuts[shortcut] = template.fileName
+                shortcuts[shortcut] = caption
             end
         end
-        self:RegisterTemplate(template)
+        plan[#plan + 1] = { template = template, caption = caption, shortcut = shortcut }
     end
+    return plan
 end
 
-function Loader:RegisterTemplate(template)
-    local caption = template.settings.Caption
-    local shortcut = template.settings and template.settings.Shortcut
-    log:Info("[Loader] Registering template: " .. tostring(caption))
-    local function templateFunc(script, sender)
+function Loader:RegisterTemplate(planEntry)
+    local template = planEntry.template
+    local callback = function(script, sender)
         self:GetTemplateScript(template, script, sender)
     end
-    local id = registerAutoAssemblerTemplate(caption, templateFunc, shortcut)
-    if not id then
-        log:Error("[Loader] Failed to register template: " .. tostring(caption))
-        return
+    local ok, id = pcall(registerAutoAssemblerTemplate, planEntry.caption, callback, planEntry.shortcut)
+    if not ok or not id then
+        return nil, "Cheat Engine could not register '" .. planEntry.caption .. "': " .. tostring(id)
     end
-    self.RegisteredTemplates[caption] = {
-        id = id,
-        caption = caption,
-        file = template.fileName,
-        subMenu = template.settings.SubMenuName or "Templates",
-        settings = template.settings,
-        templateObj = template
-    }
-    if shortcut == nil then
-        log:Info(string.format("[Loader] Registered template '%s' with id %d (no shortcut set)", caption, id))
-    elseif shortcut == "" then
-        log:Info(string.format("[Loader] Registered template '%s' with id %d (empty shortcut)", caption, id))
-    else
-        log:Info(string.format("[Loader] Registered template '%s' with id %d and shortcut '%s'", caption, id, shortcut))
-    end
+    self:LogReload(string.format("Registered template '%s' (id=%s, shortcut=%s).",
+        planEntry.caption, tostring(id), planEntry.shortcut ~= "" and planEntry.shortcut or "<none>"))
+    return { id = id, caption = planEntry.caption, shortcut = planEntry.shortcut, template = template }
 end
 
-function Loader:UnregisterTemplate(caption)
-    local entry = self.RegisteredTemplates[caption]
-    if not entry then
-        log:Warning("[Loader] Tried to unregister unknown template: " .. tostring(caption))
-        return
+function Loader:LoadTemplates(definitions)
+    if definitions == nil and #self.RegisteredTemplates > 0 then
+        return true
     end
-    if entry.id then
-        unregisterAutoAssemblerTemplate(entry.id)
-        log:Info(string.format("[Loader] Unregistered template '%s' (id=%d)", caption, entry.id))
-    else
-        log:Error(string.format("[Loader] Template '%s' has no id to unregister!", caption))
-    end
-    self.RegisteredTemplates[caption] = nil
-end
+    definitions = definitions or self.TemplateDefinitions
+    local plan, planErr = self:CreateRegistrationPlan(definitions)
+    if not plan then return false, planErr end
+    self:LogReload(string.format("Registering %d template callback(s).", #plan))
 
-function Loader:GetTemplateScript(template, script, sender)
-    log:Info("[Loader] Getting script for template: " .. tostring(template.fileName))
-    local env = self:GetEnvironment()
-    if not env then
-        -- local fileName   = tostring(template.fileName or "<unknown>")
-        -- local scriptPath = tostring(template.scriptPath or "<unknown>")
-        -- local senderName = tostring((sender and sender.Name) or sender or "<unknown>")
-        -- local msg =
-        --     "Failed to initialize template environment.\n\n" ..
-        --     "Template: " .. fileName .. "\n" ..
-        --     "Script Path: " .. scriptPath .. "\n" ..
-        --     "Triggered By: " .. senderName .. "\n\n" ..
-        --     "This means the loader could not create a runtime environment for the template.\n" ..
-        --     "Possible causes:\n" ..
-        --     "  • The template contains syntax errors\n" ..
-        --     "  • A required module failed to load\n" ..
-        --     "  • An internal failure occurred inside the environment builder\n\n" ..
-        --     "Check the log for more detailed error output."
-        -- messageDialog("Template Environment Error", msg, mtError, mbOK)
-        log:Error("[Loader] No environment for template: " .. tostring(template.fileName))
-        return
-    end
-    env.Header = self:CompileHeaderTemplate(env)
-    local compiledTemplate = self:CompileFile(template.scriptPath, env)
-    if compiledTemplate then
-        self:ApplyCompiledTemplate(compiledTemplate, script)
-        log:Info("[Loader] Applied compiled template: " .. tostring(template.fileName))
-    else
-        log:Error("[Loader] Failed to compile template: " .. tostring(template.fileName))
-    end
-end
-
-function Loader:CompileHeaderTemplate(env)
-    local headerPath = manager:NormalizePath(manager:GetTemplateFolder() .. sep .. "Header" .. manager:GetScriptExtension())
-    log:Info("[Loader] Compiling header template: " .. headerPath)
-    if file:Exists(headerPath) then
-        local compiledHeader, err = self:CompileFile(headerPath, env)
-        if compiledHeader then
-            log:Info("[Loader] Compiled header template successfully")
-            return compiledHeader
-        else
-            log:Error("[Loader] Failed to compile header template: " .. tostring(err))
+    local active, byCaption = {}, {}
+    for _, entry in ipairs(plan) do
+        local registered, err = self:RegisterTemplate(entry)
+        if not registered then
+            for _, previous in ipairs(active) do pcall(unregisterAutoAssemblerTemplate, previous.id) end
+            return false, err
         end
-    else
-        log:Warning("[Loader] Header template not found: " .. headerPath)
+        active[#active + 1] = registered
+        byCaption[registered.caption] = registered
     end
-    return nil
-end
-
-function Loader:CompileFile(path, env)
-    path = manager:NormalizePath(path)
-    log:Info("[Loader] Compiling file: " .. tostring(path))
-    if not path or not file:Exists(path) then
-        log:Error("[Loader] File not found: " .. tostring(path))
-        return nil, "File not found"
-    end
-    local f, err = io.open(path, "rb")
-    if not f then
-        log:Error(string.format(
-            "[Loader] Failed to open file '%s'. Error: %s\nPossible causes:\n- UTF-8 file name?\n- Permissions?\n- CE sandbox?",
-            tostring(path), tostring(err)))
-        return nil, tostring(err)
-    end
-    local raw = f:read("*all")
-    f:close()
-    if not raw then
-        log:Error("[Loader] File read returned nil for: " .. tostring(path))
-        return nil, "File read error"
-    end
-    -- UTF-8 BOM detection
-    if raw:sub(1,3) == "\239\187\191" then
-        log:Info("[Loader] UTF-8 BOM detected in file: " .. path)
-        raw = raw:sub(4) -- strip BOM
-    end
-    -- Non-UTF8 characters? (not a guarantee, but a good indicator...)
-    if not raw:match("^[%z\1-\127\194-\244][\128-\191]*") then
-        log:Warning("[Loader] Potential non-UTF8 characters detected in file: " .. path)
-    end
-    return self:Compile(raw, env)
-end
-
-local function getSafeLongBracket(text)
-    local eq = ""
-    while text:find("%[" .. eq .. "%[", 1, true) or text:find("%]" .. eq .. "%]", 1, true) do
-        eq = eq .. "="
-    end
-    return eq
-end
-
-function Loader:Append(builder, text, code)
-    if code then
-        builder[#builder + 1] = code
-    else
-        local eq = getSafeLongBracket(text)
-        local fmt = '_ret[#_ret + 1] = [%s[\n%s]%s]'
-        builder[#builder + 1] = string.format(fmt, eq, text, eq)
-    end
-end
-
-function Loader:RunBlock(builder, text)
-    local tag = text:sub(1, 2)
-    if tag == '<<' then
-        local code = text:sub(3, #text - 2):gsub("^%s*(.-)%s*$", "%1")
-        self:Append(builder, nil, string.format('_ret[#_ret + 1] = _safe(%s)', code))
-    elseif tag == '<%' then
-        local code = text:sub(3, #text - 2)
-        self:Append(builder, nil, code)
-    else
-        self:Append(builder, text)
-    end
-end
-
-function Loader:Compile(template, env)
-    if not template or template == '' then
-        log:Warning("Loader: Empty template.")
-        return ''
-    end
-    local builder = { '_ret = {}' }
-    local pos = 1
-    while pos <= #template do
-        local startTag = template:find('<[<%%]', pos)
-        if not startTag then
-            self:Append(builder, template:sub(pos))
-            break
-        end
-        self:Append(builder, template:sub(pos, startTag - 1))
-        local tagType = template:sub(startTag, startTag + 1)
-        local endTag
-        if tagType == '<<' then
-            endTag = template:find('>>', startTag)
-            if not endTag then
-                log:Error("Loader: Missing closing tag for block: " .. template:sub(startTag, startTag + 2))
-                error("Loader: Missing closing tag for block: " .. template:sub(startTag, startTag + 2))
-            end
-            self:RunBlock(builder, template:sub(startTag, endTag + 1))
-            pos = endTag + 2
-        elseif tagType == '<%' then
-            endTag = template:find('%%>', startTag)
-            if not endTag then
-                log:Error("Loader: Missing closing tag for block: " .. template:sub(startTag, startTag + 2))
-                error("Loader: Missing closing tag for block: " .. template:sub(startTag, startTag + 2))
-            end
-            self:RunBlock(builder, template:sub(startTag, endTag + 1))
-            pos = endTag + 2
-        else
-            log:Error("Loader: Unknown tag type at position " .. tostring(startTag))
-            break
-        end
-    end
-    builder[#builder + 1] = 'return table.concat(_ret)'
-    log:Info("Loader: Builder completed.")
-    local func, err = load(table.concat(builder, '\n'), 'template', 't', env)
-    if not func then
-        log:Error("Loader: Error compiling template: " .. tostring(err))
-        return nil, err
-    end
-    return func()
-end
-
-function Loader:ApplyCompiledTemplate(compiledTemplate, script)
-    if type(script.addText) == 'function' then
-        script.addText(compiledTemplate)
-    else
-        local s = script.getText()
-        script.clear()
-        script.setText(s .. compiledTemplate)
-    end
+    self.RegisteredTemplates = active
+    self.RegisteredByCaption = byCaption
+    log:Info(string.format("[Loader] Registered %d template(s).", #active))
+    self:LogReload(string.format("Template registration completed: %d/%d callback(s) active.", #active, #plan))
+    return true
 end
 
 function Loader:UnloadTemplates()
-    log:ForceInfo("[Loader] Unloading templates...")
-    for caption, id in pairs(self.RegisteredTemplates) do
-        unregisterAutoAssemblerTemplate(id.id)
-        log:ForceInfo("[Loader] Unregistered template: " .. tostring(caption))
+    self:LogReload(string.format("Unregistering %d active template callback(s).", #(self.RegisteredTemplates or {})))
+    for _, entry in ipairs(self.RegisteredTemplates or {}) do
+        if entry.id then
+            local ok, err = pcall(unregisterAutoAssemblerTemplate, entry.id)
+            if not ok then
+                self:LogReload("Failed to unregister '" .. entry.caption .. "': " .. tostring(err), true)
+            else
+                self:LogReload("Unregistered template '" .. entry.caption .. "' (id=" .. tostring(entry.id) .. ").")
+            end
+        end
     end
     self.RegisteredTemplates = {}
-    log:ForceInfo("[Loader] All templates unloaded.")
+    self.RegisteredByCaption = {}
 end
 
-function Loader:RemoveOldMenuEntries(template1)
-    if not template1 then
-        log:Warning("[Loader] RemoveOldMenuEntries aborted: template1 menu item not found.")
-        return
+function Loader:RemoveOldMenuEntries(rootMenu)
+    if not rootMenu then return end
+    ui:RemoveManagedItems(rootMenu)
+
+    -- registerAutoAssemblerTemplate creates plain root entries only. They have
+    -- no ownership marker, so this caption-based cleanup is the necessary
+    -- custom bridge before the next registration pass.
+    local captions = {}
+    for _, template in ipairs(self:GetTemplateDefinitions()) do
+        captions[template.settings.Caption] = true
     end
-    local myCaptions = {}
-    local mySubMenus = {}
-    for _, template in ipairs(self.RegisteredTemplates or {}) do
-        local settings = template.settings or {}
-        local cap = settings.Caption or template.fileName
-        local sub = settings.SubMenuName or "Templates"
-        myCaptions[cap] = true
-        mySubMenus[sub] = true
-    end
-    for i = template1.Count - 1, 0, -1 do
-        local item = template1:getItem(i)
-        if myCaptions[item.Caption] then
-            template1:delete(i)
-        end
-    end
-    for i = template1.Count - 1, 0, -1 do
-        local item = template1:getItem(i)
-        if item.Count ~= nil and mySubMenus[item.Caption] then
-            template1:delete(i)
-        end
+    for index = rootMenu.Count - 1, 0, -1 do
+        local item = rootMenu:getItem(index)
+        if item and captions[item.Caption] then rootMenu:delete(index) end
     end
 end
 
-function Loader:BuildMenu(template1)
-    if not template1 then
-        log:Warning("[Loader] BuildMenu aborted: template1 menu item not found.")
-        return
+function Loader:BuildMenu(rootMenu, form)
+    if not rootMenu then return false, "Template root menu not found" end
+    local indices = form and self:GetMenuIndices(form) or { Template = -1, Inject = -1 }
+    local beforeCount = tonumber(rootMenu.Count) or 0
+    self:LogReload(string.format("Categorizing template menu (root items=%d, definitions=%d).",
+        beforeCount, #self:GetTemplateDefinitions()))
+    local ok, result = ui:CategorizeMenuItems(self, rootMenu, indices)
+    if ok then
+        self:LogReload(string.format("Template menu categorization completed (root items=%d -> %d).",
+            beforeCount, tonumber(rootMenu.Count) or 0))
+    else
+        self:LogReload("Template menu categorization failed: " .. tostring(result), true)
     end
-    log:Info(string.format(
-        "[Loader] Building template menu with %d template(s)...",
-        #(self.RegisteredTemplates or {})))
-    self:LoadTemplates()
-    ui:CategorizeMenuItems(self, template1, self.Indices)
-    log:Info("[Loader] Menu successfully rebuilt.")
+    return ok, result
+end
+
+function Loader:GetTrackedForms()
+    local forms, unique = {}, {}
+    local function add(form)
+        local key = isAliveAutoInjectForm(form) and getAutoInjectFormKey(form) or nil
+        if key and not unique[key] then
+            forms[#forms + 1] = form
+            unique[key] = true
+        end
+    end
+    for _, form in ipairs(self.AutoInjectForms) do
+        add(form)
+    end
+    for index = 0, getFormCount() - 1 do
+        add(getForm(index))
+    end
+    self.AutoInjectForms = forms
+    self.FormIndices = setmetatable({}, { __mode = "k" })
+    for _, form in ipairs(forms) do self.FormIndices[form] = true end
+    return forms
+end
+
+function Loader:DestroyAutoInjectForms()
+    local forms = self:GetTrackedForms()
+    self:LogReload(string.format("Closing %d tracked Auto Assembler window(s) before reload.", #forms))
+
+    local closed = 0
+    for _, form in ipairs(forms) do
+        local ok, err = pcall(function()
+            -- Close lets Cheat Engine tear down the form and its menu items in
+            -- the normal lifecycle.  Calling destroy directly can leave CE
+            -- with stale menu references while template callbacks are swapped.
+            form:Close()
+        end)
+        if ok then
+            closed = closed + 1
+        else
+            self:LogReload("Failed to close Auto Assembler form: " .. tostring(err), true)
+        end
+    end
+
+    self.AutoInjectForms = {}
+    self.AutoInjectForm = nil
+    self.FormIndices = setmetatable({}, { __mode = "k" })
+    self.FormTemplateGeneration = setmetatable({}, { __mode = "k" })
+    self:LogReload(string.format("Closed %d/%d Auto Assembler window(s).", closed, #forms))
+    return closed, #forms
+end
+
+function Loader:CleanupTemplateMenus()
+    for _, form in ipairs(self:GetTrackedForms()) do
+        local root = ui:FindMenuItem(form, "emplate1")
+        if root then self:RemoveOldMenuEntries(root) end
+    end
+end
+
+function Loader:RebuildTemplateMenus()
+    for _, form in ipairs(self:GetTrackedForms()) do
+        local root = ui:FindMenuItem(form, "emplate1")
+        if root then
+            local ok, err = self:BuildMenu(root, form)
+            if not ok then log:Warning("[Loader] Menu rebuild failed: " .. tostring(err)) end
+        end
+    end
+end
+
+function Loader:RefreshTemplates()
+    self.TemplateGeneration = self.TemplateGeneration or 0
+    self:LogReload("Template registry reload started.")
+    local previousDefinitions = self.TemplateDefinitions
+    local newDefinitions = manager:DiscoverTemplates()
+    if #newDefinitions == 0 then
+        log:Warning("[Loader] Reload canceled: no valid templates were found. Existing templates remain active.")
+        return false, "No valid templates found"
+    end
+    local plan, planErr = self:CreateRegistrationPlan(newDefinitions)
+    if not plan then
+        return false, planErr
+    end
+    self:LogReload(string.format("Discovered and validated %d template(s).", #plan))
+
+    self:LogReload("Unregistering current template callbacks.")
+    self:UnloadTemplates()
+    self.TemplateDefinitions = newDefinitions
+    self:LogReload("Registering updated template callbacks.")
+    local loaded, loadErr = self:LoadTemplates(newDefinitions)
+    if not loaded then
+        log:Error("[Loader] New template registration failed; restoring the previous set: " .. tostring(loadErr))
+        self.TemplateDefinitions = previousDefinitions
+        local restored, restoreErr = self:LoadTemplates(previousDefinitions)
+        return false, restored and loadErr or (loadErr .. " | rollback failed: " .. tostring(restoreErr))
+    end
+
+    self.TemplateGeneration = self.TemplateGeneration + 1
+    self:LogReload(string.format(
+        "Reloaded %d template(s) globally (generation %d). Open a new Auto Assembler window to use the updated template menu.",
+        #newDefinitions, self.TemplateGeneration))
+    return true
 end
 
 function Loader:ReloadTemplates()
-    log:ForceInfo("[Loader] Starting template reload...")
-    if #self.AutoInjectForms == 0 then
-        log:ForceWarning("[Loader] Reload aborted: No TfrmAutoInject instances available.")
-        return
+    if self.ReloadInProgress then
+        log:Warning("[Loader] Template reload request ignored because another reload is still running.")
+        return false
     end
-    local latestForm = self.AutoInjectForms[#self.AutoInjectForms]
-    local oldForms = { table.unpack(self.AutoInjectForms, 1, #self.AutoInjectForms - 1) }
-    log:Info(string.format("[Loader] Active forms: latest=%s, old=%d",
-        latestForm and (latestForm.Name or "<unnamed>") or "<nil>",
-        #oldForms))
-    if #oldForms > 0 then
-        log:ForceWarning(string.format(
-            "[Loader] Detected %d additional AutoInject window(s) that must be closed for safe reload.",
-            #oldForms))
-        local messageText = string.format(
-            "There are %d other AutoInject window(s) currently open.\n\n" ..
-            "Each AutoInject window runs as an independent instance. Keeping old windows open can lead to:\n" ..
-            "  • Conflicting template states\n" ..
-            "  • Stale or dangling references\n" ..
-            "  • Inconsistent or outdated UI elements\n\n" ..
-            "To ensure a clean reload of templates, the old windows need to be closed.\n\n" ..
-            "IMPORTANT\n" ..
-            "Closing these windows will discard any unsaved scripts.\n" ..
-            "Please make sure you have saved all your work before continuing.\n\n" ..
-            "Do you want to close all old AutoInject windows now?",
-            #oldForms)
-        local result = messageDialog("Reload Templates", messageText, mtConfirmation, mbYes, mbNo)
-        if result ~= mrYes then
-            log:ForceInfo("[Loader] User canceled reload: Old windows remain open.")
-            self.AutoInjectForm = latestForm
-            return
-        end
-        log:Info("[Loader] User confirmed closing old windows.")
+
+    self.ReloadInProgress = true
+    local callOk, ok, err = pcall(function() return self:RefreshTemplates() end)
+    self.ReloadInProgress = false
+
+    if not callOk then
+        log:ForceError("[Loader] Template reload aborted by an internal error: " .. tostring(ok))
+        return false
     end
-    local template1 = ui:FindMenuItem(latestForm, "emplate1")
-    if not template1 then
-        log:ForceWarning("[Loader] Warning: Menu entry 'emplate1' not found. Menu rebuild will be skipped.")
-    else
-        log:Info("[Loader] Located template menu entry 'emplate1'.")
-        self:RemoveOldMenuEntries(template1)
-        log:Info("[Loader] Removed old template menu entries.")
-    end
-    log:Info("[Loader] Unloading previously loaded templates...")
-    self:UnloadTemplates()
-    self.RegisteredTemplates = manager:DiscoverTemplates()
-    log:ForceInfo(string.format("[Loader] Template discovery complete: %d template(s) found.",
-        #self.RegisteredTemplates))
-    log:Info("[Loader] Loading templates into environment...")
-    for _, oldForm in ipairs(oldForms) do
-        if oldForm and oldForm.ClassName == "TfrmAutoInject" and oldForm.Handle then
-            log:Info(string.format("[Loader] Closing old AutoInject form: %s",
-                oldForm.Name or "<unnamed>"))
-            oldForm:Close()
-        else
-            log:Warning("[Loader] Skipping invalid or already closed form reference.")
-        end
-    end
-    self.AutoInjectForms = { latestForm }
-    self.AutoInjectForm = latestForm
-    if template1 then
-        log:Info("[Loader] Rebuilding template menu UI...")
-        self:BuildMenu(template1)
-        log:ForceInfo("[Loader] Template menu successfully rebuilt.")
-    else
-        log:ForceWarning("[Loader] Menu rebuild skipped: 'emplate1' menu item missing.")
-    end
-    log:ForceInfo("[Loader] Template reload complete.")
+    if not ok then log:ForceWarning("[Loader] Template reload failed: " .. tostring(err)) end
+    return ok
 end
 
-function Loader:ReloadDependencies()
-    log:ForceInfo("[Loader] Reloading dependencies...")
-    if self.AutoInjectForm and self.AutoInjectForm.Handle then
-        local form = self.AutoInjectForm
-        local oldUI = ui
-        local root = oldUI:FindMenuItem(form, "emplate1")
-        if root then
-            log:ForceInfo("[Loader] Removing old menu entries...")
-            self:RemoveOldMenuEntries(root)
-        else
-            log:ForceWarning("[Loader] Old menu cleanup skipped: 'emplate1' not found.")
-        end
+-- Parsing and compilation ---------------------------------------------------
+
+function Loader:GetMemoryOverrides(settings)
+    settings = settings or {}
+    local overrides = {}
+    for _, key in ipairs({ "AskForHookName", "AskForInjectionAddress", "AppendToHookName", "AllocationSize", "AllocationNear", "DefaultHookName" }) do
+        if settings[key] ~= nil then overrides[key] = settings[key] end
     end
-    local modules = {
-        "Manifold-TemplateLoader-Log",
-        "Manifold-TemplateLoader-File",
-        "Manifold-TemplateLoader-Memory",
-        "Manifold-TemplateLoader-Manager",
-        "Manifold-TemplateLoader-UI"
+    return overrides
+end
+
+function Loader:GetEnvironment(template)
+    local environment, err = memory:GetMemoryInfo(self:GetMemoryOverrides(template and template.settings))
+    if not environment then return nil, err end
+    environment.TemplateSettings = template and template.settings or {}
+    environment.FinalCompilation = false
+    environment._safe = function(value) return value == nil and "" or tostring(value) end
+    setmetatable(environment, { __index = _G }) -- keeps existing advanced templates compatible
+    return environment
+end
+
+function Loader:CompileFile(path, environment)
+    path = manager:NormalizePath(path)
+    if not path or not file:Exists(path) then return nil, "Template file was not found: " .. tostring(path) end
+    local source, err = file:ReadFile(path)
+    if not source then return nil, err end
+    if source:sub(1, 3) == "\239\187\191" then source = source:sub(4) end
+    return self:Compile(source, environment, path)
+end
+
+function Loader:AppendLiteral(builder, text)
+    if text ~= "" then builder[#builder + 1] = string.format("_ret[#_ret + 1] = %q", text) end
+end
+
+function Loader:Compile(template, environment, sourceName)
+    if type(template) ~= "string" then return nil, "Template source must be a string" end
+    local builder, position, length = { "local _ret = {}", "local _safe = _safe or function(v) return v == nil and '' or tostring(v) end" }, 1, #template
+
+    while position <= length do
+        local expressionStart = template:find("<<", position, true)
+        local codeStart = template:find("<%", position, true)
+        local start = expressionStart
+        if codeStart and (not start or codeStart < start) then start = codeStart end
+        if not start then
+            self:AppendLiteral(builder, template:sub(position))
+            break
+        end
+
+        self:AppendLiteral(builder, template:sub(position, start - 1))
+        local tag = template:sub(start, start + 1)
+        local closeTag = tag == "<<" and ">>" or "%>"
+        local contentStart = start + 2
+        local closeStart = template:find(closeTag, contentStart, true)
+        if not closeStart then
+            local before = template:sub(1, start)
+            local line = select(2, before:gsub("\n", "")) + 1
+            return nil, string.format("Unclosed %s block at line %d", tag, line)
+        end
+
+        local content = template:sub(contentStart, closeStart - 1)
+        if tag == "<<" then
+            content = content:match("^%s*(.-)%s*$")
+            if content == "" then return nil, "Empty expression block" end
+            builder[#builder + 1] = "_ret[#_ret + 1] = _safe((" .. content .. "))"
+        else
+            builder[#builder + 1] = content
+        end
+        position = closeStart + 2
+    end
+
+    builder[#builder + 1] = "return table.concat(_ret)"
+    local chunk, compileErr = load(table.concat(builder, "\n"), "@" .. (sourceName or "template"), "t", environment)
+    if not chunk then return nil, "Template syntax error: " .. tostring(compileErr) end
+    local ok, result = pcall(chunk)
+    if not ok then return nil, "Template execution error: " .. tostring(result) end
+    if type(result) ~= "string" then return nil, "Template did not produce text" end
+    return result
+end
+
+function Loader:CompileHeaderTemplate(environment)
+    local path = manager:NormalizePath(manager:GetTemplateFolder() .. sep .. "Header" .. manager:GetScriptExtension())
+    if not file:Exists(path) then
+        log:Warning("[Loader] Header template not found; generation continues without it.")
+        return ""
+    end
+    return self:CompileFile(path, environment)
+end
+
+function Loader:ApplyCompiledTemplate(text, script)
+    if type(text) ~= "string" then return false, "Compiled template is not text" end
+    if not script then return false, "Auto Assembler editor is unavailable" end
+
+    local ok, err = pcall(function()
+        if type(script.addText) == "function" then
+            script.addText(text)
+        else
+            local current = script.getText()
+            script.clear()
+            script.setText((current or "") .. text)
+        end
+    end)
+    return ok, err
+end
+
+function Loader:ReportTemplateError(template, message)
+    local label = template and template.settings and template.settings.Caption or "Template"
+    local text = string.format("%s could not be generated.\n\n%s\n\nSee the Template Loader log for details.", label, tostring(message))
+    log:Error("[Loader] " .. text)
+    if type(messageDialog) == "function" then pcall(messageDialog, text, mtError, mbOK) end
+end
+
+function Loader:GetTemplateScript(template, script)
+    local environment, environmentErr = self:GetEnvironment(template)
+    if not environment then self:ReportTemplateError(template, environmentErr); return false end
+
+    local header, headerErr = self:CompileHeaderTemplate(environment)
+    if not header then self:ReportTemplateError(template, headerErr); return false end
+    environment.Header = header
+
+    local compiled, compileErr = self:CompileFile(template.scriptPath, environment)
+    if not compiled then self:ReportTemplateError(template, compileErr); return false end
+
+    local applied, applyErr = self:ApplyCompiledTemplate(compiled, script)
+    if not applied then self:ReportTemplateError(template, applyErr); return false end
+    return true
+end
+
+-- Menu lifecycle ------------------------------------------------------------
+
+function Loader:GetMenuIndices(form)
+    if self.FormIndices[form] then return self.FormIndices[form] end
+    local imageList = form and form.aaImageList
+    local memoryView = type(getMemoryViewForm) == "function" and getMemoryViewForm() or nil
+    local indices = {
+        Eye = safeMenuImage(imageList, memoryView and memoryView.Watchmemoryallocations1 and memoryView.Watchmemoryallocations1.Bitmap),
+        Template = safeMenuImage(imageList, memoryView and memoryView.AutoInject1 and memoryView.AutoInject1.Bitmap),
+        Toggle = safeMenuImage(imageList, memoryView and memoryView.CreateThread1 and memoryView.CreateThread1.Bitmap),
+        Log = safeMenuImage(imageList, memoryView and memoryView.miDebugSetAddress and memoryView.miDebugSetAddress.Bitmap),
+        Inject = safeMenuImage(imageList, memoryView and memoryView.InjectDLL1 and memoryView.InjectDLL1.Bitmap),
+        Level = safeMenuImage(imageList, memoryView and memoryView.MenuItem14 and memoryView.MenuItem14.Bitmap)
     }
-    for _,m in pairs(modules) do
-        package.loaded[m] = nil
-    end
-    local nLog      = require("Manifold-TemplateLoader-Log")
-    local nFile     = require("Manifold-TemplateLoader-File")
-    local nMemory   = require("Manifold-TemplateLoader-Memory")
-    local nManager  = require("Manifold-TemplateLoader-Manager")
-    local nUI       = require("Manifold-TemplateLoader-UI")
-    log     = nLog:New()
-    file    = nFile:New()
-    memory  = nMemory:New()
-    manager = nManager:New()
-    ui      = nUI:New()
-    log:ForceInfo("[Loader] Modules reloaded...")
-    if #self.AutoInjectForms > 1 then
-        local latest = self.AutoInjectForms[#self.AutoInjectForms]
-        for i = 1, #self.AutoInjectForms - 1 do
-            local old = self.AutoInjectForms[i]
-            if old and old.Handle then old:Close() end
-        end
-        self.AutoInjectForms = { latest }
-        self.AutoInjectForm  = latest
-    end
-    if self.AutoInjectForm and self.AutoInjectForm.Handle then
-        log:ForceInfo("[Loader] Rebuilding UI (menu)...")
-        local form = self.AutoInjectForm
-        local timer = createTimer()
-        timer.Interval = 50
-        timer.OnTimer = function()
-            timer.destroy()
-            local root = ui:FindMenuItem(form, "emplate1")
-            if root then
-                self:BuildMenu(root)
-                log:ForceInfo("[Loader] UI rebuild complete. [SECONDARY RELOAD]")
-            else
-                log:ForceWarning("[Loader] Menu rebuild skipped: 'emplate1' not found. [SECONDARY RELOAD]")
-            end
-        end
-    end
-    log:ForceInfo("[Loader] Dependency reload completed. [MAIN RELOAD]")
+    self.FormIndices[form] = indices
+    return indices
 end
 
-function Loader:BuildUICallbacks(indices)
+function Loader:BuildUICallbacks()
     local config = self.Config
-    local memory = memory
-    local log = log
-    local manager = manager
     return {
         memory = memory,
         onLevelChange = function(level, sender)
-            local numericLevel = log.LogLevel[level]
-            if numericLevel then
-                log:SetLogLevel(numericLevel)
-                local parent = sender.Parent
-                for i = 0, parent.Count - 1 do
-                    parent[i].Checked = (parent[i].Caption == level)
+            if not log.LogLevel[level] then return end
+            config.Logger.Level = level
+            log:SetLogLevel(log.LogLevel[level])
+            if sender and sender.Parent then
+                for index = 0, sender.Parent.Count - 1 do
+                    local item = sender.Parent:getItem(index)
+                    item.Checked = item.Caption == level
                 end
-                config.Logger.Level = level
-                self:SaveConfig()
-                log:ForceInfo("[Loader] Log level set to " .. level)
-            else
-                log:ForceError("[Loader] Invalid log level: " .. tostring(level))
             end
+            self:SaveConfig()
         end,
         onLogToFile = function(sender)
             config.Logger.LogToFile = not config.Logger.LogToFile
             log.LogToFile = config.Logger.LogToFile
-            sender.Checked = log.LogToFile
+            if sender then sender.Checked = config.Logger.LogToFile end
             self:SaveConfig()
-            log:Info("[Loader] Log to File " .. (log.LogToFile and "enabled" or "disabled"))
         end,
         onViewLog = function()
-            local logPath = log.LogFileName or "Manifold-TemplateLoader-Log.txt"
-            if file:Exists(logPath) then
-                shellExecute(logPath)
-            else
-                messageDialog("Log File does not exist:\n" .. logPath, mtWarning, mbOK)
-            end
+            if file:Exists(log.LogFileName) then shellExecute(log.LogFileName) end
         end,
         onOpenFolder = function()
-            local templateFolderPath = manager:GetTemplateFolder()
-            if file:FolderExists(templateFolderPath) then
-                shellExecute(templateFolderPath)
-            else
-                log:Error("[Loader] Template Folder does not seem to exist!")
-            end
+            local folder = manager:GetTemplateFolder()
+            if file:FolderExists(folder) then shellExecute(folder) end
         end,
         onSetLineCount = function()
-            local val = inputQuery("Set Injection Info Line Count", "Enter line count (number > 0):", tostring(config.InjectionInfo.LineCount or ""))
-            local num = tonumber(val)
-            if num and num > 0 then
-                config.InjectionInfo.LineCount = num
-                memory:SetInjInfoLineCount(num)
+            local value = inputQuery("Injection information", "Number of surrounding instructions:", tostring(config.InjectionInfo.LineCount))
+            local number = tonumber(value)
+            if number and memory:SetInjInfoLineCount(number) then
+                config.InjectionInfo.LineCount = number
                 self:SaveConfig()
             end
         end,
         onSetAppend = function()
-            local val = inputQuery("Set Append To Hook Name", "Enter value for AppendToHookName (string):", tostring(config.InjectionInfo.AppendToHookName or ""))
-            if val ~= nil then
-                config.InjectionInfo.AppendToHookName = val
-                if memory.AppendToHookName then
-                    memory:SetAppendToHookName(val)
-                end
+            local value = inputQuery("Hook-name suffix", "Suffix added to generated hook symbols (empty is allowed):", config.InjectionInfo.AppendToHookName)
+            if value ~= nil and memory:SetAppendToHookName(value) then
+                config.InjectionInfo.AppendToHookName = memory.AppendToHookName
                 self:SaveConfig()
             end
         end,
-        onToggle = function(optKey, setter)
+        onSetAllocationSize = function()
+            local value = inputQuery("Allocation size", "Positive decimal or $HEX size:", config.Memory.AllocationSize)
+            if value ~= nil and memory:SetAllocationSize(value) then
+                config.Memory.AllocationSize = memory.AllocationSize
+                self:SaveConfig()
+            end
+        end,
+        onSetDefaultHookName = function()
+            local value = inputQuery("Default hook name", "Used when asking for a hook name is disabled:", config.Memory.DefaultHookName)
+            if value ~= nil and memory:SetDefaultHookName(value) then
+                config.Memory.DefaultHookName = memory.DefaultHookName
+                self:SaveConfig()
+            end
+        end,
+        onToggle = function(section, key, setter)
             return function(sender)
-                local newVal = not config.InjectionInfo[optKey]
-                config.InjectionInfo[optKey] = newVal
-                setter(newVal)
-                self:SaveConfig()
-                sender.Checked = newVal
+                local value = not (config[section][key] == true)
+                if setter(value) then
+                    config[section][key] = value
+                    if sender then sender.Checked = value end
+                    self:SaveConfig()
+                end
             end
         end,
+        onReloadTemplates = function() self:ReloadTemplates() end,
         onReloadDependencies = function()
-            self:ReloadDependencies()
-        end,
-        onReloadTemplates = function()
-            self:ReloadTemplates()
+            local host = _G.ManifoldTemplateLoaderHost
+            if host and host.Loader == self and type(host.HotReload) == "function" then
+                host:HotReload()
+            else
+                self:ReloadDependencies()
+            end
         end,
         onResetConfig = function()
-            if messageDialog("Are you sure you want to reset the configuration to defaults?", mtConfirmation, mbYes, mbNo) == mrYes then
+            if messageDialog("Reset Template Loader configuration?", mtConfirmation, mbYes, mbNo) == mrYes then
                 self:ResetConfig()
+                self:RebuildOptionsMenus()
             end
         end
     }
+end
+
+function Loader:RebuildOptionsMenu(form)
+    if not form or not form.MainMenu1 then return end
+    ui:RemoveManagedItems(form.MainMenu1)
+    ui:BuildTree(form.MainMenu1, ui:GetMainMenuTree(self.Config, self:GetMenuIndices(form), self:BuildUICallbacks()))
+end
+
+function Loader:RebuildOptionsMenus()
+    for _, form in ipairs(self:GetTrackedForms()) do self:RebuildOptionsMenu(form) end
 end
 
 function Loader:SetupMenu(form)
-    log:Debug("[Loader] Initializing menu...")
-    local template1 = ui:FindMenuItem(form, "emplate1")
-    if template1 then
-        if ui:AddSeparatorAfter(template1, "CheatTablecompliantcodee1") then
-            log:Info("[Loader] Separator after 'Cheat Table Framework Code' added.")
-        else
-            log:Warning("[Loader] Target menu item not found inside emplate1!")
-        end
-    else
-        log:Warning("[Loader] emplate1 not found!")
+    if not isAliveAutoInjectForm(form) then return end
+    local root = ui:FindMenuItem(form, "emplate1")
+    local generation = self.TemplateGeneration or 0
+    local formGeneration = self.FormTemplateGeneration and self.FormTemplateGeneration[form]
+    self:LogReload(string.format("Setup timer fired for %s (generation=%s, current=%s, template root=%s).",
+        getAutoInjectFormKey(form), tostring(formGeneration), tostring(generation), root and "found" or "missing"))
+    if root and formGeneration == generation then
+        ui:AddSeparatorAfter(root, "CheatTablecompliantcodee1")
+        local built, buildErr = self:BuildMenu(root, form)
+        if not built then self:LogReload("Menu setup skipped: " .. tostring(buildErr), true) end
+    elseif root then
+        self:LogReload("Menu setup skipped because the form belongs to an older template generation.")
     end
-    local indices = self.Indices
-    local aaImageList = form.aaImageList
-    local mvForm = getMemoryViewForm()
-    indices = {
-        Eye = aaImageList.add(mvForm.Watchmemoryallocations1.Bitmap),
-        Template = aaImageList.add(mvForm.AutoInject1.Bitmap),
-        Toggle = aaImageList.add(mvForm.CreateThread1.Bitmap),
-        Log = aaImageList.add(mvForm.miDebugSetAddress.Bitmap),
-        Inject = aaImageList.add(mvForm.InjectDLL1.Bitmap),
-        Level = aaImageList.add(mvForm.MenuItem14.Bitmap),
-    }
-    self.Indices = indices
-    local menuTree = ui:GetMainMenuTree(self.Config, indices, self:BuildUICallbacks())
-    ui:BuildTree(form.MainMenu1, menuTree)
-    ui:CategorizeMenuItems(self, template1, indices)
-    -- DEBUG
-    -- for i = 0, form.ComponentCount - 1 do
-    --     log:ForceInfo("[Loader] Component: " .. form.Component[i].Name)
-    -- end
-    -- if _G.ui and type(_G.ui.ApplyThemeToAutoInject) == "function" then
-    --     _G.ui:ApplyThemeToAutoInject(form)
-    -- end
-    form.Assemblescreen.ScrollBars = 'ssAutoBoth'
-    form.Assemblescreen.RightEdge = -1
-    form.Panel2.BorderStyle = "bsNone"
+    self:RebuildOptionsMenu(form)
+    pcall(function()
+        form.Assemblescreen.ScrollBars = "ssAutoBoth"
+        form.Assemblescreen.RightEdge = -1
+        form.Panel2.BorderStyle = "bsNone"
+    end)
+end
+
+function Loader:TrackAutoInjectForm(form)
+    if not isAliveAutoInjectForm(form) then return end
+    local formKey = getAutoInjectFormKey(form)
+    self.AutoInjectForms[#self.AutoInjectForms + 1] = form
+    self.AutoInjectForm = form
+    self.FormTemplateGeneration = self.FormTemplateGeneration or setmetatable({}, { __mode = "k" })
+    self.TemplateGeneration = self.TemplateGeneration or 0
+    self.FormTemplateGeneration[form] = self.TemplateGeneration
+    self:LogReload(string.format("Tracking Auto Assembler form %s (tracked=%d, generation=%d); scheduling setup.",
+        formKey, #self.AutoInjectForms, self.TemplateGeneration))
+    createTimer(50, function()
+        local ok, err = pcall(function() self:SetupMenu(form) end)
+        if not ok then self:LogReload("Auto Assembler setup failed for " .. formKey .. ": " .. tostring(err), true) end
+    end)
 end
 
 function Loader:AttachMenuToForm()
-    local function onFormCreate(form)
-        if form.ClassName == "TfrmAutoInject" then
-            table.insert(self.AutoInjectForms, form)
-            self.AutoInjectForm = form
-            createTimer(50, function() self:SetupMenu(form) end)
-        end
+    local host = _G.ManifoldTemplateLoaderHost
+    if host and type(host.Attach) == "function" then
+        host:Attach(self)
+        return
     end
-    log:Info("[Loader] Attaching menu to TfrmAutoInject form.")
-    registerFormAddNotification(onFormCreate)
+    if self.FormNotificationRegistered then return end
+    self.FormNotificationRegistered = true
+    registerFormAddNotification(function(form) self:TrackAutoInjectForm(form) end)
+    for index = 0, getFormCount() - 1 do self:TrackAutoInjectForm(getForm(index)) end
+    log:Info("[Loader] Attached Template Loader menu to Auto Assembler forms.")
+end
+
+-- Dependency reload ---------------------------------------------------------
+
+function Loader:ReloadDependencies()
+    local host = _G.ManifoldTemplateLoaderHost
+    if host and host.Loader == self and type(host.HotReload) == "function" then
+        return host:HotReload()
+    end
+    if self.DependencyReloadInProgress or self.ReloadInProgress then
+        log:Warning("[Loader] A reload is already in progress.")
+        return false
+    end
+    self.DependencyReloadInProgress = true
+
+    local callOk, ok, err = pcall(function()
+        local names = {
+            "Manifold-TemplateLoader-Log",
+            "Manifold-TemplateLoader-Json",
+            "Manifold-TemplateLoader-File",
+            "Manifold-TemplateLoader-Memory",
+            "Manifold-TemplateLoader-Manager",
+            "Manifold-TemplateLoader-UI"
+        }
+        local oldCache, loaded = {}, {}
+        for _, name in ipairs(names) do
+            oldCache[name] = package.loaded[name]
+            package.loaded[name] = nil
+        end
+
+        for _, name in ipairs(names) do
+            local required, module = pcall(require, name)
+            if not required then
+                for _, restoreName in ipairs(names) do package.loaded[restoreName] = oldCache[restoreName] end
+                return false, "Module reload was rolled back: " .. tostring(module)
+            end
+            loaded[name] = module
+        end
+
+        -- Commit only after every dependency was loaded successfully.
+        Log, JSON, File, Memory, Manager, UI = loaded[names[1]], loaded[names[2]], loaded[names[3]], loaded[names[4]], loaded[names[5]], loaded[names[6]]
+        log, json, file, memory, manager, ui = Log:New(), JSON:new(), File:New(), Memory:New(), Manager:New(), UI:New()
+        self.FormIndices = setmetatable({}, { __mode = "k" })
+        self:LoadConfig()
+        if not self:ReloadTemplates() then return false, "Template registration failed after module reload" end
+        self:QueueHotReloadUIRefresh()
+        return true
+    end)
+
+    self.DependencyReloadInProgress = false
+    if not callOk then
+        log:ForceError("[Loader] Module reload aborted by an internal error: " .. tostring(ok))
+        return false
+    end
+    if not ok then
+        log:ForceError("[Loader] " .. tostring(err))
+        return false
+    end
+    log:ForceInfo("[Loader] Modules and templates were reloaded safely for new Auto Assembler windows.")
+    return true
 end
 
 return Loader

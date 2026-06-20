@@ -1,35 +1,8 @@
 --[[
-    Manifold.TemplateLoader.Manager.lua
-    --------------------------------
+    Template discovery and settings validation.
 
-    AUTHOR  : Leunsel, LeFiXER
-    VERSION : 2.0.0
-    LICENSE : MIT
-    CREATED : 2025-06-21
-    UPDATED : 2025-06-24
-    
-    MIT License:
-        Copyright (c) 2025 Leunsel
-
-        Permission is hereby granted, free of charge, to any person obtaining a copy
-        of this software and associated documentation files (the "Software"), to deal
-        in the Software without restriction, including without limitation the rights
-        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        copies of the Software, and to permit persons to whom the Software is
-        furnished to do so, subject to the following conditions:
-
-        The above copyright notice and this permission notice shall be included in all
-        copies or substantial portions of the Software.
-
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-        SOFTWARE.
-
-    This file is part of the Manifold TemplateLoader system.
+    Settings files intentionally run in a minimal environment. They are data files,
+    not plug-ins, so they must not receive filesystem, process or Cheat Engine APIs.
 ]]
 
 local sep = package.config:sub(1, 1)
@@ -37,11 +10,9 @@ package.path = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "
 
 local Log = require("Manifold-TemplateLoader-Log")
 local File = require("Manifold-TemplateLoader-File")
-local Memory = require("Manifold-TemplateLoader-Memory")
 
 local log = Log:New()
 local file = File:New()
-local memory = Memory:New()
 
 local Manager = {
     ScriptExtension = ".CEA",
@@ -52,6 +23,16 @@ Manager.__index = Manager
 
 local instance = nil
 
+local function trim(value)
+    return type(value) == "string" and value:match("^%s*(.-)%s*$") or nil
+end
+
+local function copyTable(source)
+    local copy = {}
+    for key, value in pairs(source or {}) do copy[key] = value end
+    return copy
+end
+
 function Manager:New()
     if not instance then
         instance = setmetatable({}, Manager)
@@ -59,127 +40,158 @@ function Manager:New()
     return instance
 end
 
-function Manager:GetScriptExtension()
-    return self.ScriptExtension
-end
-
-function Manager:GetLuaExtension()
-    return self.LuaExtension
-end
-
-function Manager:GetTemplateFolder()
-    return self.TemplateFolder
-end
+function Manager:GetScriptExtension() return self.ScriptExtension end
+function Manager:GetLuaExtension() return self.LuaExtension end
+function Manager:GetTemplateFolder() return self.TemplateFolder end
 
 function Manager:NormalizePath(path)
-    -- Always use forward slashes and remove trailing slashes
-    return (path or ""):gsub("\\", "/"):gsub("//+", "/"):gsub("/+$", "")
+    if type(path) ~= "string" or path == "" then return nil end
+    return path:gsub("\\", "/"):gsub("//+", "/"):gsub("/+$", "")
+end
+
+function Manager:GetSettingsEnvironment()
+    return {
+        ipairs = ipairs,
+        pairs = pairs,
+        tonumber = tonumber,
+        tostring = tostring,
+        math = math,
+        string = string,
+        table = table
+    }
+end
+
+function Manager:ValidateSettings(templateName, settings, settingsPath)
+    if type(settings) ~= "table" then
+        return nil, "Settings must return a table"
+    end
+
+    local normalized = copyTable(settings)
+    normalized.Caption = trim(settings.Caption) or templateName
+    if normalized.Caption == "" then
+        return nil, "Caption must not be empty"
+    end
+
+    if settings.Shortcut ~= nil and type(settings.Shortcut) ~= "string" then
+        return nil, "Shortcut must be a string or nil"
+    end
+    normalized.Shortcut = trim(settings.Shortcut or "") or ""
+
+    if settings.InSubMenu ~= nil and type(settings.InSubMenu) ~= "boolean" then
+        return nil, "InSubMenu must be a boolean"
+    end
+    normalized.InSubMenu = settings.InSubMenu ~= false
+
+    if settings.SubMenuName ~= nil and type(settings.SubMenuName) ~= "string" then
+        return nil, "SubMenuName must be a string"
+    end
+    normalized.SubMenuName = trim(settings.SubMenuName or "Templates") or "Templates"
+
+    for _, key in ipairs({ "AskForInjectionAddress", "AskForHookName", "AllocationNear" }) do
+        if settings[key] ~= nil and type(settings[key]) ~= "boolean" then
+            return nil, key .. " must be a boolean"
+        end
+    end
+    for _, key in ipairs({ "AppendToHookName", "DefaultHookName" }) do
+        if settings[key] ~= nil and type(settings[key]) ~= "string" then
+            return nil, key .. " must be a string"
+        end
+    end
+    if settings.AllocationSize ~= nil and type(settings.AllocationSize) ~= "string" and type(settings.AllocationSize) ~= "number" then
+        return nil, "AllocationSize must be a string or number"
+    end
+    if settings.MenuOrder ~= nil and type(settings.MenuOrder) ~= "number" then
+        return nil, "MenuOrder must be a number"
+    end
+
+    normalized.SourcePath = settingsPath
+    return normalized
+end
+
+function Manager:LoadSettings(settingsPath, templateName)
+    settingsPath = self:NormalizePath(settingsPath)
+    if not settingsPath or not file:Exists(settingsPath) then
+        return nil, "Settings file not found"
+    end
+
+    local source, readErr = file:ReadFile(settingsPath)
+    if not source then return nil, readErr end
+
+    local chunk, compileErr = load(source, "@" .. settingsPath, "t", self:GetSettingsEnvironment())
+    if not chunk then
+        return nil, "Settings syntax error: " .. tostring(compileErr)
+    end
+
+    local ok, settings = pcall(chunk)
+    if not ok then
+        return nil, "Settings execution failed: " .. tostring(settings)
+    end
+    return self:ValidateSettings(templateName, settings, settingsPath)
 end
 
 function Manager:DiscoverTemplates()
-    log:Info("[Manager] Discovering templates in: " .. tostring(self.TemplateFolder))
     local templates = {}
     local templateFolder = self:NormalizePath(self.TemplateFolder)
-    if not templateFolder or type(templateFolder) ~= "string" or templateFolder == "" then
-        log:Error("[Manager] Template folder path is invalid or nil.")
+    if not templateFolder or not file:FolderExists(templateFolder) then
+        log:Warning("[Manager] Template folder is unavailable: " .. tostring(templateFolder))
         return templates
     end
-    if not file:FolderExists(templateFolder) then
-        log:Warning("[Manager] Template folder does not exist: " .. tostring(templateFolder))
-        return templates
-    end
+
+    local captions = {}
     local files = file:ScanFolder(templateFolder, false)
-    log:Debug(string.format("[Manager] Found %d files in template folder: %s", #files, templateFolder))
-    for _, filepath in ipairs(files) do
-        local normFilePath = self:NormalizePath(filepath)
-        local base = normFilePath:match("([^/]+)$")
-        if base:sub(-#self.ScriptExtension) == self.ScriptExtension then
-            local templateName = base:sub(1, -#self.ScriptExtension - 1)
-            local settingsPath = self:NormalizePath(templateFolder .. "/" .. templateName .. self.LuaExtension)
-            local scriptPath = normFilePath
-            local settings, scriptContent = self:LoadFileSafely(templateName, settingsPath, scriptPath)
-            if settings and scriptContent then
-                log:Info(string.format("[Manager] Found template: %s", templateName))
-                templates[#templates + 1] = {
-                    name = templateName,
-                    scriptPath = scriptPath,
-                    settingsPath = settingsPath,
-                    settings = settings,
-                    scriptContent = scriptContent,
-                    fileName = templateName
-                }
-            else
-                log:Warning(string.format("[Manager] Skipped template (missing settings or script): %s", templateName))
+    for _, path in ipairs(files) do
+        local baseName = path:match("([^/]+)$")
+        if baseName and baseName:sub(-#self.ScriptExtension) == self.ScriptExtension then
+            local name = baseName:sub(1, -#self.ScriptExtension - 1)
+            if name ~= "Header" then
+                local settingsPath = self:NormalizePath(templateFolder .. "/" .. name .. self.LuaExtension)
+                local settings, err = self:LoadSettings(settingsPath, name)
+                if not settings then
+                    log:Warning(string.format("[Manager] Skipped '%s': %s", name, tostring(err)))
+                elseif captions[settings.Caption] then
+                    log:Error(string.format(
+                        "[Manager] Skipped '%s': Caption '%s' is already used by '%s'.",
+                        name, settings.Caption, captions[settings.Caption]))
+                else
+                    captions[settings.Caption] = name
+                    templates[#templates + 1] = {
+                        name = name,
+                        fileName = name,
+                        scriptPath = self:NormalizePath(path),
+                        settingsPath = settingsPath,
+                        settings = settings
+                    }
+                end
             end
         end
     end
-    log:Info(string.format("[Manager] Total templates discovered: %d", #templates))
-    return templates
-end
 
-function Manager:LoadSettings(settingsPath)
-    settingsPath = self:NormalizePath(settingsPath)
-    log:Debug("[Manager] Loading settings: " .. tostring(settingsPath))
-    if not file:Exists(settingsPath) then
-        log:Warning("[Manager] Settings file does not exist: " .. tostring(settingsPath))
-        return nil
-    end
-    local status, settings = pcall(dofile, settingsPath)
-    if status then
-        log:Info("[Manager] Loaded settings successfully: " .. tostring(settingsPath))
-        return settings
-    else
-        log:Error("[Manager] Failed to load settings: " .. tostring(settingsPath))
-    end
-    return nil
+    table.sort(templates, function(a, b)
+        local aOrder = tonumber(a.settings.MenuOrder) or math.huge
+        local bOrder = tonumber(b.settings.MenuOrder) or math.huge
+        if aOrder ~= bOrder then return aOrder < bOrder end
+        return a.settings.Caption:lower() < b.settings.Caption:lower()
+    end)
+    log:Info(string.format("[Manager] Discovered %d valid template(s).", #templates))
+    return templates
 end
 
 function Manager:LoadScript(scriptPath)
     scriptPath = self:NormalizePath(scriptPath)
-    log:Debug("[Manager] Loading script: " .. tostring(scriptPath))
-    if not file:Exists(scriptPath) then
-        log:Warning("[Manager] Script file does not exist: " .. tostring(scriptPath))
-        return nil
-    end
-    local fileHandle, err = io.open(scriptPath, "r")
-    if not fileHandle then
-        log:Error("[Manager] Failed to open script file: " .. tostring(scriptPath) .. " (" .. tostring(err) .. ")")
-        return nil
-    end
-    local script = fileHandle:read("*a")
-    fileHandle:close()
-    log:Info("[Manager] Loaded script successfully: " .. tostring(scriptPath))
-    return script
-end
-
-function Manager:LoadFileSafely(templateName, settingsPath, scriptPath)
-    log:Debug(string.format("[Manager] LoadFileSafely called for template: %s", templateName))
-    local settings = templateName ~= "Header" and self:LoadSettings(settingsPath) or nil
-    local script = self:LoadScript(scriptPath)
-    if (templateName ~= "Header" and not settings) or not script then
-        log:Warning(string.format("[Manager] Missing settings or script for template: %s", templateName))
-        return nil, nil
-    end
-    return settings, script
+    if not scriptPath then return nil, "Invalid script path" end
+    return file:ReadFile(scriptPath)
 end
 
 function Manager:InitTemplate(templateName)
-    log:Info("[Manager] Initializing template: " .. tostring(templateName))
-    local templateFolder = self:NormalizePath(self.TemplateFolder)
-    local settingsPath = self:NormalizePath(templateFolder .. "/" .. templateName .. self.LuaExtension)
-    local scriptPath = self:NormalizePath(templateFolder .. "/" .. templateName .. self.ScriptExtension)
-    local settings, scriptContent = self:LoadFileSafely(templateName, settingsPath, scriptPath)
-    if not settings or not scriptContent then
-        log:Warning("[Manager] Could not initialize template: " .. tostring(templateName))
-        return
-    end
-    for key, value in pairs(settings) do
-        if type(key) == "string" and type(value) == "string" then
-            scriptContent = scriptContent:gsub("<<" .. key .. ">>", value)
-        end
-    end
-    log:Info("[Manager] Template initialized: " .. tostring(templateName))
-    return scriptContent
+    if type(templateName) ~= "string" or templateName == "" then return nil, "Invalid template name" end
+    local folder = self:NormalizePath(self.TemplateFolder)
+    local settingsPath = self:NormalizePath(folder .. "/" .. templateName .. self.LuaExtension)
+    local scriptPath = self:NormalizePath(folder .. "/" .. templateName .. self.ScriptExtension)
+    local settings, settingsErr = self:LoadSettings(settingsPath, templateName)
+    if not settings then return nil, settingsErr end
+    local script, scriptErr = self:LoadScript(scriptPath)
+    if not script then return nil, scriptErr end
+    return script, settings
 end
 
 return Manager

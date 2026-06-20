@@ -35,8 +35,15 @@
 local sep = package.config:sub(1, 1)
 package.path = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "?.lua;" .. package.path
 
+local Host = require("Manifold-TemplateLoader-Host")
 local Loader = require("Manifold-TemplateLoader-Loader")
 
-loader = Loader:New()
-loader:AttachMenuToForm()
-loader:LoadTemplates()
+local activeLoader = Loader:New()
+local host = Host:New()
+host:Attach(activeLoader)
+
+_G.ManifoldTemplateLoaderHost = host
+_G.ManifoldTemplateLoader = host.Loader
+loader = activeLoader -- backwards compatibility for existing autorun snippets
+
+host.Loader:LoadTemplates()

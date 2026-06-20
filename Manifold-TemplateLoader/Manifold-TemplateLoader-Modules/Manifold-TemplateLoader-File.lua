@@ -1,41 +1,18 @@
 --[[
-    Manifold.TemplateLoader.File.lua
-    --------------------------------
-
-    AUTHOR  : Leunsel, LeFiXER
-    VERSION : 2.0.0
-    LICENSE : MIT
-    CREATED : 2025-06-21
-    UPDATED : 2025-06-24
-
-    MIT License:
-        Copyright (c) 2025 Leunsel
-
-        Permission is hereby granted, free of charge, to any person obtaining a copy
-        of this software and associated documentation files (the "Software"), to deal
-        in the Software without restriction, including without limitation the rights
-        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-        copies of the Software, and to permit persons to whom the Software is
-        furnished to do so, subject to the following conditions:
-
-        The above copyright notice and this permission notice shall be included in all
-        copies or substantial portions of the Software.
-
-        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-        SOFTWARE.
-
-    This file is part of the Manifold TemplateLoader system.
+    Small, defensive file-system wrapper used by the template loader.
 ]]
 
-File = {}
+local File = {}
 File.__index = File
 
 local instance = nil
+
+local function normalizePath(path)
+    if type(path) ~= "string" or path == "" then
+        return nil
+    end
+    return path:gsub("\\", "/"):gsub("/+$", "")
+end
 
 function File:New()
     if not instance then
@@ -45,62 +22,87 @@ function File:New()
 end
 
 function File:Exists(path)
-    if type(path) ~= "string" or path == "" then
-        return false
-    end
-    path = path:gsub("\\", "/"):gsub("/+$", "")
-    local attr = lfs.attributes(path)
-    return attr and attr.mode == "file"
+    path = normalizePath(path)
+    if not path then return false end
+    local ok, attr = pcall(lfs.attributes, path)
+    return ok and attr and attr.mode == "file" or false
 end
 
-function File:FolderExists(dir)
-    local attr = lfs.attributes(dir)
-    return attr and attr.mode == "directory"
+function File:FolderExists(path)
+    path = normalizePath(path)
+    if not path then return false end
+    local ok, attr = pcall(lfs.attributes, path)
+    return ok and attr and attr.mode == "directory" or false
 end
 
-function File:Size(dir)
-    local attr = type(dir) == "string" and lfs.attributes(dir)
-    return attr and attr.size or 0
+function File:Size(path)
+    path = normalizePath(path)
+    if not path then return 0 end
+    local ok, attr = pcall(lfs.attributes, path)
+    return ok and attr and attr.size or 0
 end
 
 function File:ReadFile(path)
-    path = path:gsub("\\", "/"):gsub("/+$", "")
-    local file, err = io.open(path, "rb")
-    if not file then error("Failed to open file: " .. tostring(path) .. ". Error: " .. tostring(err)) end
-    local content = file:read("*a")
-    file:close()
+    path = normalizePath(path)
+    if not path then return nil, "Invalid file path" end
+
+    local handle, err = io.open(path, "rb")
+    if not handle then
+        return nil, string.format("Unable to open '%s': %s", path, tostring(err))
+    end
+
+    local content = handle:read("*a")
+    handle:close()
+    if content == nil then
+        return nil, "Unable to read '" .. path .. "'"
+    end
     return content
 end
 
-function File:WriteFile(dir, content)
-    local file, err = io.open(dir, "wb")
-    if not file then error("Failed to write to file: " .. tostring(dir) .. ". Error: " .. tostring(err)) end
-    file:write(content)
-    file:close()
+function File:WriteFile(path, content)
+    path = normalizePath(path)
+    if not path then return false, "Invalid file path" end
+    if type(content) ~= "string" then return false, "File content must be a string" end
+
+    local handle, err = io.open(path, "wb")
+    if not handle then
+        return false, string.format("Unable to write '%s': %s", path, tostring(err))
+    end
+
+    local ok, writeErr = handle:write(content)
+    handle:close()
+    if not ok then
+        return false, tostring(writeErr)
+    end
+    return true
 end
 
-function File:ScanFolder(dir, recursive)
+function File:ScanFolder(path, recursive)
+    path = normalizePath(path)
     local files = {}
-    if type(dir) ~= "string" or dir == "" then
-        return files
-    end
-    dir = dir:gsub("\\", "/")
-    for entry in lfs.dir(dir) do
+    if not path or not self:FolderExists(path) then return files end
+
+    local ok, iterator, directory = pcall(lfs.dir, path)
+    if not ok then return files end
+
+    for entry in iterator, directory do
         if entry ~= "." and entry ~= ".." then
-            local fulldir = dir .. "/" .. entry
-            local attr = lfs.attributes(fulldir)
-            if attr then
+            local fullPath = path .. "/" .. entry
+            local attrOk, attr = pcall(lfs.attributes, fullPath)
+            if attrOk and attr then
                 if attr.mode == "directory" and recursive then
-                    local subfiles = self:ScanFolder(fulldir, true)
-                    for _, f in ipairs(subfiles) do
-                        files[#files + 1] = f
+                    local nested = self:ScanFolder(fullPath, true)
+                    for _, nestedPath in ipairs(nested) do
+                        files[#files + 1] = nestedPath
                     end
                 elseif attr.mode == "file" then
-                    files[#files + 1] = fulldir
+                    files[#files + 1] = fullPath
                 end
             end
         end
     end
+
+    table.sort(files, function(a, b) return a:lower() < b:lower() end)
     return files
 end
 

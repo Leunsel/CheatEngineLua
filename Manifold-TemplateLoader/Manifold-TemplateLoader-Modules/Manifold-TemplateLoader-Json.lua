@@ -504,11 +504,11 @@ function JSON:decode(text, etc, options)
    end
 
 
-   if type(self) ~= 'table' or self.__index ~= JSON then
-      local error_message = "JSON:decode must be called in method format"
-      JSON:onDecodeError(error_message, nil, nil, options.etc)
-      return nil, error_message -- in case the error method doesn't abort, return something sensible
-   end
+   -- if type(self) ~= 'table' or self.__index ~= JSON then
+   --    local error_message = "JSON:decode must be called in method format"
+   --    JSON:onDecodeError(error_message, nil, nil, options.etc)
+   --    return nil, error_message -- in case the error method doesn't abort, return something sensible
+   -- end
 
    if text == nil then
       local error_message = "nil passed to JSON:decode()"
