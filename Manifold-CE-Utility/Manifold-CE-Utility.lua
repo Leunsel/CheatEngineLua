@@ -3,10 +3,10 @@
     --------------------------------
 
     AUTHOR  : Leunsel, LeFiXER
-    VERSION : 1.0.1
+    VERSION : 1.1.0
     LICENSE : MIT
     CREATED : 2025-11-17
-    UPDATED : 2026-02-01
+    UPDATED : 2026-06-20
     
     MIT License:
         Copyright (c) 2025 Leunsel
@@ -43,8 +43,9 @@ local Config = {
     MenuCaption       = "Manifold",
     Prefix            = "[— ",
     Suffix            = " —]",
-    AnimatedCaption   = true,
-    AnimationInterval = 200,
+    AnimatedCaption   = false,
+    AnimationInterval = 350,
+    ConfirmDestructiveActions = true,
     -- indices placeholder (filled at runtime)
     Indices = {
         StructureDissect = nil,
@@ -57,20 +58,34 @@ local Config = {
     }
 }
 
+local MIN_ANIMATION_INTERVAL = 100
+local MAX_ANIMATION_INTERVAL = 2000
+local RUNTIME_STATE_KEY = "__MANIFOLD_CE_UTILITY_RUNTIME__"
+
+-- Keep runtime handles outside this autorun chunk. When the file is executed
+-- again from CE's Lua engine, the previous menu and timer can be disposed first.
+local RuntimeState = rawget(_G, RUNTIME_STATE_KEY)
+if type(RuntimeState) ~= "table" then
+    RuntimeState = {}
+    _G[RUNTIME_STATE_KEY] = RuntimeState
+end
+
 ----------------------------------------
 -- LOCALS / REFERENCES
 ----------------------------------------
-local mf       = getMainForm()
+local mf       = nil
 local il       = nil
-local mv       = getMemoryViewForm()
-local le       = getLuaEngine()
-local al       = getAddressList()
-local mainMenu = mf and mf.Menu
+local mv       = nil
+local le       = nil
+local al       = nil
+local mainMenu = nil
 
 -- internal state
 local toolsMenuItem = nil
 local rotationTimer = nil
 local tickerBuffer  = nil
+local settingsItems = {}
+local RefreshSettingsMenu = nil
 
 -- colors & flags
 local HEADER_COLOR  = 0xD2FF00
@@ -117,6 +132,92 @@ local function RunInMainThread(func)
     end
 end
 
+local function DestroyComponent(component)
+    if not component then return end
+    pcall(function() component.Enabled = false end)
+    pcall(function() component.destroy() end)
+end
+
+local function DisposePreviousInstance()
+    -- Timers must go first because their callbacks still capture the previous menu.
+    DestroyComponent(RuntimeState.rotationTimer)
+    DestroyComponent(RuntimeState.menuItem)
+    RuntimeState.rotationTimer = nil
+    RuntimeState.menuItem = nil
+end
+
+local function RefreshUiReferences()
+    if type(getMainForm) == "function" then
+        local ok, currentMainForm = pcall(getMainForm)
+        if ok and currentMainForm then
+            mf = currentMainForm
+            mainMenu = mf.Menu
+        end
+    end
+    if type(getMemoryViewForm) == "function" then
+        local ok, currentMemoryView = pcall(getMemoryViewForm)
+        if ok and currentMemoryView then mv = currentMemoryView end
+    end
+    if type(getLuaEngine) == "function" then
+        local ok, currentLuaEngine = pcall(getLuaEngine)
+        if ok and currentLuaEngine then le = currentLuaEngine end
+    end
+end
+
+local function GetAddressListOrLog(tag)
+    if type(getAddressList) ~= "function" then
+        FailLog(tag, "getAddressList is unavailable.")
+        return nil
+    end
+    local ok, currentAddressList = pcall(getAddressList)
+    if not ok or not currentAddressList then
+        FailLog(tag, "AddressList handle unavailable: " .. tostring(currentAddressList))
+        return nil
+    end
+    al = currentAddressList
+    return al
+end
+
+local function RepaintMainForm(tag)
+    RefreshUiReferences()
+    if mf and mf.repaint then
+        local ok, err = pcall(function() mf.repaint() end)
+        if not ok then FailLog(tag, "mf.repaint failed: " .. tostring(err)) end
+    end
+end
+
+local function ConfirmDestructiveAction(action, affectedCount)
+    RunInMainThread(function()
+        local result
+        ConfirmDestructiveAction = function(action, affectedCount)
+            return result
+        end
+    end)
+    if not Config.ConfirmDestructiveActions then return true end
+    if type(messageDialog) ~= "function"
+        or type(mtConfirmation) ~= "number"
+        or type(mbYes) ~= "number"
+        or type(mbNo) ~= "number"
+        or type(mrYes) ~= "number" then
+        FailLog("Confirmation", "Confirmation API unavailable; blocked action: " .. action)
+        return false
+    end
+    local countText = affectedCount and ("\n\nAffected entries: " .. tostring(affectedCount)) or ""
+    local message = action .. countText .. "\n\nDo you want to continue?"
+    local ok, result = pcall(function()
+        return messageDialog(message, mtConfirmation, mbYes, mbNo)
+    end)
+    if not ok then
+        FailLog("Confirmation", "Dialog failed: " .. tostring(result))
+        return false
+    end
+    if result ~= mrYes then
+        print("[INFO] Action cancelled: " .. action)
+        return false
+    end
+    return true
+end
+
 ----------------------------------------
 -- UTILS
 ----------------------------------------
@@ -126,16 +227,14 @@ end
 --- @return table|nil # The ImageList or nil if unavailable.
 --
 local function safeGetImageList()
-    -- lazy init, return existing otherwise
     if il then return il end
-    -- try to obtain image list from MainForm
+    RefreshUiReferences()
     if mf and mf.ImageList then
         il = mf.ImageList
         return il
     end
-    -- fallback: try known references (best-effort)
-    if getMainForm and getMainForm().mfImageList then
-        il = getMainForm().mfImageList
+    if mf and mf.mfImageList then
+        il = mf.mfImageList
         return il
     end
     FailLog("Init", "Could not find an ImageList. Some menu icons may be missing.")
@@ -294,11 +393,7 @@ local function BuildStructureRecords(struct)
             end
         end
     end
-    -- Repaint once after creation
-    if mf and mf.repaint then
-        local ok, err = pcall(function() mf.repaint() end)
-        if not ok then FailLog("StructureBuilder", "mf.repaint failed: " .. tostring(err)) end
-    end
+    RepaintMainForm("StructureBuilder")
 end
 
 --
@@ -323,19 +418,30 @@ end
 --- @return nil # No return value.
 --
 local function DeleteAllStructures()
-    local count = getStructureCount()
-    if not count or count < 1 then
+    if type(getStructureCount) ~= "function" or type(getStructure) ~= "function" then
+        FailLog("DeleteStructures", "Structure API unavailable.")
+        return
+    end
+    local okCount, count = pcall(getStructureCount)
+    if not okCount or type(count) ~= "number" or count < 1 then
         FailLog("DeleteStructures", "No structures to delete.")
         return
     end
-    -- remove from global list in reverse order
+    if not ConfirmDestructiveAction("Remove all global structures?", count) then return end
+
+    local removed = 0
     for i = count, 1, -1 do
-        local s = getStructure(i - 1)
-        if s then
-            local ok, err = pcall(function() s:removeFromGlobalStructureList() end)
-            if not ok then FailLog("DeleteStructures", "Failed removing structure at index " .. tostring(i - 1) .. ": " .. tostring(err)) end
+        local okStructure, structure = pcall(function() return getStructure(i - 1) end)
+        if okStructure and structure then
+            local ok, err = pcall(function() structure:removeFromGlobalStructureList() end)
+            if ok then
+                removed = removed + 1
+            else
+                FailLog("DeleteStructures", "Failed removing structure at index " .. tostring(i - 1) .. ": " .. tostring(err))
+            end
         end
     end
+    print("[OK] Removed " .. tostring(removed) .. " structure(s).")
 end
 
 ----------------------------------------
@@ -346,23 +452,32 @@ end
 --- ∑ Opens the Windows file explorer in the target process folder.
 --- @return nil # No return value.
 --
+local function OpenFolder(folder, tag)
+    if type(folder) ~= "string" or folder == "" then
+        FailLog(tag, "Folder path unavailable.")
+        return
+    end
+    local ok, err = pcall(function() ShellExecute(folder) end)
+    if not ok then FailLog(tag, "Could not open folder: " .. tostring(err)) end
+end
+
 local function OpenProcessFolder()
-    local modules = enumModules()
-    if not modules or #modules == 0 then
+    local ok, modules = pcall(enumModules)
+    if not ok or type(modules) ~= "table" or #modules == 0 then
         FailLog("OpenProcessFolder", "enumModules returned empty.")
         return
     end
-    local processPath = modules[1].PathToFile
-    if not processPath or processPath == "" then
+    local processPath = modules[1] and modules[1].PathToFile
+    if type(processPath) ~= "string" or processPath == "" then
         FailLog("OpenProcessFolder", "Process path unavailable.")
         return
     end
     local folder = processPath:match("^(.*)\\[^\\]+$")
-    if folder and folder ~= "" then
-        ShellExecute(folder)
-    else
+    if not folder or folder == "" then
         FailLog("OpenProcessFolder", "Could not determine process folder.")
+        return
     end
+    OpenFolder(folder, "OpenProcessFolder")
 end
 
 --
@@ -370,12 +485,12 @@ end
 --- @return nil # No return value.
 --
 local function OpenAutorunFolder()
-    local folder = getAutorunPath()
-    if folder and folder ~= "" then
-        ShellExecute(folder)
-    else
-        FailLog("OpenAutorunFolder", "Autorun path unavailable.")
+    local ok, folder = pcall(getAutorunPath)
+    if not ok then
+        FailLog("OpenAutorunFolder", "Autorun path unavailable: " .. tostring(folder))
+        return
     end
+    OpenFolder(folder, "OpenAutorunFolder")
 end
 
 ----------------------------------------
@@ -386,17 +501,49 @@ end
 --- ∑ Deactivates all AutoAssembler scripts in the address list.
 --- @return nil # No return value.
 --
-local function DeactivateActiveScripts()
-    if not al then
-        FailLog("DeactivateActiveScripts", "AddressList handle unavailable.")
-        return
-    end
-    for i = al.Count - 1, 0, -1 do
-        if al[i].Type == vtAutoAssembler then
-            al[i].Active = false
+local function CountActiveRecords(addressList, scriptsOnly)
+    local count = 0
+    for i = addressList.Count - 1, 0, -1 do
+        local record = addressList[i]
+        if record then
+            local okActive, active = pcall(function() return record.Active end)
+            local matchesType = true
+            if scriptsOnly then
+                local okType, recordType = pcall(function() return record.Type end)
+                matchesType = okType and recordType == vtAutoAssembler
+            end
+            if okActive and active and matchesType then count = count + 1 end
         end
     end
-    if mf and mf.repaint then mf.repaint() end
+    return count
+end
+
+local function DeactivateActiveScripts()
+    local addressList = GetAddressListOrLog("DeactivateActiveScripts")
+    if not addressList then return end
+    local count = CountActiveRecords(addressList, true)
+    if count == 0 then
+        print("[INFO] No active AutoAssembler scripts found.")
+        return
+    end
+    if not ConfirmDestructiveAction("Deactivate all active AutoAssembler scripts?", count) then return end
+
+    local deactivated = 0
+    for i = addressList.Count - 1, 0, -1 do
+        local record = addressList[i]
+        if record then
+            local okType, isScript = pcall(function() return record.Type == vtAutoAssembler end)
+            if okType and isScript then
+                local okActive, active = pcall(function() return record.Active end)
+                if okActive and active then
+                    local ok, err = pcall(function() record.Active = false end)
+                    if ok then deactivated = deactivated + 1 else FailLog("DeactivateActiveScripts", tostring(err)) end
+                end
+            end
+        end
+    end
+    RepaintMainForm("DeactivateActiveScripts")
+    print("[OK] Deactivated " .. tostring(deactivated) .. " script(s).")
 end
 
 --
@@ -404,16 +551,28 @@ end
 --- @return nil # No return value.
 --
 local function DeactivateEverything()
-    if not al then
-        FailLog("DeactivateEverything", "AddressList handle unavailable.")
+    local addressList = GetAddressListOrLog("DeactivateEverything")
+    if not addressList then return end
+    local count = CountActiveRecords(addressList, false)
+    if count == 0 then
+        print("[INFO] No active records found.")
         return
     end
-    for i = al.Count - 1, 0, -1 do
-        if al[i].Active then
-            al[i].Active = false
+    if not ConfirmDestructiveAction("Deactivate every active address-list entry?", count) then return end
+
+    local deactivated = 0
+    for i = addressList.Count - 1, 0, -1 do
+        local record = addressList[i]
+        if record then
+            local okActive, active = pcall(function() return record.Active end)
+            if okActive and active then
+                local ok, err = pcall(function() record.Active = false end)
+                if ok then deactivated = deactivated + 1 else FailLog("DeactivateEverything", tostring(err)) end
+            end
         end
     end
-    if mf and mf.repaint then mf.repaint() end
+    RepaintMainForm("DeactivateEverything")
+    print("[OK] Deactivated " .. tostring(deactivated) .. " record(s).")
 end
 
 local NORMALIZE_TMP_BASE = 1000000000
@@ -423,8 +582,9 @@ local NORMALIZE_TMP_BASE = 1000000000
 --- @param rec table # MemoryRecord
 --- @param out table # array
 --
-local function CollectRecordsRecursive(rec, out)
-    if not rec then return end
+local function CollectRecordsRecursive(rec, out, seen)
+    if not rec or seen[rec] then return end
+    seen[rec] = true
     out[#out + 1] = rec
     local childCount = 0
     local okCount, cnt = pcall(function() return rec.Count end)
@@ -439,7 +599,7 @@ local function CollectRecordsRecursive(rec, out)
             end
         end)
         if okChild and child then
-            CollectRecordsRecursive(child, out)
+            CollectRecordsRecursive(child, out, seen)
         end
     end
 end
@@ -448,19 +608,68 @@ end
 --- ∑ ...
 --- @return table # array of MemoryRecords
 --
-local function GetAllAddressListRecords()
+local function GetAllAddressListRecords(addressList)
     local records = {}
-    if not al then
-        FailLog("NormalizeIDs", "AddressList handle unavailable.")
-        return records
-    end
-    for i = 0, al.Count - 1 do
-        local r = al[i]
-        if r then
-            CollectRecordsRecursive(r, records)
+    local seen = {}
+    for i = 0, addressList.Count - 1 do
+        local record = addressList[i]
+        if record then
+            CollectRecordsRecursive(record, records, seen)
         end
     end
     return records
+end
+
+local function SetRecordId(record, id)
+    return pcall(function()
+        if record.setID then
+            record.setID(id)
+        else
+            record.ID = id
+        end
+    end)
+end
+
+local function RestoreRecordIds(records, originalIds, temporaryIds)
+    local restored = true
+    -- Re-enter the collision-free temporary range before restoring original IDs.
+    -- This also handles a failure after only part of the final ID sequence was written.
+    if temporaryIds then
+        for idx = 1, #records do
+            local ok, err = SetRecordId(records[idx], temporaryIds[idx])
+            if not ok then
+                restored = false
+                FailLog("NormalizeIDs", "Rollback preparation failed on record #" .. idx .. ": " .. tostring(err))
+            end
+        end
+    end
+    for idx = 1, #records do
+        local ok, err = SetRecordId(records[idx], originalIds[idx])
+        if not ok then
+            restored = false
+            FailLog("NormalizeIDs", "Rollback failed on record #" .. idx .. ": " .. tostring(err))
+        end
+    end
+    return restored
+end
+
+local function FindTemporaryIdBase(originalIds, recordCount)
+    local used = {}
+    for _, id in ipairs(originalIds) do used[id] = true end
+    local candidate = NORMALIZE_TMP_BASE
+    local limit = 2147483647 - recordCount - 1
+    while candidate <= limit do
+        local available = true
+        for offset = 1, recordCount do
+            if used[candidate + offset] then
+                available = false
+                break
+            end
+        end
+        if available then return candidate end
+        candidate = candidate + recordCount + 1
+    end
+    return nil
 end
 
 --
@@ -468,47 +677,55 @@ end
 --- @return nil
 --
 local function NormalizeCheatTableIDs()
-    if not al then
-        FailLog("NormalizeIDs", "AddressList handle unavailable.")
-        return
-    end
-    local records = GetAllAddressListRecords()
+    local addressList = GetAddressListOrLog("NormalizeIDs")
+    if not addressList then return end
+    local records = GetAllAddressListRecords(addressList)
     if #records == 0 then
         FailLog("NormalizeIDs", "No records found to normalize.")
         return
     end
-    local tmpBase = NORMALIZE_TMP_BASE
+    if not ConfirmDestructiveAction("Normalize Cheat Table IDs?", #records) then return end
+
+    local originalIds = {}
     for idx = 1, #records do
-        local r = records[idx]
-        local ok, err = pcall(function()
-            if r.setID then
-                r.setID(tmpBase + idx)
-            else
-                r.ID = tmpBase + idx
-            end
-        end)
+        local ok, id = pcall(function() return records[idx].ID end)
+        if not ok or type(id) ~= "number" or id ~= math.floor(id) then
+            FailLog("NormalizeIDs", "Could not read a valid ID from record #" .. idx .. ". No changes were made.")
+            return
+        end
+        originalIds[idx] = id
+    end
+
+    local temporaryBase = FindTemporaryIdBase(originalIds, #records)
+    if not temporaryBase then
+        FailLog("NormalizeIDs", "Could not reserve a collision-free temporary ID range.")
+        return
+    end
+    local temporaryIds = {}
+    local finalIds = {}
+    for idx = 1, #records do
+        temporaryIds[idx] = temporaryBase + idx
+        finalIds[idx] = idx
+    end
+
+    for idx = 1, #records do
+        local ok, err = SetRecordId(records[idx], temporaryIds[idx])
         if not ok then
-            FailLog("NormalizeIDs", "Temp-ID set failed on record #" .. idx .. ": " .. tostring(err))
+            FailLog("NormalizeIDs", "Temporary ID assignment failed on record #" .. idx .. ": " .. tostring(err))
+            RestoreRecordIds(records, originalIds, temporaryIds)
+            return
         end
     end
     for idx = 1, #records do
-        local r = records[idx]
-        local ok, err = pcall(function()
-            if r.setID then
-                r.setID(idx)
-            else
-                r.ID = idx
-            end
-        end)
+        local ok, err = SetRecordId(records[idx], finalIds[idx])
         if not ok then
-            FailLog("NormalizeIDs", "Final-ID set failed on record #" .. idx .. ": " .. tostring(err))
+            FailLog("NormalizeIDs", "Final ID assignment failed on record #" .. idx .. ": " .. tostring(err))
+            RestoreRecordIds(records, originalIds, temporaryIds)
+            return
         end
     end
-    if mf and mf.repaint then
-        local ok, err = pcall(function() mf.repaint() end)
-        if not ok then FailLog("NormalizeIDs", "mf.repaint failed: " .. tostring(err)) end
-    end
-    print("[OK]")
+    RepaintMainForm("NormalizeIDs")
+    print("[OK] Normalized " .. tostring(#records) .. " Cheat Table ID(s).")
 end
 
 ----------------------------------------
@@ -521,8 +738,9 @@ end
 --- @return nil # No return value.
 --
 local function ToggleControlVisibility(controlName)
-    if MainForm and MainForm[controlName] then
-        local ok, err = pcall(function() MainForm[controlName].Visible = not MainForm[controlName].Visible end)
+    RefreshUiReferences()
+    if mf and mf[controlName] then
+        local ok, err = pcall(function() mf[controlName].Visible = not mf[controlName].Visible end)
         if not ok then FailLog("ToggleControlVisibility", "Failed toggling " .. tostring(controlName) .. ": " .. tostring(err)) end
     else
         FailLog("ToggleControlVisibility", "Control '" .. tostring(controlName) .. "' not found on MainForm.")
@@ -551,67 +769,84 @@ end
 --- @param inner string # The caption text to animate.
 --- @return nil # No return value.
 --
-local function PrepareTicker(inner)
-    tickerBuffer = " " .. (tostring(inner) or "") .. " "
+local function NormalizeAnimationInterval(interval)
+    local value = tonumber(interval) or 350
+    value = math.floor(value)
+    if value < MIN_ANIMATION_INTERVAL then return MIN_ANIMATION_INTERVAL end
+    if value > MAX_ANIMATION_INTERVAL then return MAX_ANIMATION_INTERVAL end
+    return value
 end
 
---
---- ∑ Rotates the ticker/caption text by one position.
---- @return string # The rotated caption.
---
+local function BuildMenuCaption(label)
+    return (Config.Prefix or "") .. tostring(label or "") .. (Config.Suffix or "")
+end
+
+local function SetMenuCaption(label)
+    if not toolsMenuItem then return end
+    local caption = BuildMenuCaption(label)
+    RunInMainThread(function()
+        if toolsMenuItem then toolsMenuItem.Caption = caption end
+    end)
+end
+
+local function PrepareTicker(inner)
+    tickerBuffer = " " .. tostring(inner or "") .. " "
+end
+
 local function RotateTicker()
     if not tickerBuffer or #tickerBuffer < 2 then return "" end
-    tickerBuffer = tickerBuffer:sub(2) .. tickerBuffer:sub(1,1)
+    tickerBuffer = tickerBuffer:sub(2) .. tickerBuffer:sub(1, 1)
     return tickerBuffer
 end
 
---
---- ∑ Starts animated caption rotation for the top-menu entry.
---- @return nil # No return value.
---
+local function StopCaptionAnimation()
+    local timer = rotationTimer
+    rotationTimer = nil
+    tickerBuffer = nil
+    if RuntimeState.rotationTimer == timer then RuntimeState.rotationTimer = nil end
+    DestroyComponent(timer)
+end
+
 local function StartCaptionAnimation()
-    if rotationTimer then
-        rotationTimer.Enabled = false
-        rotationTimer.destroy()
-        rotationTimer = nil
-    end
+    StopCaptionAnimation()
     if not toolsMenuItem then
         FailLog("AnimateCaption", "toolsMenuItem is nil.")
         return
     end
-    local caption = Config.MenuCaption or ""
-    local inner = extractInnerTextFromCaption(caption)
-    if #inner < 2 then
-        -- nothing to animate
+
+    local label = trim(tostring(Config.MenuCaption or ""))
+    SetMenuCaption(label)
+    if not Config.AnimatedCaption or #label < 2 then return end
+
+    Config.AnimationInterval = NormalizeAnimationInterval(Config.AnimationInterval)
+    PrepareTicker(label)
+    local ok, timer = pcall(function() return createTimer(nil) end)
+    if not ok or not timer then
+        FailLog("AnimateCaption", "Could not create timer: " .. tostring(timer))
         return
     end
-    PrepareTicker(inner)
-    rotationTimer = createTimer(nil)
-    rotationTimer.Interval = Config.AnimationInterval or 150
-    rotationTimer.OnTimer = function()
-        if not toolsMenuItem then return end
-        local rotated = RotateTicker() -- includes surrounding spaces we supplied
-        -- ensure spaces between prefix/rotated/suffix
-        local result = (Config.Prefix or "") .. rotated .. (Config.Suffix or "")
-        -- set Caption in main-thread safe manner
-        RunInMainThread(function()
-            toolsMenuItem.Caption = result
-        end)
-        -- store inner rotated state if desired
-        Config.MenuCaption = result
+    rotationTimer = timer
+    RuntimeState.rotationTimer = timer
+    timer.Interval = Config.AnimationInterval
+    timer.OnTimer = function()
+        if not toolsMenuItem then
+            StopCaptionAnimation()
+            return
+        end
+        SetMenuCaption(RotateTicker())
     end
 end
 
---
---- ∑ Stops animated caption rotation.
---- @return nil # No return value.
---
-local function StopCaptionAnimation()
-    if rotationTimer then
-        rotationTimer.Enabled = false
-        rotationTimer.destroy()
-        rotationTimer = nil
-    end
+local function SetCaptionAnimationEnabled(enabled)
+    Config.AnimatedCaption = enabled and true or false
+    StartCaptionAnimation()
+    if RefreshSettingsMenu then RefreshSettingsMenu() end
+end
+
+local function SetCaptionAnimationInterval(interval)
+    Config.AnimationInterval = NormalizeAnimationInterval(interval)
+    StartCaptionAnimation()
+    if RefreshSettingsMenu then RefreshSettingsMenu() end
 end
 
 ----------------------------------------
@@ -625,6 +860,7 @@ end
 --- @return nil # No return value.
 --
 local function GetImageListAndIndices()
+    RefreshUiReferences()
     local images = safeGetImageList()
     if not images then return end
     -- try-catch each add because some bitmap refs might not exist
@@ -649,17 +885,17 @@ end
 --- @return nil # No return value.
 --
 local function AddTopMenuEntry()
+    RefreshUiReferences()
     if not mainMenu then
         FailLog("Menu", "Main menu not available.")
         return
     end
     toolsMenuItem = createMenuItem(mainMenu)
-    toolsMenuItem.Caption = Config.MenuCaption or (Config.Prefix .. (Config.MenuCaption or "") .. Config.Suffix)
+    toolsMenuItem.Caption = BuildMenuCaption(Config.MenuCaption)
     toolsMenuItem.ImageList = safeGetImageList()
     mainMenu.Items.add(toolsMenuItem)
-    if Config.AnimatedCaption then
-        StartCaptionAnimation()
-    end
+    RuntimeState.menuItem = toolsMenuItem
+    StartCaptionAnimation()
 end
 
 --
@@ -670,34 +906,69 @@ end
 --- @param shortcut string|nil # Optional keyboard shortcut.
 --- @return table|nil # The created item or nil on failure.
 --
-local function AddSubItem(caption, onclick, imageIndex, shortcut)
-    if not toolsMenuItem then
-        FailLog("Menu :: AddSubItem", "toolsMenuItem is nil.")
+local function AddMenuItem(parent, caption, onclick, imageIndex, shortcut)
+    if not parent then
+        FailLog("Menu", "Parent menu item is nil.")
         return nil
     end
-    local item = createMenuItem(toolsMenuItem)
+    local item = createMenuItem(parent)
     item.Caption = caption or ""
-    if imageIndex then
-        item.ImageIndex = imageIndex
-    end
-    if shortcut then
-        item.Shortcut = shortcut
-    end
-    item.OnClick = onclick
-    toolsMenuItem.add(item)
+    if imageIndex then item.ImageIndex = imageIndex end
+    if shortcut then item.Shortcut = shortcut end
+    if onclick then item.OnClick = onclick end
+    parent.add(item)
     return item
+end
+
+local function AddSubItem(caption, onclick, imageIndex, shortcut)
+    return AddMenuItem(toolsMenuItem, caption, onclick, imageIndex, shortcut)
 end
 
 --
 --- ∑ Add a separator menu item to the Cheat Engine main menu.
 --- @return table|nil # The separator item or nil on failure.
 --
-local function AddSeparator()
-    if not toolsMenuItem then return end
-    local sep = createMenuItem(toolsMenuItem)
-    sep.Caption = "-"
-    toolsMenuItem.add(sep)
-    return sep
+local function AddSeparator(parent)
+    parent = parent or toolsMenuItem
+    if not parent then return nil end
+    local separator = createMenuItem(parent)
+    separator.Caption = "-"
+    parent.add(separator)
+    return separator
+end
+
+local function AddSettingsEntries()
+    AddSeparator()
+    local settingsMenu = AddMenuItem(toolsMenuItem, "Session Settings")
+    if not settingsMenu then return end
+
+    settingsItems.animatedCaption = AddMenuItem(settingsMenu, "Animate Caption", function()
+        SetCaptionAnimationEnabled(not Config.AnimatedCaption)
+    end)
+    local speedMenu = AddMenuItem(settingsMenu, "Animation Speed")
+    if speedMenu then
+        settingsItems.speedSlow = AddMenuItem(speedMenu, "Slow (600 ms)", function() SetCaptionAnimationInterval(600) end)
+        settingsItems.speedNormal = AddMenuItem(speedMenu, "Normal (350 ms)", function() SetCaptionAnimationInterval(350) end)
+        settingsItems.speedFast = AddMenuItem(speedMenu, "Fast (200 ms)", function() SetCaptionAnimationInterval(200) end)
+    end
+    settingsItems.confirmDestructiveActions = AddMenuItem(settingsMenu, "Confirm Destructive Actions", function()
+        Config.ConfirmDestructiveActions = not Config.ConfirmDestructiveActions
+        RefreshSettingsMenu()
+    end)
+    AddSeparator(settingsMenu)
+    AddMenuItem(settingsMenu, "Reset Caption Animation", function()
+        StartCaptionAnimation()
+        RefreshSettingsMenu()
+    end)
+
+    RefreshSettingsMenu = function()
+        if settingsItems.animatedCaption then settingsItems.animatedCaption.Checked = Config.AnimatedCaption end
+        if settingsItems.confirmDestructiveActions then settingsItems.confirmDestructiveActions.Checked = Config.ConfirmDestructiveActions end
+        if settingsItems.speedSlow then settingsItems.speedSlow.Checked = Config.AnimationInterval == 600 end
+        if settingsItems.speedNormal then settingsItems.speedNormal.Checked = Config.AnimationInterval == 350 end
+        if settingsItems.speedFast then settingsItems.speedFast.Checked = Config.AnimationInterval == 200 end
+    end
+    RefreshSettingsMenu()
 end
 
 --
@@ -705,21 +976,32 @@ end
 --- @return nil # No return value.
 --
 local function CreateUtilityEntries()
-    AddSubItem("Open Lua Engine",            function() RunInMainThread(function() if le then le.Show() end end) end,           Config.Indices.LuaEngine,   "Ctrl+L")
-    AddSubItem("Open Memory Viewer",         function() RunInMainThread(function() if mv then mv.Show() end end) end,           Config.Indices.Open)
+    AddSubItem("Open Lua Engine", function()
+        RunInMainThread(function()
+            RefreshUiReferences()
+            if le then le.Show() end
+        end)
+    end, Config.Indices.LuaEngine, "Ctrl+L")
+    AddSubItem("Open Memory Viewer", function()
+        RunInMainThread(function()
+            RefreshUiReferences()
+            if mv then mv.Show() end
+        end)
+    end, Config.Indices.Open)
     AddSeparator()
-    AddSubItem("Open Structure Dissect",     function() RunInMainThread(function() createStructureForm(nil,nil,nil) end) end,   Config.Indices.NewWindow)
-    AddSubItem("Generate Structure Records", function() GenerateStructure() end,                                                Config.Indices.NewWindow)
-    AddSubItem("Remove All Structures",      function() DeleteAllStructures() end,                                              Config.Indices.Destroy)
+    AddSubItem("Open Structure Dissect", function() RunInMainThread(function() createStructureForm(nil, nil, nil) end) end, Config.Indices.NewWindow)
+    AddSubItem("Generate Structure Records", function() GenerateStructure() end, Config.Indices.NewWindow)
+    AddSubItem("Remove All Structures", function() DeleteAllStructures() end, Config.Indices.Destroy)
     AddSeparator()
-    AddSubItem("Deactivate Scripts",         function() DeactivateActiveScripts() end,                                          Config.Indices.Toggle,      "Ctrl+D")
-    AddSubItem("Deactivate Everything",      function() DeactivateEverything() end,                                             Config.Indices.Toggle,      "Ctrl+F")
-    AddSubItem("Normalize Cheat Table IDs",  function() NormalizeCheatTableIDs() end,                                           Config.Indices.Toggle)
+    AddSubItem("Deactivate All Scripts", function() DeactivateActiveScripts() end, Config.Indices.Toggle, "Ctrl+D")
+    AddSubItem("Deactivate Everything", function() DeactivateEverything() end, Config.Indices.Toggle, "Ctrl+F")
+    AddSubItem("Normalize Cheat Table IDs", function() NormalizeCheatTableIDs() end, Config.Indices.Toggle)
     AddSeparator()
-    AddSubItem("Toggle Compact Mode",        function() ToggleCompactMode() end,                                                Config.Indices.Open,        "Ctrl+Shift+F")
+    AddSubItem("Toggle Compact Mode", function() ToggleCompactMode() end, Config.Indices.Open, "Ctrl+Shift+F")
     AddSeparator()
-    AddSubItem("Open Autorun Folder",        function() OpenAutorunFolder() end,                                                Config.Indices.Folder)
-    AddSubItem("Open Process Folder",        function() OpenProcessFolder() end,                                                Config.Indices.Folder)
+    AddSubItem("Open Autorun Folder", function() OpenAutorunFolder() end, Config.Indices.Folder)
+    AddSubItem("Open Process Folder", function() OpenProcessFolder() end, Config.Indices.Folder)
+    AddSettingsEntries()
 end
 
 ----------------------------------------
@@ -731,9 +1013,11 @@ end
 --- @return nil # No return value.
 --
 local function Main()
+    DisposePreviousInstance()
+    RefreshUiReferences()
     GetImageListAndIndices()
     AddTopMenuEntry()
-    CreateUtilityEntries()
+    if toolsMenuItem then CreateUtilityEntries() end
 end
 
 Main()
