@@ -1,12 +1,15 @@
 local NAME = "Manifold.Trampolines.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 local DESCRIPTION = "Manifold Framework Trampolines"
 
 --[[
     v1.0.0 (2026-06-19)
         Added PE-header relay trampoline management for Auto Assembler detours.
         Provides install, inline original emission, destroy, and runtime reset helpers.
+
+    v1.0.1 (2026-06-20)
+        Added original-code emission without an automatic return jump.
 ]]--
 
 Trampolines = {
@@ -820,11 +823,11 @@ function Trampolines:_buildOriginalRelocatedScript(entry, lines)
     return false
 end
 
-function Trampolines:_buildOriginalScript(entry)
+function Trampolines:_buildOriginalScript(entry, includeReturn)
     local original = entry.Name .. "_Original"
     local lines = { "label(" .. original .. ")", "", original .. ":" }
     local terminal = self:_buildOriginalRelocatedScript(entry, lines)
-    if not terminal then
+    if includeReturn ~= false and not terminal then
         lines[#lines + 1] = "  jmp " .. entry.Name .. "_Return"
     end
     lines[#lines + 1] = ""
@@ -922,7 +925,7 @@ function Trampolines:EmitOriginal(name)
     local entry = self:_getDetour(name)
     if not entry then return nil, nil, "no active detour found for '" .. tostring(name) .. "'" end
     entry.OriginalEmitted = true
-    local script = self:_buildOriginalScript(entry)
+    local script = self:_buildOriginalScript(entry, true)
     logger:Info(MODULE_PREFIX .. " EmitOriginal OK")
     logger:InfoF("   Name    : %s", entry.Name)
     logger:Info("   Mode    : relocated")
@@ -931,6 +934,20 @@ function Trampolines:EmitOriginal(name)
     return entry, script, nil
 end
 registerLuaFunctionHighlight('EmitOriginal')
+
+function Trampolines:EmitOriginalNoReturn(name)
+    local entry = self:_getDetour(name)
+    if not entry then return nil, nil, "no active detour found for '" .. tostring(name) .. "'" end
+    entry.OriginalEmitted = true
+    local script = self:_buildOriginalScript(entry, false)
+    logger:Info(MODULE_PREFIX .. " EmitOriginalNoReturn OK")
+    logger:InfoF("   Name    : %s", entry.Name)
+    logger:Info("   Mode    : relocated without automatic return")
+    logger:InfoF("   Original: %s", self:_fmtBytes(entry.OriginalBytes))
+    logger:Debug("   Generated AA:\n" .. script)
+    return entry, script, nil
+end
+registerLuaFunctionHighlight('EmitOriginalNoReturn')
 
 function Trampolines:EmitReturn(name)
     local entry = self:_getDetour(name)
