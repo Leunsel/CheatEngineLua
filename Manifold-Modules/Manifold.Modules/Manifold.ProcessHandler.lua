@@ -1,19 +1,18 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.4"
+local VERSION = "1.2.7"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
-    v1.2.4 (2026-06-20)
-        Use readInteger(process) as the sole process-availability check.
-        Reattach by opening the first process found by the AutoAttach timer.
+    v1.2.7 (2026-06-22)
+        Add a background process-exit fallback for cases where CE does not dispatch the watch timer.
 
-    v1.2.3 (2026-06-20)
-        Validate process attachment with the opened PID and readInteger(process).
-        Keep AutoAttach alive while CE resolves the process main module.
+    v1.2.6 (2026-06-22)
+        Track process-watch timer ticks and log callback failures instead of failing silently.
 
-    v1.2.2 (2026-06-19)
-        Forced Message Dialogs to main thread to prevent issues in CE 7.6.
+    v1.2.5 (2026-06-22)
+        Reset process-bound state after a successful manual attach when the PID changed.
+
 ]]--
 
 ProcessHandler = {
@@ -25,6 +24,11 @@ ProcessHandler = {
     AutoAttachOptions = nil,
     ProcessWatchTimerInterval = 1000,
     ProcessWatchTimer = nil,
+    ProcessWatchTimerTicks = 0,
+    ProcessWatchTimerLastTick = nil,
+    ProcessWatchGeneration = 0,
+    ProcessWatchFallbackTicks = 0,
+    ProcessWatchFallbackLastTick = nil,
     IsAutoAttaching = false,
     IsWatchingProcess = false,
     AttachedProcessName = nil,
@@ -259,6 +263,7 @@ registerLuaFunctionHighlight('StopAutoAttachTimer')
 function ProcessHandler:StopProcessWatchTimer(timer)
     local activeTimer = timer or self.ProcessWatchTimer
     if not activeTimer then
+        self.ProcessWatchGeneration = self.ProcessWatchGeneration + 1
         if self.IsWatchingProcess then
             logger:Warning("[ProcessHandler] Process watch state was active, but no timer existed. Resetting watch state.")
             self.IsWatchingProcess = false
@@ -268,6 +273,9 @@ function ProcessHandler:StopProcessWatchTimer(timer)
         return false
     end
     local isCurrentTimer = not timer or timer == self.ProcessWatchTimer
+    if isCurrentTimer then
+        self.ProcessWatchGeneration = self.ProcessWatchGeneration + 1
+    end
     _DestroyTimer(activeTimer)
     if isCurrentTimer then
         self.ProcessWatchTimer = nil
@@ -279,6 +287,53 @@ function ProcessHandler:StopProcessWatchTimer(timer)
     return true
 end
 registerLuaFunctionHighlight('StopProcessWatchTimer')
+
+--
+--- ∑ Starts a background fallback that detects a missing or replaced target PID when CE does not dispatch TTimer events.
+--- @param processName string # Target process name.
+--- @param processID number # PID expected to remain alive.
+--- @return boolean # True when the fallback thread was started.
+--
+function ProcessHandler:StartProcessWatchFallback(processName, processID)
+    if type(createThread) ~= "function" then
+        logger:Warning("[ProcessHandler] [Fallback] createThread is unavailable. Process watch fallback was not started.")
+        return false
+    end
+    local generation = self.ProcessWatchGeneration
+    local interval = self.ProcessWatchTimerInterval
+    self.ProcessWatchFallbackTicks = 0
+    self.ProcessWatchFallbackLastTick = nil
+    local ok, err = pcall(function()
+        createThread(function(thread)
+            while not thread.Terminated and self.ProcessWatchGeneration == generation do
+                sleep(interval)
+                if thread.Terminated or self.ProcessWatchGeneration ~= generation then
+                    return
+                end
+                self.ProcessWatchFallbackTicks = self.ProcessWatchFallbackTicks + 1
+                self.ProcessWatchFallbackLastTick = os.time()
+                local querySucceeded, currentProcessID = pcall(getProcessIDFromProcessName, processName)
+                if querySucceeded and currentProcessID ~= processID then
+                    thread.synchronize(function()
+                        if self.ProcessWatchGeneration == generation and self.AttachedProcessID == processID then
+                            self:HandleProcessUnavailable(
+                                "[Fallback] Process is no longer available. Expected PID: " .. tostring(processID) ..
+                                " | Current PID: " .. tostring(currentProcessID)
+                            )
+                        end
+                    end)
+                    return
+                end
+            end
+        end)
+    end)
+    if not ok then
+        logger:Error("[ProcessHandler] [Fallback] Failed to start process watch fallback: " .. tostring(err))
+        return false
+    end
+    return true
+end
+registerLuaFunctionHighlight('StartProcessWatchFallback')
 
 --
 --- ∑ Starts a timer that attaches to the target process when it appears.
@@ -340,6 +395,7 @@ registerLuaFunctionHighlight('AutoAttach')
 function ProcessHandler:AttachToProcess(processName, processID, options)
     processName = self:ResolveProcessName(processName)
     if not processName then return false end
+    local previousProcessID = self.AttachedProcessID
     processID = processID or getProcessIDFromProcessName(processName)
     if not processID then
         logger:Error("[ProcessHandler] Process '" .. tostring(processName) .. "' not found.")
@@ -359,6 +415,9 @@ function ProcessHandler:AttachToProcess(processName, processID, options)
     if not self:IsAttachedProcessAvailable() then
         logger:Debug("[ProcessHandler] PID " .. tostring(processID) .. " is open, but CE has not finished resolving 'process' for readInteger(process) yet.")
         return false
+    end
+    if previousProcessID ~= nil and previousProcessID ~= processID then
+        self:ResetProcessBoundState("Attached process changed. Previous PID: " .. tostring(previousProcessID) .. " | Current PID: " .. tostring(processID))
     end
     self.AttachedProcessName = processName
     self.AttachedProcessID = processID
@@ -419,16 +478,42 @@ function ProcessHandler:StartProcessWatchTimer(processName)
     if not processName then return false end
     self:StopProcessWatchTimer()
     self.ProcessWatchTimer = createTimer(MainForm)
+    self.ProcessWatchTimerTicks = 0
+    self.ProcessWatchTimerLastTick = nil
     self.ProcessWatchTimer.Interval = self.ProcessWatchTimerInterval
     self.ProcessWatchTimer.OnTimer = function(timer)
-        self:CheckWatchedProcess(timer)
+        self.ProcessWatchTimerTicks = self.ProcessWatchTimerTicks + 1
+        self.ProcessWatchTimerLastTick = os.time()
+        local ok, err = pcall(function()
+            self:CheckWatchedProcess(timer)
+        end)
+        if not ok then
+            logger:Error("[ProcessHandler] Process watch timer callback failed: " .. tostring(err))
+        end
     end
     self.ProcessWatchTimer.Enabled = true
     self.IsWatchingProcess = true
+    self:StartProcessWatchFallback(processName, self.AttachedProcessID)
     logger:Info("[ProcessHandler] Process watch timer started for '" .. tostring(processName) .. "'.")
     return true
 end
 registerLuaFunctionHighlight('StartProcessWatchTimer')
+
+--
+--- ∑ Returns the current process-watch timer state for diagnostics.
+--- @return table # Watch state, timer reference, tick count, and last tick timestamp.
+--
+function ProcessHandler:GetProcessWatchStatus()
+    return {
+        isWatching = self.IsWatchingProcess,
+        timer = self.ProcessWatchTimer,
+        ticks = self.ProcessWatchTimerTicks,
+        lastTick = self.ProcessWatchTimerLastTick,
+        fallbackTicks = self.ProcessWatchFallbackTicks,
+        fallbackLastTick = self.ProcessWatchFallbackLastTick,
+    }
+end
+registerLuaFunctionHighlight('GetProcessWatchStatus')
 
 --
 --- ∑ Checks if the watched process is still available.
