@@ -35,6 +35,23 @@ function File:FolderExists(path)
     return ok and attr and attr.mode == "directory" or false
 end
 
+function File:EnsureFolder(path)
+    path = normalizePath(path)
+    if not path then return false, "Invalid directory path" end
+    if self:FolderExists(path) then return true end
+
+    local parent = path:match("^(.*)/[^/]+$")
+    if parent and parent ~= "" and parent ~= path and not self:FolderExists(parent) then
+        local parentOk, parentErr = self:EnsureFolder(parent)
+        if not parentOk then return false, parentErr end
+    end
+
+    local ok, created, err = pcall(lfs.mkdir, path)
+    if ok and created then return true end
+    if self:FolderExists(path) then return true end
+    return false, tostring(err or created)
+end
+
 function File:Size(path)
     path = normalizePath(path)
     if not path then return 0 end
