@@ -3,6 +3,13 @@
 `Manifold-CE-Utility.lua` is an extension for Cheat Engine that provides quality-of-life helpers, wrapper functions, and utility routines for the Cheat Engine Lua API.  
 Once installed, the file is loaded automatically every time Cheat Engine starts.
 
+## Highlights
+
+- Reload-safe menu initialization, so re-running the autorun file does not accumulate caption timers or menu entries.
+- Optional confirmations for destructive bulk actions, enabled by default.
+- Transactional Cheat Table ID normalization with rollback if a write fails.
+- Live menu settings for caption animation and confirmation prompts.
+
 ![Preview](https://i.imgur.com/34oPdGt.png)
 
 ## Installation
@@ -21,3 +28,14 @@ If you don't know where your `autorun` directory is located, you can reveal it d
 
 The console will print the full path to your `autorun` directory.  
 Place the script in that folder, Cheat Engine will automatically load it the next time it starts.
+
+## Runtime settings
+
+Open the **Manifold > Settings** submenu to enable or disable the animated caption, choose a speed, reset its position, or toggle confirmations for destructive actions. These choices affect the current Cheat Engine session; the defaults are defined at the top of Manifold-CE-Utility.lua.
+
+With confirmations enabled, the following actions show the affected entry count before proceeding:
+
+- Remove all global structures
+- Deactivate all AutoAssembler scripts
+- Deactivate every active address-list entry
+- Normalize Cheat Table IDs
