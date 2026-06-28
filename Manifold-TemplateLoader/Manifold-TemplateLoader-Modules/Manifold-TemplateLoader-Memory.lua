@@ -452,7 +452,7 @@ function Memory:GetInjectionInfo(address, lineCount, removeSpaces)
         if removeSpaces then
             lines[#lines + 1] = string.format("%s - %s - %s", name, bytes:gsub("%s+", ""), opcode or "")
         else
-            lines[#lines + 1] = string.format("%s - %-24s - %s", name, bytes, opcode or "")
+            lines[#lines + 1] = string.format("%s - %s - %s", name, bytes, opcode or "")
         end
         local size = self:GetInstructionSize(current)
         if not size then break end

@@ -90,7 +90,7 @@ function UI:BuildTree(parent, tree)
                 Caption = entry.caption,
                 Name = entry.name,
                 ImageIndex = entry.image,
-                AutoCheck = entry.autoCheck == true,
+                AutoCheck = false,
                 RadioItem = entry.radio == true,
                 Checked = entry.checked == true,
                 OnClick = entry.onClick
@@ -162,10 +162,10 @@ local function injectionMenu(config, callbacks)
         { caption = "Set info line count...", name = "ManifoldSetInfoLines", onClick = callbacks.onSetLineCount },
         { caption = "Remove spaces", name = "ManifoldRemoveSpaces", autoCheck = true,
           checked = config.InjectionInfo.RemoveSpaces == true,
-          onClick = callbacks.onToggle("InjectionInfo", "RemoveSpaces", function(value) callbacks.memory:SetInjInfoRemoveSpaces(value) end) },
+          onClick = callbacks.onToggle("InjectionInfo", "RemoveSpaces", function(value) return callbacks.memory:SetInjInfoRemoveSpaces(value) end) },
         { caption = "Indent information", name = "ManifoldAddTabs", autoCheck = true,
           checked = config.InjectionInfo.AddTabs == true,
-          onClick = callbacks.onToggle("InjectionInfo", "AddTabs", function(value) callbacks.memory:SetInjInfoAddTabs(value) end) },
+          onClick = callbacks.onToggle("InjectionInfo", "AddTabs", function(value) return callbacks.memory:SetInjInfoAddTabs(value) end) },
         { caption = "Hook-name suffix...", name = "ManifoldSetSuffix", onClick = callbacks.onSetAppend }
     }
 end
@@ -174,13 +174,13 @@ local function memoryMenu(config, callbacks)
     return {
         { caption = "Ask for hook name", name = "ManifoldAskHookName", autoCheck = true,
           checked = config.Memory.AskForHookName == true,
-          onClick = callbacks.onToggle("Memory", "AskForHookName", function(value) callbacks.memory:SetAskForHookName(value) end) },
+          onClick = callbacks.onToggle("Memory", "AskForHookName", function(value) return callbacks.memory:SetAskForHookName(value) end) },
         { caption = "Ask for injection address", name = "ManifoldAskAddress", autoCheck = true,
           checked = config.Memory.AskForInjectionAddress == true,
-          onClick = callbacks.onToggle("Memory", "AskForInjectionAddress", function(value) callbacks.memory:SetAskForInjectionAddress(value) end) },
+          onClick = callbacks.onToggle("Memory", "AskForInjectionAddress", function(value) return callbacks.memory:SetAskForInjectionAddress(value) end) },
         { caption = "Allocate near injection", name = "ManifoldAllocationNear", autoCheck = true,
           checked = config.Memory.AllocationNear == true,
-          onClick = callbacks.onToggle("Memory", "AllocationNear", function(value) callbacks.memory:SetAllocationNear(value) end) },
+          onClick = callbacks.onToggle("Memory", "AllocationNear", function(value) return callbacks.memory:SetAllocationNear(value) end) },
         { caption = "Set allocation size...", name = "ManifoldAllocationSize", onClick = callbacks.onSetAllocationSize },
         { caption = "Default hook name...", name = "ManifoldDefaultHookName", onClick = callbacks.onSetDefaultHookName }
     }
