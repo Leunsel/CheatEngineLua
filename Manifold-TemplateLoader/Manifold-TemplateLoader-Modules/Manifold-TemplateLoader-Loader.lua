@@ -23,8 +23,41 @@ local memory = Memory:New()
 local manager = Manager:New()
 local ui = UI:New()
 
+local function safeGetEnv(name)
+    local ok, value = pcall(os.getenv, name)
+    return ok and type(value) == "string" and value ~= "" and value or nil
+end
+
+local function joinPath(...)
+    local parts = {}
+    for index = 1, select("#", ...) do
+        local part = select(index, ...)
+        if type(part) == "string" and part ~= "" then
+            part = part:gsub("[/\\]+$", "")
+            if #parts > 0 then part = part:gsub("^[/\\]+", "") end
+            parts[#parts + 1] = part
+        end
+    end
+    return table.concat(parts, sep)
+end
+
+local function getDataRoot()
+    local localAppData = safeGetEnv("LOCALAPPDATA")
+    if localAppData then return localAppData end
+
+    local userProfile = safeGetEnv("USERPROFILE")
+    if userProfile then return joinPath(userProfile, "AppData", "Local") end
+
+    return getAutorunPath()
+end
+
+local configDir = joinPath(getDataRoot(), "Manifold", "TemplateLoader")
+local legacyConfigPath = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "Manifold-TemplateLoader-Config.json"
+
 local Loader = {
-    ConfigPath = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "Manifold-TemplateLoader-Config.json",
+    ConfigDir = configDir,
+    ConfigPath = joinPath(configDir, "Manifold-TemplateLoader-Config.json"),
+    LegacyConfigPath = legacyConfigPath,
     DefaultConfig = {
         SchemaVersion = 3,
         Logger = { Level = "ERROR", LogToFile = true },
@@ -194,25 +227,33 @@ end
 -- Configuration -------------------------------------------------------------
 
 function Loader:LoadConfig()
-    local loaded = nil
-    if file:Exists(self.ConfigPath) then
-        local source, readErr = file:ReadFile(self.ConfigPath)
+    local loaded, loadedPath, primaryExists = nil, nil, file:Exists(self.ConfigPath)
+
+    local function tryLoad(path)
+        if not path or not file:Exists(path) then return nil end
+        local source, readErr = file:ReadFile(path)
         if not source then
             log:Error("[Loader] Could not read configuration: " .. tostring(readErr))
-        else
-            local ok, decoded = pcall(function() return json:decode(source) end)
-            if ok and type(decoded) == "table" then
-                loaded = decoded
-            else
-                log:Error("[Loader] Configuration is invalid; defaults are used without overwriting the file.")
-            end
+            return nil
         end
+        local ok, decoded = pcall(function() return json:decode(source) end)
+        if ok and type(decoded) == "table" then return decoded end
+        log:Error("[Loader] Configuration is invalid; defaults are used without overwriting the file.")
+        return nil
+    end
+
+    loaded = tryLoad(self.ConfigPath)
+    if loaded then
+        loadedPath = self.ConfigPath
+    elseif self.LegacyConfigPath ~= self.ConfigPath then
+        loaded = tryLoad(self.LegacyConfigPath)
+        if loaded then loadedPath = self.LegacyConfigPath end
     end
 
     self.Config = mergeKnown(self.DefaultConfig, loaded)
     self:ApplyConfig()
 
-    if not loaded and not file:Exists(self.ConfigPath) then
+    if (loaded and loadedPath ~= self.ConfigPath) or (not loaded and not primaryExists) then
         self:SaveConfig()
     end
     return self.Config
@@ -222,6 +263,11 @@ function Loader:SaveConfig()
     local ok, encoded = pcall(function() return json:encode_pretty(self.Config) end)
     if not ok then
         log:Error("[Loader] Failed to encode configuration: " .. tostring(encoded))
+        return false
+    end
+    local folderOk, folderErr = file:EnsureFolder(self.ConfigDir)
+    if not folderOk then
+        log:Error("[Loader] Failed to create configuration directory: " .. tostring(folderErr))
         return false
     end
     local saved, err = file:WriteFile(self.ConfigPath, encoded)
@@ -668,11 +714,11 @@ function Loader:GetMenuIndices(form)
 end
 
 function Loader:BuildUICallbacks()
-    local config = self.Config
     return {
         memory = memory,
         onLevelChange = function(level, sender)
             if not log.LogLevel[level] then return end
+            local config = self.Config
             config.Logger.Level = level
             log:SetLogLevel(log.LogLevel[level])
             if sender and sender.Parent then
@@ -684,7 +730,8 @@ function Loader:BuildUICallbacks()
             self:SaveConfig()
         end,
         onLogToFile = function(sender)
-            config.Logger.LogToFile = not config.Logger.LogToFile
+            local config = self.Config
+            config.Logger.LogToFile = not (config.Logger.LogToFile == true)
             log.LogToFile = config.Logger.LogToFile
             if sender then sender.Checked = config.Logger.LogToFile end
             self:SaveConfig()
@@ -697,6 +744,7 @@ function Loader:BuildUICallbacks()
             if file:FolderExists(folder) then shellExecute(folder) end
         end,
         onSetLineCount = function()
+            local config = self.Config
             local value = inputQuery("Injection information", "Number of surrounding instructions:", tostring(config.InjectionInfo.LineCount))
             local number = tonumber(value)
             if number and memory:SetInjInfoLineCount(number) then
@@ -705,6 +753,7 @@ function Loader:BuildUICallbacks()
             end
         end,
         onSetAppend = function()
+            local config = self.Config
             local value = inputQuery("Hook-name suffix", "Suffix added to generated hook symbols (empty is allowed):", config.InjectionInfo.AppendToHookName)
             if value ~= nil and memory:SetAppendToHookName(value) then
                 config.InjectionInfo.AppendToHookName = memory.AppendToHookName
@@ -712,6 +761,7 @@ function Loader:BuildUICallbacks()
             end
         end,
         onSetAllocationSize = function()
+            local config = self.Config
             local value = inputQuery("Allocation size", "Positive decimal or $HEX size:", config.Memory.AllocationSize)
             if value ~= nil and memory:SetAllocationSize(value) then
                 config.Memory.AllocationSize = memory.AllocationSize
@@ -719,6 +769,7 @@ function Loader:BuildUICallbacks()
             end
         end,
         onSetDefaultHookName = function()
+            local config = self.Config
             local value = inputQuery("Default hook name", "Used when asking for a hook name is disabled:", config.Memory.DefaultHookName)
             if value ~= nil and memory:SetDefaultHookName(value) then
                 config.Memory.DefaultHookName = memory.DefaultHookName
@@ -727,11 +778,16 @@ function Loader:BuildUICallbacks()
         end,
         onToggle = function(section, key, setter)
             return function(sender)
+                local config = self.Config
+                if type(config[section]) ~= "table" then return end
                 local value = not (config[section][key] == true)
                 if setter(value) then
                     config[section][key] = value
                     if sender then sender.Checked = value end
-                    self:SaveConfig()
+                    local saved = self:SaveConfig()
+                    if saved then
+                        log:Debug(string.format("[Loader] Saved configuration change: %s.%s=%s", section, key, tostring(value)))
+                    end
                 end
             end
         end,
