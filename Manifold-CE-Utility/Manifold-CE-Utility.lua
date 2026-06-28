@@ -121,14 +121,27 @@ end
 local function RunInMainThread(func)
     if type(func) ~= "function" then
         FailLog("RunInMainThread", "Invalid parameter; expected function.")
-        return
+        return false
     end
-    if inMainThread() then
+    local isMainThread = true
+    if type(inMainThread) == "function" then
+        local ok, result = pcall(inMainThread)
+        isMainThread = (not ok) or result
+    end
+    if isMainThread or type(synchronize) ~= "function" then
         local ok, err = pcall(func)
-        if not ok then FailLog("RunInMainThread", "Error executing in main thread: " .. tostring(err)) end
+        if not ok then
+            FailLog("RunInMainThread", "Error executing in main thread: " .. tostring(err))
+            return false
+        end
+        return true
     else
         local ok, err = pcall(function() synchronize(func) end)
-        if not ok then FailLog("RunInMainThread", "Synchronization failed: " .. tostring(err)) end
+        if not ok then
+            FailLog("RunInMainThread", "Synchronization failed: " .. tostring(err))
+            return false
+        end
+        return true
     end
 end
 
@@ -187,12 +200,6 @@ local function RepaintMainForm(tag)
 end
 
 local function ConfirmDestructiveAction(action, affectedCount)
-    RunInMainThread(function()
-        local result
-        ConfirmDestructiveAction = function(action, affectedCount)
-            return result
-        end
-    end)
     if not Config.ConfirmDestructiveActions then return true end
     if type(messageDialog) ~= "function"
         or type(mtConfirmation) ~= "number"
@@ -204,11 +211,12 @@ local function ConfirmDestructiveAction(action, affectedCount)
     end
     local countText = affectedCount and ("\n\nAffected entries: " .. tostring(affectedCount)) or ""
     local message = action .. countText .. "\n\nDo you want to continue?"
-    local ok, result = pcall(function()
-        return messageDialog(message, mtConfirmation, mbYes, mbNo)
+    local result = nil
+    local ok = RunInMainThread(function()
+        result = messageDialog(message, mtConfirmation, mbYes, mbNo)
     end)
     if not ok then
-        FailLog("Confirmation", "Dialog failed: " .. tostring(result))
+        FailLog("Confirmation", "Dialog failed.")
         return false
     end
     if result ~= mrYes then
@@ -829,12 +837,19 @@ local function StartCaptionAnimation()
     RuntimeState.rotationTimer = timer
     timer.Interval = Config.AnimationInterval
     timer.OnTimer = function()
-        if not toolsMenuItem then
+        local ok, err = pcall(function()
+            if not toolsMenuItem then
+                StopCaptionAnimation()
+                return
+            end
+            SetMenuCaption(RotateTicker())
+        end)
+        if not ok then
+            FailLog("AnimateCaption", "Timer callback failed: " .. tostring(err))
             StopCaptionAnimation()
-            return
         end
-        SetMenuCaption(RotateTicker())
     end
+    timer.Enabled = true
 end
 
 local function SetCaptionAnimationEnabled(enabled)
@@ -915,7 +930,12 @@ local function AddMenuItem(parent, caption, onclick, imageIndex, shortcut)
     item.Caption = caption or ""
     if imageIndex then item.ImageIndex = imageIndex end
     if shortcut then item.Shortcut = shortcut end
-    if onclick then item.OnClick = onclick end
+    if onclick then
+        item.OnClick = function(sender)
+            local ok, err = pcall(onclick, sender)
+            if not ok then FailLog("Menu:" .. tostring(caption or ""), tostring(err)) end
+        end
+    end
     parent.add(item)
     return item
 end
