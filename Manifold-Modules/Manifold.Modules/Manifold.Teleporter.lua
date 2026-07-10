@@ -1,9 +1,13 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
+    ∂ v1.1.5 (2026-07-10)
+        Added nested save category paths for Teleporter UI and generated save records.
+        Preserved legacy Category strings while writing normalized Categories arrays.
+
     ∂ v1.1.4 (2026-06-17)
         Requires Manifold.Forms for Teleporter UI control generation.
         Removed legacy CE-control fallback builders from the Teleporter UI path.
@@ -161,6 +165,31 @@ local writeFunctions = {
 }
 local valueTypeMap = { [0]="Byte", [1]="Word", [2]="Dword", [3]="Qword", [4]="Single", [5]="Double" }
 local typeSizeMap = { [vtByte]=1, [vtWord]=2, [vtDword]=4, [vtQword]=8, [vtSingle]=4, [vtDouble]=8 }
+local DEFAULT_CATEGORY = "Default"
+local CATEGORY_PATH_SEPARATOR = " / "
+
+local function trimString(value)
+    return tostring(value or ""):match("^%s*(.-)%s*$") or ""
+end
+
+local function sortCaseInsensitive(values)
+    table.sort(values, function(a, b)
+        return tostring(a):lower() < tostring(b):lower()
+    end)
+    return values
+end
+
+local function sortedKeys(source)
+    local keys = {}
+    for key in pairs(source or {}) do
+        keys[#keys + 1] = key
+    end
+    return sortCaseInsensitive(keys)
+end
+
+local function newCategoryNode()
+    return { Categories = {}, Saves = {} }
+end
 
 --
 --- ∑ Calculates the offsets for a 3D symbol based on the defined ValueType.
@@ -556,6 +585,150 @@ end
 registerLuaFunctionHighlight('TeleportToWaypoint')
 
 --
+--- ∑ Normalizes category input into a category path.
+---   Accepts a string path ("World / Region / Room") or a numeric table.
+--- @param categoryInput string|table # Raw category value.
+--- @return table # Ordered category path parts.
+--
+function Teleporter:NormalizeCategoryPath(categoryInput)
+    local path = {}
+    if type(categoryInput) == "table" then
+        for index = 1, #categoryInput do
+            local part = trimString(categoryInput[index])
+            if part ~= "" then
+                path[#path + 1] = part
+            end
+        end
+    elseif type(categoryInput) == "string" then
+        local normalized = categoryInput:gsub("\\", "/"):gsub(">", "/"):gsub("|", "/")
+        for part in normalized:gmatch("[^/]+") do
+            part = trimString(part)
+            if part ~= "" then
+                path[#path + 1] = part
+            end
+        end
+    end
+    return path
+end
+registerLuaFunctionHighlight('NormalizeCategoryPath')
+
+--
+--- ∑ Converts a category path table into the editor/display text format.
+--- @param categoryPath table|string # Category path table or string.
+--- @param includeDefault boolean # Whether an empty path should return "Default".
+--- @return string # Display text for the path.
+--
+function Teleporter:CategoryPathToText(categoryPath, includeDefault)
+    local path = self:NormalizeCategoryPath(categoryPath)
+    if #path == 0 then
+        return includeDefault ~= false and DEFAULT_CATEGORY or ""
+    end
+    return table.concat(path, CATEGORY_PATH_SEPARATOR)
+end
+registerLuaFunctionHighlight('CategoryPathToText')
+
+--
+--- ∑ Retrieves the category path for a save, supporting both new and legacy data.
+--- @param save table # Save data.
+--- @param includeDefault boolean # Whether an empty path should become {"Default"}.
+--- @return table # Ordered category path parts.
+--
+function Teleporter:GetSaveCategoryPath(save, includeDefault)
+    local path = {}
+    if type(save) == "table" then
+        path = self:NormalizeCategoryPath(save.Categories)
+        if #path == 0 then
+            path = self:NormalizeCategoryPath(save.Category)
+        end
+    end
+    if #path == 0 and includeDefault ~= false then
+        path = { DEFAULT_CATEGORY }
+    end
+    return path
+end
+registerLuaFunctionHighlight('GetSaveCategoryPath')
+
+--
+--- ∑ Stores a normalized category path on a save while keeping legacy Category text.
+--- @param save table # Save data to update.
+--- @param categoryInput string|table # Category path from the UI or caller.
+--
+function Teleporter:SetSaveCategoryPath(save, categoryInput)
+    if type(save) ~= "table" then
+        return
+    end
+    local path = self:NormalizeCategoryPath(categoryInput)
+    if #path == 0 then
+        save.Category = ""
+        save.Categories = nil
+        return
+    end
+    save.Categories = path
+    save.Category = self:CategoryPathToText(path, false)
+end
+registerLuaFunctionHighlight('SetSaveCategoryPath')
+
+--
+--- ∑ Adds a save name to a nested category tree.
+--- @param root table # Category tree root.
+--- @param categoryPath table # Ordered category path parts.
+--- @param saveName string # Save name to add.
+--
+function Teleporter:AddSaveToCategoryTree(root, categoryPath, saveName)
+    local node = root
+    for _, category in ipairs(categoryPath or {}) do
+        node.Categories[category] = node.Categories[category] or newCategoryNode()
+        node = node.Categories[category]
+    end
+    node.Saves[#node.Saves + 1] = saveName
+end
+registerLuaFunctionHighlight('AddSaveToCategoryTree')
+
+--
+--- ∑ Builds the Author -> Category Path -> Save hierarchy used by UI and CE records.
+--- @param includeSaveFunc function|nil # Optional predicate: fn(saveName, saveData, author, categoryText).
+--- @return table # Nested hierarchy grouped by author.
+--
+function Teleporter:BuildSaveHierarchy(includeSaveFunc)
+    self:EnsureAuthorsAndCategories()
+    local grouped = {}
+    for saveName, data in pairs(self.Saves or {}) do
+        if type(saveName) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
+            local author = trimString(data.Author)
+            if author == "" then
+                author = "Unknown"
+            end
+            local categoryPath = self:GetSaveCategoryPath(data, true)
+            local categoryText = self:CategoryPathToText(categoryPath, true)
+            if not includeSaveFunc or includeSaveFunc(saveName, data, author, categoryText) then
+                grouped[author] = grouped[author] or newCategoryNode()
+                self:AddSaveToCategoryTree(grouped[author], categoryPath, saveName)
+            end
+        end
+    end
+    return grouped
+end
+registerLuaFunctionHighlight('BuildSaveHierarchy')
+
+--
+--- ∑ Resolves a save name from a tree node, ignoring author/category headers.
+--- @param node table # Tree node to inspect.
+--- @return string|nil # Save name when the node represents a save.
+--
+function Teleporter:GetSaveNameFromTreeNode(node)
+    if not node or not self.Saves then
+        return nil
+    end
+    local name = node.Text
+    local childCount = tonumber(node.Count) or 0
+    if childCount == 0 and name and self.Saves[name] then
+        return name
+    end
+    return nil
+end
+registerLuaFunctionHighlight('GetSaveNameFromTreeNode')
+
+--
 --- ∑ Prints all saved locations grouped by author and category in a structured and readable format.
 --
 function Teleporter:PrintSaves()
@@ -563,56 +736,36 @@ function Teleporter:PrintSaves()
         logger:ForceError("[Teleporter] No saves found.")
         return
     end
-    local grouped = {}
     local totalCount = 0
     for name, save in pairs(self.Saves) do
         if type(save) == "table" and save.X and save.Y and save.Z then
-            local author = (save.Author and tostring(save.Author) ~= "") and tostring(save.Author) or "Unknown"
-            local category = (save.Category and tostring(save.Category) ~= "") and tostring(save.Category) or "Default"
-            grouped[author] = grouped[author] or {}
-            grouped[author][category] = grouped[author][category] or {}
-            table.insert(grouped[author][category], {
-                Name = tostring(name),
-                X = save.X,
-                Y = save.Y,
-                Z = save.Z,
-                Description = (save.Description and tostring(save.Description) ~= "") and tostring(save.Description) or nil
-            })
             totalCount = totalCount + 1
         else
             logger:ForceErrorF("[Teleporter] Invalid save entry: '%s'", tostring(name))
         end
     end
-    local authors = {}
-    for author in pairs(grouped) do
-        table.insert(authors, author)
-    end
-    table.sort(authors, function(a, b)
-        return a:lower() < b:lower()
-    end)
-    logger:ForceInfoF("[Teleporter] Saved Locations (%d)", totalCount)
-    for _, author in ipairs(authors) do
-        logger:ForceInfoF("[Teleporter] Author: %s", author)
-        local categories = {}
-        for category in pairs(grouped[author]) do
-            table.insert(categories, category)
+    local grouped = self:BuildSaveHierarchy()
+    local function printCategoryNode(node, indentLevel)
+        for _, category in ipairs(sortedKeys(node.Categories)) do
+            logger:ForceInfoF("[Teleporter] %sCategory: %s", string.rep("  ", indentLevel), category)
+            printCategoryNode(node.Categories[category], indentLevel + 1)
         end
-        table.sort(categories, function(a, b)
-            return a:lower() < b:lower()
-        end)
-        for _, category in ipairs(categories) do
-            logger:ForceInfoF("[Teleporter]   Category: %s", category)
-            local saves = grouped[author][category]
-            table.sort(saves, function(a, b)
-                return a.Name:lower() < b.Name:lower()
-            end)
-            for _, save in ipairs(saves) do
-                logger:ForceInfoF("[Teleporter]     — %s | (%.3f, %.3f, %.3f)", save.Name, save.X, save.Y, save.Z)
-                if save.Description then
-                    logger:ForceInfoF("[Teleporter]       Description: %s", save.Description)
+        sortCaseInsensitive(node.Saves)
+        for _, saveName in ipairs(node.Saves) do
+            local save = self.Saves[saveName]
+            if type(save) == "table" then
+                logger:ForceInfoF("[Teleporter] %s- %s | (%.3f, %.3f, %.3f)",
+                    string.rep("  ", indentLevel), saveName, save.X, save.Y, save.Z)
+                if save.Description and tostring(save.Description) ~= "" then
+                    logger:ForceInfoF("[Teleporter] %s  Description: %s", string.rep("  ", indentLevel), save.Description)
                 end
             end
         end
+    end
+    logger:ForceInfoF("[Teleporter] Saved Locations (%d)", totalCount)
+    for _, author in ipairs(sortedKeys(grouped)) do
+        logger:ForceInfoF("[Teleporter] Author: %s", author)
+        printCategoryNode(grouped[author], 1)
     end
 end
 registerLuaFunctionHighlight('PrintSaves')
@@ -725,6 +878,7 @@ function Teleporter:SaveLookup()
         local data, err = customIO:ReadFromFileAsJson(saveFilePath)
         if data then
             self.Saves = data
+            self:EnsureAuthorsAndCategories()
             local saveCount = 0
             for _, _ in pairs(self.Saves) do
                 saveCount = saveCount + 1
@@ -739,6 +893,7 @@ function Teleporter:SaveLookup()
     local tableData, tableErr = customIO:ReadFromTableFileAsJson(saveFileName)
     if tableData then
         self.Saves = tableData
+        self:EnsureAuthorsAndCategories()
         local saveCount = 0
         for _, _ in pairs(self.Saves) do
             saveCount = saveCount + 1
@@ -824,61 +979,22 @@ function Teleporter:CreateTeleporterSaves()
     end
     local ok, err = pcall(function()
         self:ClearSubrecords(root)
-        local grouped = {}
-        for saveName, data in pairs(self.Saves or {}) do
-            if type(data) == "table" and data.X and data.Y and data.Z then
-                local author = data.Author or "Unknown"
-                local category = (data.Category and data.Category ~= "") and data.Category or "Default"
-                grouped[author] = grouped[author] or {}
-                grouped[author][category] = grouped[author][category] or {}
-                table.insert(grouped[author][category], saveName)
-            end
-        end
-        local sortedAuthors = {}
-        for author in pairs(grouped) do
-            table.insert(sortedAuthors, author)
-        end
-        table.sort(sortedAuthors, function(a, b)
-            return a:lower() < b:lower()
-        end)
+        local grouped = self:BuildSaveHierarchy()
         local totalSaves = 0
-        for _, author in ipairs(sortedAuthors) do
-            local authorHeader = addressList.createMemoryRecord()
-            authorHeader.Type = vtGroupHeader
-            authorHeader.Description = string.format("[— %s —] ()->", author)
-            authorHeader.Color = 0xFFFFFF
-            authorHeader.Parent = root
-            authorHeader.IsAddressGroupHeader = false
-            local categories = grouped[author]
-            local sortedCategories = {}
-            for category in pairs(categories) do
-                table.insert(sortedCategories, category)
+        local function createSaveRecord(parentRecord, saveName, author)
+            local position = self.Saves[saveName]
+            if type(position) ~= "table" then
+                return
             end
-            table.sort(sortedCategories, function(a, b)
-                return a:lower() < b:lower()
-            end)
-            for _, category in ipairs(sortedCategories) do
-                local categoryHeader = addressList.createMemoryRecord()
-                categoryHeader.Type = vtGroupHeader
-                categoryHeader.IsAddressGroupHeader = false
-                categoryHeader.Description = string.format("[— %s —] ()->", category)
-                categoryHeader.Color = 0xFFFFFF
-                categoryHeader.Parent = authorHeader
-
-                local saves = categories[category]
-                table.sort(saves, function(a, b)
-                    return a:lower() < b:lower()
-                end)
-
-                for _, saveName in ipairs(saves) do
-                    local position = self.Saves[saveName]
-                    local scriptContent = string.format([[
+            local categoryText = self:CategoryPathToText(self:GetSaveCategoryPath(position, true), true)
+            local scriptContent = string.format([[
 {$lua}
 [ENABLE]
 if syntaxcheck then return end
 -- .................................................................
 --- Save: %s
 --- Author: %s
+--- Category: %s
 ---- X: %.4f
 ---- Y: %.4f
 ---- Z: %.4f
@@ -890,19 +1006,41 @@ utils:AutoDisable(memrec.ID)
 --- Script generated using %s
 ---- Version: %s
 ---- Source: https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Modules
-]], saveName, author, position.X, position.Y, position.Z, saveName, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
+]], saveName, author, categoryText, position.X, position.Y, position.Z, saveName, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
 
-                    local mr = addressList.createMemoryRecord()
-                    mr.Type = vtAutoAssembler
-                    mr.Description = "Teleport To: '" .. saveName .. "' ()->"
-                    mr.Color = 0xFFFFFF
-                    mr.Parent = categoryHeader
-                    mr.Script = scriptContent
-                    totalSaves = totalSaves + 1
-                end
+            local mr = addressList.createMemoryRecord()
+            mr.Type = vtAutoAssembler
+            mr.Description = "Teleport To: '" .. saveName .. "' ()->"
+            mr.Color = 0xFFFFFF
+            mr.Parent = parentRecord
+            mr.Script = scriptContent
+            totalSaves = totalSaves + 1
+        end
+        local function createCategoryRecords(parentRecord, node, author)
+            for _, category in ipairs(sortedKeys(node.Categories)) do
+                local categoryHeader = addressList.createMemoryRecord()
+                categoryHeader.Type = vtGroupHeader
+                categoryHeader.IsAddressGroupHeader = false
+                categoryHeader.Description = string.format("[— %s —] ()->", category)
+                categoryHeader.Color = 0xFFFFFF
+                categoryHeader.Parent = parentRecord
+                createCategoryRecords(categoryHeader, node.Categories[category], author)
+            end
+            sortCaseInsensitive(node.Saves)
+            for _, saveName in ipairs(node.Saves) do
+                createSaveRecord(parentRecord, saveName, author)
             end
         end
-        logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves (grouped by Author and Category).", totalSaves)
+        for _, author in ipairs(sortedKeys(grouped)) do
+            local authorHeader = addressList.createMemoryRecord()
+            authorHeader.Type = vtGroupHeader
+            authorHeader.Description = string.format("[— %s —] ()->", author)
+            authorHeader.Color = 0xFFFFFF
+            authorHeader.Parent = root
+            authorHeader.IsAddressGroupHeader = false
+            createCategoryRecords(authorHeader, grouped[author], author)
+        end
+        logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves (grouped by Author and Category Path).", totalSaves)
     end)
     if didBeginUpdate then
         if addressList.endUpdate then
@@ -1130,7 +1268,7 @@ function Teleporter:LoadSaveIntoEditor(name)
     ui.CurrentSelection = name
     ui.NameEdit.Text = name
     ui.AuthorEdit.Text = save.Author or self:GetCurrentAuthor()
-    ui.CategoryEdit.Text = save.Category or ""
+    ui.CategoryEdit.Text = self:CategoryPathToText(self:GetSaveCategoryPath(save, false), false)
     ui.XEdit.Text = tostring(save.X or "")
     ui.YEdit.Text = tostring(save.Y or "")
     ui.ZEdit.Text = tostring(save.Z or "")
@@ -1182,47 +1320,30 @@ function Teleporter:RefreshUi(preserveSelection)
     local query = (ui.SearchEdit and ui.SearchEdit.Text or ui.SearchQuery or ""):lower()
     ui.TreeView.beginUpdate()
     ui.TreeView.Items:clear()
-    self:EnsureAuthorsAndCategories()
-    local grouped = {}
-    for saveName, data in pairs(self.Saves or {}) do
-        if type(saveName) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
-            local author = data.Author or "Unknown"
-            local category = (data.Category and data.Category ~= "") and data.Category or "Default"
-            local description = data.Description or ""
-            local haystack = string.lower(table.concat({ saveName, author, category, description }, " "))
-            if query == "" or haystack:find(query, 1, true) then
-                grouped[author] = grouped[author] or {}
-                grouped[author][category] = grouped[author][category] or {}
-                table.insert(grouped[author][category], saveName)
+    local grouped = self:BuildSaveHierarchy(function(saveName, data, author, categoryText)
+        local description = data.Description or ""
+        local haystack = string.lower(table.concat({ saveName, author, categoryText, description }, " "))
+        return query == "" or haystack:find(query, 1, true)
+    end)
+    local function addCategoryNodes(parentTreeNode, categoryNode)
+        for _, category in ipairs(sortedKeys(categoryNode.Categories)) do
+            local categoryTreeNode = parentTreeNode:add()
+            categoryTreeNode.Text = category
+            addCategoryNodes(categoryTreeNode, categoryNode.Categories[category])
+        end
+        sortCaseInsensitive(categoryNode.Saves)
+        for _, saveName in ipairs(categoryNode.Saves) do
+            local saveNode = parentTreeNode:add()
+            saveNode.Text = saveName
+            if previousSelection and previousSelection == saveName then
+                ui.TreeView.Selected = saveNode
             end
         end
     end
-    local authors = {}
-    for author in pairs(grouped) do
-        table.insert(authors, author)
-    end
-    table.sort(authors, function(a, b) return a:lower() < b:lower() end)
-    for _, author in ipairs(authors) do
+    for _, author in ipairs(sortedKeys(grouped)) do
         local authorNode = ui.TreeView.Items:add()
         authorNode.Text = author
-        local categories = {}
-        for category in pairs(grouped[author]) do
-            table.insert(categories, category)
-        end
-        table.sort(categories, function(a, b) return a:lower() < b:lower() end)
-        for _, category in ipairs(categories) do
-            local categoryNode = authorNode:add()
-            categoryNode.Text = category
-            local saves = grouped[author][category]
-            table.sort(saves, function(a, b) return a:lower() < b:lower() end)
-            for _, saveName in ipairs(saves) do
-                local saveNode = categoryNode:add()
-                saveNode.Text = saveName
-                if previousSelection and previousSelection == saveName then
-                    ui.TreeView.Selected = saveNode
-                end
-            end
-        end
+        addCategoryNodes(authorNode, grouped[author])
     end
     ui.TreeView.endUpdate()
     ui.IsRefreshing = false
@@ -1257,14 +1378,15 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
         return false
     end
     self.Saves = self.Saves or {}
-    self.Saves[saveName] = {
+    local save = {
         X = position[1],
         Y = position[2],
         Z = position[3],
         Author = self:GetCurrentAuthor(),
-        Category = category or "",
         Description = description or "",
     }
+    self:SetSaveCategoryPath(save, category)
+    self.Saves[saveName] = save
     self:PersistSaves(true)
     self:SetSelectedSaveName(saveName)
     self:RefreshUi(true)
@@ -1370,14 +1492,15 @@ function Teleporter:DuplicateSelectedSave()
     end
     local newName = self:GenerateUniqueCopyName(sourceName)
     local src = self.Saves[sourceName]
-    self.Saves[newName] = {
+    local copiedSave = {
         X = src.X,
         Y = src.Y,
         Z = src.Z,
         Author = src.Author or self:GetCurrentAuthor(),
-        Category = src.Category or "",
         Description = src.Description or "",
     }
+    self:SetSaveCategoryPath(copiedSave, self:GetSaveCategoryPath(src, false))
+    self.Saves[newName] = copiedSave
     self:PersistSaves(true)
     self:SetSelectedSaveName(newName)
     self:RefreshUi(true)
@@ -1420,7 +1543,7 @@ function Teleporter:UpdateSelectedSaveFromEditor()
     save.Y = position[2]
     save.Z = position[3]
     save.Author = ui.AuthorEdit.Text ~= "" and ui.AuthorEdit.Text or self:GetCurrentAuthor()
-    save.Category = ui.CategoryEdit.Text or ""
+    self:SetSaveCategoryPath(save, ui.CategoryEdit.Text or "")
     save.Description = ui.DescriptionEdit.Lines.Text or ""
     self:PersistSaves(true)
     self:SetSelectedSaveName(newName)
@@ -1716,17 +1839,19 @@ function Teleporter:CreateTreePanel(parent)
     ui.TreeStatsLabel = hint
     tree.OnClick = function()
         local selected = tree.Selected
-        if selected and selected.Level == 2 then
-            self:SetSelectedSaveName(selected.Text)
-            self:LoadSaveIntoEditor(selected.Text)
-            self:SetStatus("Selected: " .. selected.Text)
+        local saveName = self:GetSaveNameFromTreeNode(selected)
+        if saveName then
+            self:SetSelectedSaveName(saveName)
+            self:LoadSaveIntoEditor(saveName)
+            self:SetStatus("Selected: " .. saveName)
         end
     end
     tree.OnDblClick = function()
         local selected = tree.Selected
-        if selected and selected.Level == 2 then
-            self:SetSelectedSaveName(selected.Text)
-            self:TeleportToSave(selected.Text)
+        local saveName = self:GetSaveNameFromTreeNode(selected)
+        if saveName then
+            self:SetSelectedSaveName(saveName)
+            self:TeleportToSave(saveName)
         end
     end
     return outer
@@ -1821,7 +1946,12 @@ function Teleporter:CreateEditorPanel(parent)
         color = theme.COLOR_PANEL,
         role = "panel"
     })
-    local categoryEdit, categoryRow, categoryLabel, categoryBorder, categoryFill, categoryInner = forms:CreateFieldRow(topGroup, { caption = "Category", theme = theme })
+    local categoryEdit, categoryRow, categoryLabel, categoryBorder, categoryFill, categoryInner = forms:CreateFieldRow(topGroup, {
+        caption = "Category Path",
+        labelWidth = 108,
+        textHint = "World / Region / Room",
+        theme = theme
+    })
     local authorEdit, authorRow, authorLabel, authorBorder, authorFill, authorInner = forms:CreateFieldRow(topGroup, { caption = "Author", theme = theme })
     local nameEdit, nameRow, nameLabel, nameBorder, nameFill, nameInner = forms:CreateFieldRow(topGroup, { caption = "Name", theme = theme })
     local zEdit, zRow, zLabel, zBorder, zFill, zInner = forms:CreateFieldRow(bottomGroup, { caption = "Z", theme = theme })
@@ -1922,6 +2052,7 @@ function Teleporter:EnsureAuthorsAndCategories()
         if type(data) == "table" then
             data.Author = data.Author or self:GetCurrentAuthor()
             data.Category = data.Category or ""
+            self:SetSaveCategoryPath(data, self:GetSaveCategoryPath(data, false))
             data.Description = data.Description or ""
         end
     end
