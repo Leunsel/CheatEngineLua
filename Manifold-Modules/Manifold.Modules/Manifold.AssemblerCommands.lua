@@ -27,6 +27,9 @@ local DESCRIPTION = "Manifold Framework Assembler Commands"
 
     v1.2.5 (2026-06-20)
         Added ManifoldEmitOriginalNoReturn for emitting relocated original code without an automatic return jump.
+
+    v1.2.6 (2026-08-21)
+        (Minor) Added Instruction Log to _aobScanModuleUnique.
 ]]--
 
 AssemblerCommands = {
@@ -1036,6 +1039,8 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     logger:Info("   Status      : OK")
     logger:InfoF("   Signature ID: %s", tostring(signatureId))
     logger:InfoF("   Address     : %s", getNameFromAddress(addrOrErr))
+    local _, opcode, __, ___ = splitDisassembledString(disassemble(addrOrErr))
+    logger:InfoF("   Instruction : %s", opcode)
     return addrOrErr, nil
 end
 
