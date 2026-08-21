@@ -33,7 +33,7 @@ Every item names the file and line, what goes wrong, and what to do about it.
 
 ### 🟡 Medium
 
-- [ ] [**T10** — Logging always writes to the file regardless of level](#t10-logging-always-writes-to-the-file-regardless-of-level) · Framework
+- [X] **T10** — No fix required. By design: the full file output makes it easier to debug inconsistencies or errors a user reports.
 - [ ] [**T11** — Every memory access emits an info log line](#t11-every-memory-access-emits-an-info-log-line) · Framework
 - [ ] [**T12** — Reading table files does not scale](#t12-reading-table-files-does-not-scale) · Framework
 - [ ] [**T13** — The data directory is hard-coded twice](#t13-the-data-directory-is-hard-coded-twice) · Framework
@@ -41,14 +41,14 @@ Every item names the file and line, what goes wrong, and what to do about it.
 - [ ] [**T15** — CSV without quoting](#t15-csv-without-quoting) · Framework
 - [ ] [**T16** — `OpenDirectory` builds a shell line with `string.format`](#t16-opendirectory-builds-a-shell-line-with-stringformat) · Framework
 - [ ] [**T17** — `_markProcessChangedAndThrow` does not throw](#t17-_markprocesschangedandthrow-does-not-throw) · Framework
-- [ ] [**T18** — The Template Loader log writes into Program Files](#t18-the-template-loader-log-writes-into-program-files) · Template Loader
+- [X] **T18** — Deferred. Cheat Engine 7.5 always runs as administrator, so the path is writable today. Potential CE 7.6+ problem; scheduled for review once 7.6 is actively used.
 - [X] **T19** — Edit: Backup Instance of Manifold.AssemblerCommands.lua due to automated Trampoline-Implementation attempt. (Success)
 - [ ] [**T20** — Callback hooks are chained inconsistently](#t20-callback-hooks-are-chained-inconsistently) · Framework
 
 ### 🔵 Documentation and tests
 
 - [ ] [**T21** — Documentation and version drift](#t21-documentation-and-version-drift) · all
-- [ ] [**T22** — Missing tests for the riskiest paths](#t22-missing-tests-for-the-riskiest-paths) · Framework
+- [X] **T22** — No fix required. Unit tests are not relevant in this context.
 
 ### Larger refactors
 
@@ -300,48 +300,6 @@ if not rec then rec = descriptionLookup[mr.Description] end
 
 ---
 
-## T10. Logging always writes to the file regardless of level
-
-🟡 [`Manifold.Logger.lua:216–232`](../Manifold-Modules/Manifold.Modules/Manifold.Logger.lua)
-
-```lua
-function Logger:_DispatchLog(level, message, forced)
-    local levelName, levelId = self:_ResolveLevel(level)
-    ...
-    self:_WriteToLogFile(formattedMessage)          -- ← always
-    if forced ~= true and levelId < self.Level then
-        return                                      -- ← filter only afterwards
-    end
-```
-
-`SetLevel` therefore only filters **console output**. Every `Debug` line still lands on disk —
-including the line `Manifold.Memory` emits on **every** read and write (see
-[T11](#t11-every-memory-access-emits-an-info-log-line)).
-
-Making it worse: `_WriteToLogFile` → `customIO:AppendToFile` reopens the file on **every** call
-(`io.open(path, "a")`, write, `close`). At high log frequency that is the dominant cost.
-
-**Fix.**
-
-```lua
-Logger.FileLevel = Logger.Levels.DEBUG   -- separate, configurable threshold
-
-function Logger:_DispatchLog(level, message, forced)
-    local levelName, levelId = self:_ResolveLevel(level)
-    if not levelId then return end
-    local passesConsole = forced == true or levelId >= self.Level
-    local passesFile    = forced == true or levelId >= self.FileLevel
-    if not passesConsole and not passesFile then return end
-    local formatted = self:_FormatLogMessage(levelName, message, forced == true)
-    if passesFile then self:_WriteToLogFile(formatted) end
-    if passesConsole then … end
-end
-```
-
-Additionally: keep the file handle open, or buffer lines and flush every *n* entries and
-immediately at `WARNING` and above.
-
----
 
 ## T11. Every memory access emits an info log line
 
@@ -352,9 +310,9 @@ logger:InfoF("%s Successfully read %s from address '%s': " .. typeInfo.format, �
 logger:InfoF("%s Successfully wrote %s " .. typeInfo.format .. " to address '%s'", …)
 ```
 
-Successful operations log at **INFO**, not DEBUG. Combined with
-[T10](#t10-logging-always-writes-to-the-file-regardless-of-level) that means every
-`SafeReadFloat` triggers a full open-write-close cycle on disk.
+Successful operations log at **INFO**, not DEBUG. Because the logger writes every line to the
+file regardless of `Level` (deliberately — see T10), each `SafeReadFloat` triggers a full
+open-write-close cycle on disk.
 
 A single teleport reads and writes at least 12 values — 12 file operations per jump. A 100 ms
 timer displaying a position produces 30 per second.
@@ -644,56 +602,6 @@ empty.
 
 ---
 
-## T18. The Template Loader log writes into Program Files
-
-🟡 [`Manifold-TemplateLoader-Log.lua:40`](../Manifold-TemplateLoader/Manifold-TemplateLoader-Modules/Manifold-TemplateLoader-Log.lua)
-
-```lua
-LogFileName = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep
-              .. "Manifold-TemplateLoader-Log.txt",
-```
-
-A default installation lives under `C:\Program Files\Cheat Engine 7.x\autorun`, which is not
-writable without administrator rights. `_LogToFile` then fails silently:
-
-```lua
-local file = io.open(self.LogFileName, "a")
-if file then …  end          -- no else, no message
-```
-
-The menu shows "Write log file ☑" as enabled while nothing is written. And `onViewLog` checks
-`file:Exists(log.LogFileName)` — the file never exists, so the menu item appears to do nothing.
-
-The configuration file was already migrated to `%LOCALAPPDATA%\Manifold\TemplateLoader\`; the log
-was left behind.
-
-**Fix.** Use the same location and report failures once:
-
-```lua
--- Log receives the path from the Loader instead of guessing it
-function Log:SetLogFilePath(path) self.LogFileName = path end
-
--- Loader:LoadConfig
-log:SetLogFilePath(joinPath(self.ConfigDir, "Manifold-TemplateLoader-Log.txt"))
-```
-
-```lua
-function Log:_LogToFile(message)
-    if not self.LogToFile then return end
-    local file, err = io.open(self.LogFileName, "a")
-    if not file then
-        if not self._fileWarningShown then
-            self._fileWarningShown = true
-            print("[TemplateLoader] Log file is not writable: " .. tostring(err))
-        end
-        return
-    end
-    file:write(message .. "\n")
-    file:close()
-end
-```
-
----
 
 ## T20. Callback hooks are chained inconsistently
 
@@ -762,48 +670,6 @@ five-line script and prevents exactly this class of drift.
 
 ---
 
-## T22. Missing tests for the riskiest paths
-
-🔵 [`Manifold.Testing/Manifold.UnitTest.lua`](../Manifold-Modules/Manifold.Modules/Manifold.Testing/Manifold.UnitTest.lua)
-
-The runner is well built, but the modules with the most complex logic are exactly the ones that get
-skipped:
-
-```
-AutoAssembler       → "Behavior test skipped (AA environment dependent)"
-AssemblerCommands   → "skipped (Auto Assembler / CE command registration context dependent)"
-Teleporter          → "skipped (3D game/runtime/UI dependent)"
-ProcessHandler      → "skipped (attached process dependent)"
-UI                  → "skipped (GUI/theme runtime dependent)"
-```
-
-Much of that is testable without a running game because it is pure functions:
-
-| Testable without a process | Module |
-|---|---|
-| `_stateKey`, `_scriptUsesTrampolines`, `FormatFileName` | AutoAssembler |
-| `_parseBytesPattern`, `_parseNumber`, `_splitArgs`, `_findPatternMismatch`, `_buildNopBytes` | AssemblerCommands |
-| `_buildRel32Jump`, `_alignUp`, `_isHeaderCaveFree` (with a byte array) | Trampolines |
-| `NormalizeCategoryPath`, `CategoryPathToText`, `GetSaveCategoryPath`, `BuildSaveHierarchy` | Teleporter |
-| `RGB2BGR`, `BGR2RGB`, `ProcessThemeData`, `NormalizeTheme`, `TokenColor` | UI |
-| `ResolveTheme` | Forms |
-| `Compile`, `NormalizeAllocationSize`, `NormalizeSymbolName`, `FormatHookName` | Template Loader |
-| `mergeKnown`, `ValidateSettings` | Template Loader |
-
-**Fix.** Cover exactly those. `Compile` and `GetRegisterData` would have caught
-[T2](#t2-baseaddressregister-is-always-empty-in-the-template-context) immediately:
-
-```lua
-ctx:expect(memory:GetRegisterData("mov [rax+30],eax") == "rax",
-           "GetRegisterData recognises [reg+off]")
-ctx:expect(memory:GetRegisterData("mov [rcx],eax") == "rcx",
-           "GetRegisterData recognises [reg]")
-```
-
-Worth doing even without a test harness: the Template Loader's pure functions can run in a
-standalone Lua without Cheat Engine, as long as `getAutorunPath` and `lfs` are stubbed.
-
----
 
 # Larger refactors
 
@@ -813,9 +679,9 @@ Bigger changes that resolve several items above at once.
 
 The framework currently occupies around 30 global names: 15 classes (`Logger`, `CustomIO`, `UI`,
 …) and 15 instances (`logger`, `customIO`, `ui`, …), plus `JSON`, `Forms`, `Trampolines`. Every one
-of them can collide with another autorun or table script — and
-[T1](#t1-ui-reads-an-undefined-global-manifold) shows the author already assumed a namespace table
-in one place.
+of them can collide with another autorun or table script. A namespace table is already assumed in
+one place: `Manifold.UI` reads `Manifold.Setup.IsRelease`, which the Cheat Table's own Lua script
+is expected to provide.
 
 ```lua
 -- Manifold.Core.lua (new)
@@ -875,8 +741,7 @@ end
 return Bootstrap
 ```
 
-The `validate` field also resolves
-[T7](#t7-json-instances-do-not-survive-a-module-reload):
+The `validate` field also resolves [T7](#t7-json-instances-do-not-survive-a-module-reload):
 
 ```lua
 { name = "json", path = "Manifold.Json",
