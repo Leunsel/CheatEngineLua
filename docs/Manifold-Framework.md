@@ -539,17 +539,32 @@ dealloc(*)
 
 ```asm
 [ENABLE]
-ManifoldScanModule(DamageInject, Game.exe, F3 0F 11 41 3C)
-alloc(DamageCode, $1000, DamageInject)
 
-DamageCode:
-  // custom logic here
-  ManifoldEmitOriginal(Damage)   // original instructions + jmp Damage_Return
+ManifoldScanModule(cWeaponGunAmmoHook,MonsterHunterWilds.exe,48 8B ? ? 48 8B ? ? 48 ? 48 F7 ? ? 49 89 ? 48 89 ? 48 ? 48 F7 ? ? 49 39 ? 0F 9C)
+alloc(n_cWeaponGunAmmo,$1000)
 
-ManifoldInstallDetour(Damage, DamageInject, DamageCode)
+ManifoldInstallDetour(cWeaponGunAmmo,cWeaponGunAmmoHook,n_cWeaponGunAmmo)
+ManifoldAssert(cWeaponGunAmmoHook,48 8B 46 10 48 8B 4E 20)
+
+label(o_cWeaponGunAmmo)
+label(cWeaponGunAmmoPtr)
+
+n_cWeaponGunAmmo:
+  mov [cWeaponGunAmmoPtr],rsi
+  
+o_cWeaponGunAmmo:
+  ManifoldEmitOriginal(cWeaponGunAmmo)
+ 
+cWeaponGunAmmoPtr:
+  dq 0
+
+registersymbol(cWeaponGunAmmoHook cWeaponGunAmmoPtr)
 
 [DISABLE]
-ManifoldDestroyDetour(Damage)
+
+ManifoldDestroyDetour(cWeaponGunAmmo)
+
+unregisterSymbol(*)
 dealloc(*)
 ```
 
