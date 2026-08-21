@@ -1075,8 +1075,9 @@ ui:StartTextAnimation("MANIFOLD", {
 
 ## Developer modules
 
-Directory [`Manifold.Dev/`](../Manifold-Modules/Manifold.Modules/Manifold.Dev/) — not part of a
-normal table setup.
+Directory `Manifold-Modules/Manifold.Modules/Manifold.Dev/` — not part of a normal table setup,
+and listed in `.gitignore`, so these files are **not published to GitHub**. The reference below
+documents the local working copy.
 
 ### Manifold.AssemblerLinter
 

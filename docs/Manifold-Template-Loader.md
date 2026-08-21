@@ -595,7 +595,9 @@ Singleton, self-contained (independent of `Manifold.Logger`).
 | `log:ClearLogFile()` | |
 
 Log file: `autorun\Manifold-TemplateLoader-Modules\Manifold-TemplateLoader-Log.txt`
-(only when `LogToFile` is enabled). See [TODO T18](TODO.md#t18-the-template-loader-log-writes-into-program-files).
+(only when `LogToFile` is enabled). Writing there requires the autorun directory to be writable —
+under a default `C:\Program Files` installation that means Cheat Engine has to run elevated, which
+CE 7.5 does by default.
 
 ### Manifold-TemplateLoader-Json
 

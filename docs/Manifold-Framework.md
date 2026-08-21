@@ -209,7 +209,22 @@ processHandler:AutoAttach("Game.exe")
 `PerformPostAttachTasks()` (which in turn calls `utils:InitializeTable()` → `ui:InitializeForm()`
 + `utils:SetTitle()` and optionally verifies the MD5 hash) and starts process monitoring.
 
-### 2.3 Ordering pitfalls
+### 2.3 The `Manifold` table-side global
+
+`Manifold.UI` reads `Manifold.Setup.IsRelease` when theming the Lua engine: in release mode the
+script panel and its splitter are hidden, leaving only the output pane. That global is **not**
+created by the framework — the Cheat Table's own Lua script is expected to provide it, before
+`Manifold.UI` applies a theme:
+
+```lua
+Manifold = Manifold or {}
+Manifold.Setup = Manifold.Setup or { IsRelease = false }
+```
+
+Without it, `UI:ApplyTheme` aborts inside its `pcall` at the Lua-engine step: `ActiveTheme` is
+never assigned, and the Forms and Teleporter passes that follow are skipped.
+
+### 2.4 Ordering pitfalls
 
 1. **`logger` first.** Practically every module logs inside `New()` already.
    `State:CheckDependencies()` even calls `logger:Warning(...)` *before* it loads the logger -
@@ -324,6 +339,9 @@ logger.DataDir   = "D:\\Manifold"   -- the logger keeps its own copy!
 ### Developer modules (`Manifold.Dev/`)
 
 Not part of a normal table setup. They are loaded manually during development.
+
+> `Manifold.Dev/` is listed in `.gitignore`, so these files are **not published to GitHub**. The
+> descriptions below document the local working copy.
 
 | Module | Version | Purpose |
 |---|---|---|
@@ -963,7 +981,7 @@ and switches itself back off so the checkbox does not stay ticked.
 
 ---
 
-## 15. Reference
+## 14. Reference
 
 The complete function list per module lives in
 **[Manifold-Framework-API.md](Manifold-Framework-API.md)**.
