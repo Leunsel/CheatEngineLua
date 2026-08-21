@@ -42,7 +42,7 @@ Every item names the file and line, what goes wrong, and what to do about it.
 - [ ] [**T16** — `OpenDirectory` builds a shell line with `string.format`](#t16-opendirectory-builds-a-shell-line-with-stringformat) · Framework
 - [ ] [**T17** — `_markProcessChangedAndThrow` does not throw](#t17-_markprocesschangedandthrow-does-not-throw) · Framework
 - [ ] [**T18** — The Template Loader log writes into Program Files](#t18-the-template-loader-log-writes-into-program-files) · Template Loader
-- [ ] [**T19** — Duplicate `AssemblerCommands` definition](#t19-duplicate-assemblercommands-definition) · Framework
+- [X] **T19** — Edit: Backup Instance of Manifold.AssemblerCommands.lua due to automated Trampoline-Implementation attempt. (Success)
 - [ ] [**T20** — Callback hooks are chained inconsistently](#t20-callback-hooks-are-chained-inconsistently) · Framework
 
 ### 🔵 Documentation and tests
@@ -691,31 +691,6 @@ function Log:_LogToFile(message)
     file:write(message .. "\n")
     file:close()
 end
-```
-
----
-
-# Cross-cutting
-
-## T19. Duplicate `AssemblerCommands` definition
-
-🟡 [`Manifold.AssemblerCommands.lua`](../Manifold-Modules/Manifold.Modules/Manifold.AssemblerCommands.lua) (v1.2.5)
-vs. [`Manifold.Dev/Manifold.AssemblerCommands.lua`](../Manifold-Modules/Manifold.Modules/Manifold.Dev/Manifold.AssemblerCommands.lua) (v1.2.0)
-
-Both files define the same **global** `AssemblerCommands`. The Dev variant is an older revision in
-which the detour logic still lived inside the module (before it moved to `Manifold.Trampolines` in
-v1.2.1). It lacks `ManifoldEmitOriginalNoReturn` and `ManifoldEmitReturn`.
-
-Loading it by accident silently overwrites the current version, with consequences that only show
-up at assembly time.
-
-**Fix.** Delete it (the history is in Git) or mark it unambiguously — different global name plus a
-header note:
-
-```lua
--- LEGACY: predecessor of Manifold.AssemblerCommands v1.2.1. Do not load alongside
--- the current version. Kept for reference only.
-AssemblerCommandsLegacy = {}
 ```
 
 ---
