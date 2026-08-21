@@ -695,49 +695,6 @@ end
 
 ---
 
-# Framework (Dev)
-
-## T3. Patcher applies unverified remote patches
-
-🔴 [`Manifold.Dev/Manifold.Patcher.lua:1071–1177`](../Manifold-Modules/Manifold.Modules/Manifold.Dev/Manifold.Patcher.lua)
-
-```lua
-local response = internet.postURL(url, json:encode(payload))
-...
-for _, patch in ipairs(patches) do
-    self:ApplyPatch(patch)      -- can invoke PatchScript(), among others
-end
-```
-
-`ApplyPatch` → `PatchScript` writes **script text straight into memory records**. The content
-comes from the server response unchanged. There is:
-
-- no signature or certificate check on the patches,
-- no HTTPS enforcement (the URL comes from the table script),
-- no restriction on which fields a patch may set.
-
-**Impact.** Anyone who controls the endpoint — or the connection, if `http://` is used — can inject
-arbitrary Lua/Auto Assembler code into the Cheat Table, which then runs in the user's context the
-next time the affected record is enabled. The user only sees "N patches are available. Apply?" and
-cannot inspect the content.
-
-The `TableHash` mechanism does not help here: it verifies that the **table** is unmodified, not
-that the **patch** is trustworthy.
-
-**Fix** — in this order:
-
-1. **Signatures.** Sign patches server-side with an Ed25519 or RSA key, embed the public key in the
-   table, and verify before `ApplyPatch`.
-2. **Enforce HTTPS.** `if not url:match("^https://") then return false end`.
-3. **Field allowlist.** Enumerate explicitly which record fields are patchable. `Script` belongs in
-   a separate, more clearly flagged category.
-4. **Show a diff.** Before confirming, show *what* changes (record description + field), not just
-   the count.
-5. Until then: default `ShouldCheckForPatches` to `false` and document in the module header that
-   the feature should only be used with a self-controlled endpoint.
-
----
-
 # Cross-cutting
 
 ## T19. Duplicate `AssemblerCommands` definition
