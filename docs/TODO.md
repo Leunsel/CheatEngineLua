@@ -18,15 +18,15 @@ Every item names the file and line, what goes wrong, and what to do about it.
 
 ### 🔴 Critical
 
-- [ ] [**T1** — UI reads an undefined global `Manifold`](#t1-ui-reads-an-undefined-global-manifold) · Framework
+- [X] **T1** — Edit: No fix required. `Manifold` is supposed to be a Table Lua Script Global.
 - [ ] [**T2** — `BaseAddressRegister` is always empty in the template context](#t2-baseaddressregister-is-always-empty-in-the-template-context) · Template Loader
-- [ ] [**T3** — Patcher applies unverified remote patches](#t3-patcher-applies-unverified-remote-patches) · Framework (Dev)
+- [X] **T3** — Edit: No fix required. Patcher has been discontinued.
 
 ### 🟠 High
 
-- [ ] [**T4** — `State:CheckDependencies` uses the logger before it exists](#t4-statecheckdependencies-uses-the-logger-before-it-exists) · Framework
-- [ ] [**T5** — Callbacks and UI dereference `getLuaEngine()` unguarded](#t5-callbacks-and-ui-dereference-getluaengine-unguarded) · Framework
-- [ ] [**T6** — Teleporter uses `utils` without declaring the dependency](#t6-teleporter-uses-utils-without-declaring-the-dependency) · Framework
+- [ ] [**T4** — `State:CheckDependencies` uses the logger before it exists](#t4-statecheckdependencies-uses-the-logger-before-it-exists) · Framework (Context-Specific)
+- [ ] [**T5** — Callbacks and UI dereference `getLuaEngine()` unguarded](#t5-callbacks-and-ui-dereference-getluaengine-unguarded) · Framework (Context-Specific)
+- [ ] [**T6** — Teleporter uses `utils` without declaring the dependency](#t6-teleporter-uses-utils-without-declaring-the-dependency) · Framework (Context-Specific)
 - [ ] [**T7** — JSON instances do not survive a module reload](#t7-json-instances-do-not-survive-a-module-reload) · Framework
 - [ ] [**T8** — `helper:GetFileVersionStr` does not exist](#t8-helpergetfileversionstr-does-not-exist) · Framework
 - [ ] [**T9** — State IDs collide with "Normalize Cheat Table IDs"](#t9-state-ids-collide-with-normalize-cheat-table-ids) · cross-segment
@@ -62,40 +62,6 @@ Every item names the file and line, what goes wrong, and what to do about it.
 ---
 
 # Framework
-
-## T1. UI reads an undefined global `Manifold`
-
-🔴 [`Manifold.UI.lua:694`](../Manifold-Modules/Manifold.Modules/Manifold.UI.lua)
-
-```lua
-if Manifold.Setup.IsRelease then
-    if luaEngine.Panel1 then luaEngine.Panel1.Visible = false end
-```
-
-No global `Manifold` is defined anywhere in the repository (`grep -rn "Manifold *="` only matches
-`ManifoldTemplateLoader*`). The line therefore raises
-`attempt to index a nil value (global 'Manifold')`.
-
-**Impact.** `ApplyThemeToLuaEngineControls` runs inside a `pcall` in `UI:ApplyTheme`, so the error
-is not surfaced — but theme application **stops right there**: `self.ActiveTheme` is never set,
-`ApplyThemeToForms` and `ApplyThemeToTeleporter` never run, and `ApplyTheme` returns `false`.
-Because `InitializeForm` re-applies whenever `ActiveTheme ~= Theme`, this repeats on every attach.
-The only visible symptom is one error line in the log.
-
-The same path is also reached from `Manifold.Callbacks` through `LuaEngine.OnShow`.
-
-**Fix.** The flag already exists as `Utils.IsRelease`:
-
-```lua
-local isRelease = (rawget(_G, "utils") and utils.IsRelease) == true
-if isRelease then
-```
-
-Alternatively introduce a real namespace table (see [R-A](#r-a-a-real-namespace)) if
-`Manifold.Setup` was intended as a table-side configuration point — in that case it needs to be
-documented and guarded with a `rawget` fallback.
-
----
 
 ## T4. `State:CheckDependencies` uses the logger before it exists
 
