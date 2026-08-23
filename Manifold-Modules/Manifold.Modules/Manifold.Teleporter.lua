@@ -1,16 +1,12 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.5"
+local VERSION = "1.1.6"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
-    ∂ v1.1.5 (2026-07-10)
-        Added nested save category paths for Teleporter UI and generated save records.
-        Preserved legacy Category strings while writing normalized Categories arrays.
-
-    ∂ v1.1.4 (2026-06-17)
-        Requires Manifold.Forms for Teleporter UI control generation.
-        Removed legacy CE-control fallback builders from the Teleporter UI path.
+    ∂ v1.1.6 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 Teleporter = {
@@ -53,6 +49,41 @@ Teleporter = {
 }
 Teleporter.__index = Teleporter
 
+
+local MODULE_PREFIX = "[Teleporter]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "Teleporter", global = "teleporter",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "forms", required = true },
+        { "memory" },
+        { "customIO" },
+        { "ui", runtime = true },
+    },
+})
+
 local function _VersionAtLeast(current, required)
     local currentParts = {}
     local requiredParts = {}
@@ -83,7 +114,7 @@ function Teleporter:New(config)
             logger:WarningF("Invalid property: '%s'", key)
         end
     end
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -121,39 +152,18 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 --
 --- ∑ ...
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function Teleporter:CheckDependencies()
-    local function depLog(level, message)
-        if logger and logger[level] then
-            logger[level](logger, message)
-        end
-    end
-    local dependencies = {
-        { name = "logger", path = "Manifold.Logger",  init = function() logger = Logger:New() end },
-        { name = "memory", path = "Manifold.Memory",  init = function() memory = Memory:New() end },
-        { name = "customIO", path = "Manifold.CustomIO", init = function() customIO = CustomIO:New() end },
-        { name = "forms", path = "Manifold.Forms", init = function() forms = Forms:New() end },
-    }
-    for _, dep in ipairs(dependencies) do
-        local depName = dep.name
-        if _G[depName] == nil then
-            depLog("Warning", "[Teleporter] '" .. depName .. "' dependency not found. Attempting to load...")
-            local success, result = pcall(CETrequire, dep.path)
-            if success then
-                if dep.init then dep.init() end
-                depLog("Info", "[Teleporter] Loaded dependency '" .. depName .. "'.")
-            else
-                depLog("Error", "[Teleporter] Failed to load dependency '" .. depName .. "': " .. tostring(result))
-            end
-        else
-            depLog("Debug", "[Teleporter] Dependency '" .. depName .. "' is already loaded")
-        end
-    end
-    if _VersionAtLeast(VERSION, "1.1.4") and not (forms and type(forms.CreatePanel) == "function") then
-        local message = "[Teleporter] As of Version 1.1.4, Manifold.Forms is required to generate the UI-Components."
-        depLog("Error", message)
-        error(message, 2)
-    end
+    return BOOTSTRAP.Resolve(MODULE)
 end
+registerLuaFunctionHighlight('CheckDependencies')
 
 local readFunctions = {
     [vtByte] = readByte, [vtWord] = readSmallInteger, [vtDword] = readInteger,
