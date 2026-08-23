@@ -1,15 +1,12 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.5"
+local VERSION = "1.0.6"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
-    ∂ v1.0.4 (2026-04-21)
-        Reduced duplicated state serialization and validation logic.
-        Simplified restore/save flows and trimmed low-value debug logging.
-
-    ∂ v1.0.5 (2026-06-20)
-        Synchronize all AddressList, MemoryRecord and Hotkey access with CE's main GUI thread. (CE7.6 Support)
+    ∂ v1.0.6 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 
 ]]--
 
