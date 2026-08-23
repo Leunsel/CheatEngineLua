@@ -1,15 +1,12 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.6"
+local VERSION = "2.0.7"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
-    v2.0.5 (2026-06-18)
-        Delegated process lifecycle cleanup exclusively to Manifold.ProcessHandler.
-
-    v2.0.6 (2026-06-19)
-        Added support for rolling back Detour Transactions via Manifold.Trampolines if a script fails after applying changes.
-        This helps maintain a safe state even when using complex trampoline-based hooks.
+    v2.0.7 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 AutoAssembler = {
@@ -29,43 +26,54 @@ AutoAssembler.__index = AutoAssembler
 local MODULE_PREFIX = "[Auto-Assembler]"
 
 --
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "AutoAssembler", global = "autoAssembler",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "customIO" },
+        { "processHandler", runtime = true },
+        { "trampolines", runtime = true },
+    },
+})
+
+
+--
 --- ∑ Ensures all required modules are loaded and ready to use.
 ---   This function tries to load missing dependencies via CETrequire and initializes them if needed.
 --- @return nil
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function AutoAssembler:CheckDependencies()
-    local dependencies = {
-        { name = "json", path = "Manifold.Json", init = function() json = JSON:new() end },
-        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end },
-        { name = "customIO", path = "Manifold.CustomIO", init = function() customIO = CustomIO:New() end },
-        { name = "processHandler", path = "Manifold.ProcessHandler", init = function() processHandler = ProcessHandler:New() end },
-    }
-    for _, dep in ipairs(dependencies) do
-        local depName = dep.name
-        if _G[depName] == nil then
-            if _G.logger then
-                logger:Warning("[Auto-Assembler] Missing dependency '" .. depName .. "'. Trying to load it now...")
-            end
-            local ok, err = pcall(CETrequire, dep.path)
-            if ok then
-                if _G.logger then
-                    logger:Info("[Auto-Assembler] Dependency '" .. depName .. "' loaded successfully.")
-                end
-                if dep.init then
-                    dep.init()
-                end
-            else
-                if _G.logger then
-                    logger:Error("[Auto-Assembler] Could not load '" .. depName .. "'. Reason: " .. tostring(err))
-                end
-            end
-        else
-            if _G.logger then
-                logger:Debug("[Auto-Assembler] Dependency '" .. depName .. "' is already available.")
-            end
-        end
-    end
+    return BOOTSTRAP.Resolve(MODULE)
 end
+registerLuaFunctionHighlight('CheckDependencies')
 
 --
 --- ∑ ...
@@ -78,7 +86,7 @@ function AutoAssembler:New()
     instance._txDepth = 0
     instance._txStack = nil
     instance._lastKnownPid = getOpenedProcessID()
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 
 --
