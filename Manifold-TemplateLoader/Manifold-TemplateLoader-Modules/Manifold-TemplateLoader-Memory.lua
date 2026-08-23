@@ -331,13 +331,48 @@ function Memory:GetNopPadding(actualSize, minimumSize)
     return padding > 0 and ("db " .. ("90 "):rep(padding):sub(1, -2) .. "\n") or ""
 end
 
+--
+--- Registers that are never a usable base for a template's pointer capture.
+--- rip is a real match for [rip+1234] but 'mov [Ptr],rip' does not assemble,
+--- and the address it names is already absolute, so there is nothing to store.
+--
+local NON_BASE_REGISTERS = { rip = true, eip = true }
+
+--
+--- Extracts the base register and displacement from a memory operand.
+--- Two separate patterns rather than one with an optional group. Lua patterns
+--- are not regular expressions: '*', '+', '-' and '?' quantify a SINGLE
+--- character class, never a group, so the '?' in the previous
+---     "%[([%a][%w]*)%s*([+-]%s*[%x]+)?%]"
+--- was matched as a LITERAL question mark. The pattern only ever succeeded on
+--- text like "[rax+30?]", which no disassembly produces, so this function
+--- returned nil,nil for every real instruction and all 11 templates using
+--- << BaseAddressRegister >> emitted 'mov [XPtr],' with no operand.
+--- Deliberately conservative: anything more complex than [reg] or [reg+/-off]
+--- - a scaled index such as [rax+rcx*4+30] - returns nil rather than a partial
+--- answer. A partial answer would silently generate a script that captures the
+--- wrong pointer; nil keeps the existing loud failure for the cases that are
+--- genuinely ambiguous.
+--- @param instruction string # a disassembled instruction
+--- @return string|nil, string|nil # base register, displacement without its '+'
+--
 function Memory:GetRegisterData(instruction)
     if type(instruction) ~= "string" then return nil, nil end
-    local register, offset = instruction:match("%[([%a][%w]*)%s*([+-]%s*[%x]+)?%]")
-    if not register then return nil, nil end
-    offset = (offset or "0"):gsub("%s+", "")
-    if offset:sub(1, 1) == "+" then offset = offset:sub(2) end
-    return register, offset
+    local operand = instruction:match("%[([^%]]*)%]")
+    if not operand then return nil, nil end
+    -- [reg + off] / [reg - off], any spacing
+    local register, sign, offset = operand:match("^%s*([%a][%w]*)%s*([+-])%s*(%x+)%s*$")
+    if register then
+        if NON_BASE_REGISTERS[register:lower()] then return nil, nil end
+        return register, (sign == "-" and "-" or "") .. offset
+    end
+    -- [reg]
+    register = operand:match("^%s*([%a][%w]*)%s*$")
+    if register then
+        if NON_BASE_REGISTERS[register:lower()] then return nil, nil end
+        return register, "0"
+    end
+    return nil, nil
 end
 
 -- Template-specific values --------------------------------------------------
@@ -513,6 +548,15 @@ function Memory:GetMemoryInfo(overrides)
     local pointerType, pointerSize = self:GetDefaultPointerSize()
     local originalInstruction = self:GetDisassembledOpcode(address)
     local baseAddressRegister, baseAddressOffset = self:GetRegisterData(originalInstruction)
+    if not baseAddressRegister then
+        -- Not fatal: most templates never reference it. But every Pointer Hook
+        -- and Conditional Hook - Extended does, and an empty value there emits
+        -- 'mov [<Name>Ptr],' with no operand, which fails to assemble with an
+        -- error that points at the template rather than at the selection.
+        log:Warning("[Memory] No base register in '" .. tostring(originalInstruction)
+            .. "'. Templates using << BaseAddressRegister >> (Pointer Hooks) "
+            .. "will not assemble against this instruction.")
+    end
 
     local context = {
         Version = "2.1.0",
