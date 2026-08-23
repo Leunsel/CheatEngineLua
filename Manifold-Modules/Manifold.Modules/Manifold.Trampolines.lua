@@ -25,6 +25,35 @@ Trampolines.__index = Trampolines
 
 local MODULE_PREFIX = "[Trampolines]"
 
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "Trampolines", global = "trampolines",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger" },
+    },
+})
+
+
 function Trampolines:New()
     local instance = setmetatable({}, self)
     instance:CheckDependencies()
@@ -36,7 +65,7 @@ function Trampolines:New()
     instance.PendingDetours = {}
     instance.PendingDestroys = {}
     instance._txDepth = 0
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -44,35 +73,21 @@ registerLuaFunctionHighlight('New')
 --- Ensures a dependency exists globally, and attempts to load it if missing.
 --- @param dep table
 --- @return boolean
---
-function Trampolines:_ensureDependency(dep)
-    local depName = dep.name
-    if _G[depName] ~= nil then return true end
-    if logger and logger.Warning then
-        logger:Warning(MODULE_PREFIX .. " '" .. depName .. "' dependency not found. Attempting to load...")
-    end
-    local success, result = pcall(CETrequire, dep.path)
-    if not success then
-        if logger and logger.Error then
-            logger:Error(MODULE_PREFIX .. " Failed to load dependency '" .. depName .. "': " .. tostring(result))
-        end
-        return false
-    end
-    if dep.init then dep.init() end
-    return true
-end
 
 --
 --- Ensures all required global dependencies for this module are loaded.
 --- @return nil
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function Trampolines:CheckDependencies()
-    local dependencies = {
-        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end }
-    }
-    for _, dep in ipairs(dependencies) do
-        self:_ensureDependency(dep)
-    end
+    return BOOTSTRAP.Resolve(MODULE)
 end
 registerLuaFunctionHighlight('CheckDependencies')
 
