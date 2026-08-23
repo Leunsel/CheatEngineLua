@@ -1,11 +1,12 @@
 local NAME = "Manifold.Forms.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Forms"
 
 --[[
-    v1.0.1 (2026-06-17)
-        Resolve registered control roots through the parent chain for reliable live theming.
+    v1.0.2 (2026-06-17)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 Forms = {
@@ -16,6 +17,35 @@ Forms = {
 Forms.__index = Forms
 
 local MODULE_PREFIX = "[Forms]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "Forms", global = "forms",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger" },
+    },
+})
+
 
 local DEFAULT_THEME = {
     COLOR_BG           = 0x202020,
@@ -75,7 +105,7 @@ function Forms:New(config)
             logger:WarningF("Invalid property: '%s'", key)
         end
     end
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
