@@ -1,11 +1,19 @@
 local NAME = "Manifold.Utils.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.3"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework Utils"
 
 --[[
-    ∂ v1.0.5 (2026-02-16)
-        Added new Custom Type for "Mewgenics".
+    ∂ v1.1.0 (2026-08-23)
+        ResolvePointerPath moved to Manifold.Memory; the name here forwards and
+        is deprecated. GetTitleComponents no longer reaches for `helper`
+        unguarded and now actually reaches its AppVersion fallback (TODO T8).
+        GetTarget/GetTargetNoExt can return nil as documented - "" is truthy in
+        Lua, so `self.Target or nil` never could. AutoDisable's two async waits
+        are bounded by AutoDisableWaitTimeout; the first used to spin with no
+        checkSynchronize and could hang the main thread. VERSION corrected: it
+        read 1.0.3 while this changelog already said 1.0.5.
+
 ]]--
 
 Utils = {
@@ -17,10 +25,46 @@ Utils = {
     Version    = "",
     VerifyMD5  = true,
     MD5Hash    = "",
-    AutoDisableTimerInterval = 100,  
+    AutoDisableTimerInterval = 100,
+    AutoDisableWaitTimeout   = 5000,  
     IsRelease = false,      
 }
 Utils.__index = Utils
+
+
+local MODULE_PREFIX = "[Utils]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "Utils", global = "utils",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "customIO", runtime = true },
+        { "helper", runtime = true },
+        { "memory", runtime = true },   -- only for the deprecated ResolvePointerPath forward
+        { "ui", runtime = true },
+    },
+})
 
 function Utils:New(config)
     local instance = setmetatable({}, self)
@@ -32,7 +76,7 @@ function Utils:New(config)
             logger:WarningF("Invalid property: '%s'", key)
         end
     end
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -73,7 +117,10 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 --- @return # The current target or nil if no target is set.
 --
 function Utils:GetTarget()
-    return self.Target or nil
+    -- `self.Target` defaults to "" and an empty string is TRUTHY in Lua, so
+    -- `self.Target or nil` could never return nil. Test the emptiness.
+    if type(self.Target) ~= "string" or self.Target == "" then return nil end
+    return self.Target
 end
 registerLuaFunctionHighlight('GetTarget')
 
@@ -83,7 +130,13 @@ registerLuaFunctionHighlight('GetTarget')
 --- @return # The target name without extension or nil if no target is set.
 --
 function Utils:GetTargetNoExt()
-    return self.Target and customIO:StripExt(self.Target) or nil
+    local target = self:GetTarget()
+    if target == nil then return nil end
+    -- customIO is declared runtime, so a table may legitimately not have it.
+    if type(customIO) ~= "table" or type(customIO.StripExt) ~= "function" then
+        return (target:gsub("%.[^.]*$", ""))
+    end
+    return customIO:StripExt(target)
 end
 registerLuaFunctionHighlight('GetTargetNoExt')
 
@@ -103,19 +156,33 @@ function Utils:AutoDisable(id, customInterval)
         return
     end
     checkSynchronize()
+    -- Both waits are bounded. The first one in particular used to spin with no
+    -- checkSynchronize at all, so an async record that never finished processing
+    -- hung the main thread with no way out. A timeout degrades to "gave up" -
+    -- the record is still deactivated - instead of freezing Cheat Engine.
+    local timeout = self.AutoDisableWaitTimeout or 5000
+    local function waitForAsync(mr, pump)
+        local waited = 0
+        while mr.Async and mr.AsyncProcessing and waited < timeout do
+            if pump then
+                checkSynchronize()
+                MainForm.repaint()
+            end
+            sleep(1)
+            waited = waited + 1
+        end
+        return not (mr.Async and mr.AsyncProcessing)
+    end
     local function autoDisableTimer_tick(timer)
         timer.destroy()
         local mr = AddressList.getMemoryRecordByID(id)
         if mr ~= nil and mr.Active then
-            while mr.Async and mr.AsyncProcessing do
-                sleep(0)
+            if not waitForAsync(mr, false) then
+                logger:WarningF("%s AutoDisable timed out waiting for record %s to finish processing; disabling anyway.",
+                                MODULE_PREFIX, tostring(id))
             end
             mr.Active = false
-            while mr.Async and mr.AsyncProcessing do
-                checkSynchronize()
-                MainForm.repaint()
-                sleep(0)
-            end
+            waitForAsync(mr, true)
         end
     end
     local autoDisableTimer = createTimer(MainForm)
@@ -484,44 +551,25 @@ end
 registerLuaFunctionHighlight('ExecuteTableLuaScript')
 
 --
---- ∑ Resolves a pointer path by applying offsets to a base address.
----   Reads memory at each step and follows the pointer chain until the final address is resolved.
---- @param baseAddress string|number # The base address or symbol.
---- @param offsets table<number> # A table containing offsets to apply.
---- @return number|nil # The resolved address, or nil if an error occurs.
+--- ∑ Follows a pointer chain from a base address or symbol.
+--- @deprecated Moved to Manifold.Memory in Utils 1.1.0. Call
+---   memory:ResolvePointerPath instead; this forwards and will be removed in 2.0.0.
+---   The move was made on what the function touches: it resolved an address and
+---   read pointers, both of which are Memory's goal, and touched no Utils config.
+---   This forward is also strictly safer than the body it replaces, which
+---   indexed the `memory` global unguarded and raised for any table that did
+---   not load Manifold.Memory.
+--- @param baseAddress string|number
+--- @param offsets table
+--- @return number|nil
 --
-function Utils:ResolvePointerPath(baseAddress, offsets)
-    if type(baseAddress) ~= "string" and type(baseAddress) ~= "number" then
-        logger:Error("[Utils] Invalid base address type. Expected string or number, got " .. type(baseAddress))
+function Utils:ResolvePointerPath(baseAddress, offsets, isLocal)
+    if type(memory) ~= "table" or type(memory.ResolvePointerPath) ~= "function" then
+        logger:ErrorF("%s ResolvePointerPath needs Manifold.Memory, which this table has not loaded.",
+                      MODULE_PREFIX)
         return nil
     end
-    local address = memory:SafeGetAddress(baseAddress)
-    if not address then
-        logger:Error("[Utils] Base address or symbol '" .. tostring(baseAddress) .. "' not found.")
-        return nil
-    end
-    logger:Debug("[Utils] Starting base address: " .. string.format("0x%X", address))
-    if type(offsets) ~= "table" then
-        logger:Error("[Utils] Offsets parameter must be a table. Received " .. type(offsets))
-        return nil
-    end
-    for i, offset in ipairs(offsets) do
-        if type(offset) ~= "number" then
-            logger:Error("[Utils] Offset must be a number. Offset " .. i .. " is not a number.")
-            return nil
-        end
-        logger:Debug("[Utils] Applying offset " .. i .. ": " .. string.format("0x%X", offset))
-        local value = readPointer(address)
-        if not value then
-            logger:Error("[Utils] Unable to read memory at address " .. string.format("0x%X", address))
-            return nil
-        end
-        logger:Debug("[Utils] Value read from address " .. string.format("0x%X", address) .. ": " .. string.format("0x%X", value))
-        address = value + offset
-        logger:Debug("[Utils] New address after applying offset " .. i .. ": " .. string.format("0x%X", address))
-    end
-    logger:Debug("[Utils] Final resolved address: " .. string.format("0x%X", address))
-    return address
+    return memory:ResolvePointerPath(baseAddress, offsets, isLocal)
 end
 registerLuaFunctionHighlight('ResolvePointerPath')
 
@@ -594,11 +642,25 @@ registerLuaFunctionHighlight('FormatTitle')
 --- @return table # A table containing title components.
 --
 function Utils:GetTitleComponents()
+    -- AppVersion defaults to "" and "" is TRUTHY in Lua, so `self.AppVersion or
+    -- ...` could never reach the fallback (TODO T8). `helper` is a runtime dep,
+    -- so a table is entitled not to have it - reaching for it unguarded made
+    -- the window caption read "Error: Failed to Set Title" via SetTitle's pcall.
+    local appVersion = (type(self.AppVersion) == "string" and self.AppVersion ~= "") and self.AppVersion or nil
+    local fileVersion, registrySize = nil, ""
+    if type(helper) == "table" then
+        if type(helper.GetFileVersionStr) == "function" then
+            fileVersion = helper:GetFileVersionStr()
+        end
+        if type(helper.GetRegistrySizeStr) == "function" then
+            registrySize = helper:GetRegistrySizeStr() or ""
+        end
+    end
     return {
         tableTitle = self.TargetStr or "TableTitle",
         tableVersion = self.Version or "TableVersion",
-        gameVersion = self.AppVersion or helper:GetFileVersionStr(helper:GetGameModulePathToFile()) or "GameVersion",
-        registrySizeStr = helper:GetRegistrySizeStr() or "",
+        gameVersion = appVersion or fileVersion or "GameVersion",
+        registrySizeStr = registrySize,
         ceRegistrySizeStr = cheatEngineIs64Bit() and "(x64)" or "(x32)",
         ceVersion = getCEVersion() or "CE Version"
     }
