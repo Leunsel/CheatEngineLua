@@ -1,12 +1,47 @@
 local NAME = "Manifold.Trampolines.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework Trampolines"
 
 --[[
-    v1.0.2 (2026-08-23)
-        Implemented the Bootstrap handshake so this module
-        can be loaded on its own or through the framework.
+    ∂ v1.1.0 (2026-08-23)
+        _rewriteAbsoluteMemoryInstruction no longer wraps control transfers or
+        stack instructions in push/pop. For `jmp qword ptr [rip+X]` - an import
+        thunk, a very common hook target - control left at the jmp and the
+        matching pop never ran, so the callee's ret took the saved register as
+        its return address. For `call qword ptr [rip+X]` the extra push shifted
+        RSP off its 16-byte alignment and faulted any callee spilling XMM to a
+        stack local. Those mnemonics are position independent already and are
+        now copied verbatim instead.
+
+        _selectTempRegister sees sub-register spellings. It tested only the
+        64-bit name against a word-frontier pattern, so "r11" did not match
+        inside "r11d" and r11 was declared free for `mov r11d,[rip+X]`; the
+        emitted `pop r11` then destroyed the value just loaded. It now rejects
+        a candidate if any spelling of it appears, and returns nil rather than
+        guessing when nothing is free.
+
+        Instruction relocation is bitness-correct. The conditional-jump path
+        hard-coded a 2-byte skip of 0x0E over a `jmp far`, which is only the
+        x64 encoding; on x86 it overshot by 4 bytes into the middle of the next
+        relocated instruction, silently. Absolute jumps and calls are now
+        emitted as raw bytes whose length this module knows - FF 25 with an
+        inline qword on x64, push imm32/ret on x86 - and the skip is derived
+        from that. The relocated call no longer clobbers r11 on either bitness;
+        x64 uses a rip-relative indirect call over an inline pointer.
+
+        InstallDetour refuses an inject range that overlaps a live detour, and
+        refuses bytes that visibly belong to somebody else's patch (a leading
+        E9/EB or FF 25). Two scripts hooking one instruction previously produced
+        a deterministic crash from enable/disable ordering alone: the second
+        recorded the first one's jump as "original bytes" and restored it later
+        into a relay slot that had since been zeroed.
+
+        The PE-header relay search is clamped to the first section's RVA.
+        max(SizeOfHeaders, 0x1000) reached past the headers whenever
+        SectionAlignment was below 0x1000, and _isHeaderCaveFree accepts 0xCC -
+        exactly MSVC's inter-function padding - so a relay could be written into
+        .text and the page then left permanently writable.
 ]]--
 
 Trampolines = {
@@ -361,16 +396,66 @@ function Trampolines:_containsAnyRegister(text)
     return false
 end
 
+--
+--- ∑ Every spelling of each candidate scratch register.
+---   _textUsesRegister matches on a word frontier, so "r11" does NOT match
+---   inside "r11d" - the character after it is a word character. Testing only
+---   the 64-bit name therefore declared r11 free for an instruction reading
+---   `mov r11d,[...]`, and the emitted `pop r11` then destroyed the value that
+---   instruction had just loaded. Silently.
+--
+local TEMP_REGISTER_ALIASES = {
+    { "r11", "r11d", "r11w", "r11b" },
+    { "r10", "r10d", "r10w", "r10b" },
+    { "r9",  "r9d",  "r9w",  "r9b"  },
+    { "r8",  "r8d",  "r8w",  "r8b"  },
+    { "rax", "eax",  "ax",   "al",  "ah" },
+    { "rcx", "ecx",  "cx",   "cl",  "ch" },
+    { "rdx", "edx",  "dx",   "dl",  "dh" },
+    { "rbx", "ebx",  "bx",   "bl",  "bh" },
+}
+
 function Trampolines:_selectTempRegister(instruction)
-    local candidates = { "r11", "r10", "r9", "r8", "rax", "rcx", "rdx", "rbx" }
-    for _, registerName in ipairs(candidates) do
-        if not self:_textUsesRegister(instruction, registerName) then return registerName end
+    for _, family in ipairs(TEMP_REGISTER_ALIASES) do
+        local used = false
+        for _, spelling in ipairs(family) do
+            if self:_textUsesRegister(instruction, spelling) then
+                used = true
+                break
+            end
+        end
+        if not used then return family[1] end
     end
+    -- Guess nothing. The caller falls back to copying the instruction verbatim.
     return nil
 end
 
+--
+--- ∑ Mnemonics the push/pop temp wrapper must never be applied to.
+---   The wrapper is `push temp / <instruction> / pop temp`, which assumes the
+---   instruction falls through and leaves RSP alone. Three ways that breaks:
+---     jmp/ret  - control leaves at the instruction, so `pop temp` never runs
+---                and the stack is permanently 8 bytes deep. The next `ret`
+---                takes the saved register as its return address.
+---     call     - the extra push shifts RSP from %16==8 to %16==0 at the
+---                callee, so any callee spilling XMM with movaps to a stack
+---                local faults. `call qword ptr [rip+X]` is the most common
+---                rip-relative control transfer in x64 code.
+---     push/pop - the wrapper's `pop` consumes the instruction's own operand.
+---   All of them are safe to copy verbatim instead: their memory operand is an
+---   absolute address, so the instruction is already position independent.
+--
+local NON_REWRITABLE_MNEMONICS = {
+    jmp = true, call = true, push = true, pop = true, ret = true, retn = true,
+    retf = true, enter = true, leave = true, int = true, into = true,
+    iret = true, iretd = true, iretq = true, loop = true, loope = true,
+    loopne = true, loopz = true, loopnz = true, jecxz = true, jrcxz = true,
+}
+
 function Trampolines:_rewriteAbsoluteMemoryInstruction(instruction)
     if not self:_isTarget64Bit() then return nil end
+    local mnemonic = tostring(instruction or ""):match("^%s*([%a][%w]*)")
+    if mnemonic and NON_REWRITABLE_MNEMONICS[mnemonic:lower()] then return nil end
     if self:_textUsesRegister(instruction, "rsp") or self:_textUsesRegister(instruction, "esp") then return nil end
     local inner = instruction:match("%[([^%]]+)%]")
     if not inner or inner == "" then return nil end
@@ -390,6 +475,62 @@ function Trampolines:_rewriteAbsoluteMemoryInstruction(instruction)
     }
 end
 
+--
+--- ∑ Appends an absolute jump to `target` and returns its exact byte length.
+---
+---   Written as raw bytes on purpose. The previous code emitted `jmp far X` and
+---   then hand-encoded a 2-byte conditional that skipped a hard-coded 0x0E over
+---   it - 14 bytes being the x64 `FF 25 <rel32> <8-byte pointer>` form. Nothing
+---   verified that, and on a 32-bit target the pointer is 4 bytes, so the skip
+---   overshot the jump and landed in the middle of the next relocated
+---   instruction. Silently: the trampoline assembled and installed, and only
+---   the not-taken path of the displaced branch executed garbage.
+---
+---   Emitting the encoding ourselves means the length is a fact rather than an
+---   assumption, and neither form needs a label - CE's command-injected labels
+---   are not reliably visible to branch operands, which is why the original
+---   avoided them too.
+--- @param lines table # script lines, appended to
+--- @param target string # address literal or symbol
+--- @return integer # bytes the emitted jump occupies
+--
+function Trampolines:_emitAbsoluteJump(lines, target)
+    if self:_isTarget64Bit() then
+        -- jmp qword ptr [rip+0]; the 8-byte destination follows inline.
+        lines[#lines + 1] = self:_formatDbDirective({ 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 })
+        lines[#lines + 1] = "  dq " .. target
+        return 14
+    end
+    -- push imm32 / ret. Self-contained, reaches the whole 32-bit space, needs
+    -- no label and no scratch register, and leaves the flags untouched.
+    lines[#lines + 1] = self:_formatDbDirective({ 0x68 })
+    lines[#lines + 1] = "  dd " .. target
+    lines[#lines + 1] = self:_formatDbDirective({ 0xC3 })
+    return 6
+end
+
+--
+--- ∑ Appends an absolute call to `target`, preserving every register.
+---   The previous code emitted `mov r11,<target>` / `call r11`, which clobbers
+---   r11 and does not even assemble on a 32-bit target, where r11 does not
+---   exist. On x64 this uses a rip-relative indirect call over an inline
+---   pointer instead, so no register is touched at all; the return address
+---   lands on the 2-byte jump that steps over the pointer.
+--- @param lines table
+--- @param target string
+--
+function Trampolines:_emitAbsoluteCall(lines, target)
+    if self:_isTarget64Bit() then
+        lines[#lines + 1] = self:_formatDbDirective({ 0xFF, 0x15, 0x02, 0x00, 0x00, 0x00 })  -- call [rip+2]
+        lines[#lines + 1] = self:_formatDbDirective({ 0xEB, 0x08 })                          -- jmp over the pointer
+        lines[#lines + 1] = "  dq " .. target
+        return
+    end
+    -- 32-bit: a direct call reaches the whole address space as E8 rel32, and
+    -- nothing skips over it, so its encoded length does not matter here.
+    lines[#lines + 1] = "  call " .. target
+end
+
 function Trampolines:_buildRelocatedInstruction(entry, index, lines)
     local bytes, offset, size = self:_getInstructionBytes(entry, index)
     local source = entry.InjectAddress + offset
@@ -403,25 +544,28 @@ function Trampolines:_buildRelocatedInstruction(entry, index, lines)
                 lines[#lines + 1] = self:_formatDbDirective(bytes)
                 return
             end
-            -- Avoid generated labels here. CE command-injected labels are not always visible to branch operands.
-            lines[#lines + 1] = self:_formatDbDirective({ 0x70 + relative.Inverse, 0x0E })
-            lines[#lines + 1] = "  jmp far " .. target
+            -- Reserve the skip slot, emit the jump, then fill the skip in with
+            -- the jump's ACTUAL length. Avoids generated labels, which CE does
+            -- not reliably expose to branch operands, without hard-coding a
+            -- length this code does not control.
+            local skipIndex = #lines + 1
+            lines[skipIndex] = ""
+            local jumpSize = self:_emitAbsoluteJump(lines, target)
+            lines[skipIndex] = self:_formatDbDirective({ 0x70 + relative.Inverse, jumpSize })
             logger:Debug(MODULE_PREFIX .. " Relocated conditional jump from " .. self:_formatAddressLiteral(source) .. " to " .. target)
             return false
         end
         if relative.Kind == "jmp" then
-            lines[#lines + 1] = "  jmp far " .. target
+            self:_emitAbsoluteJump(lines, target)
             logger:Debug(MODULE_PREFIX .. " Relocated jump from " .. self:_formatAddressLiteral(source) .. " to " .. target)
             return true
         end
         if relative.Kind == "call" then
-            lines[#lines + 1] = "  mov r11," .. target
-            lines[#lines + 1] = "  call r11"
+            self:_emitAbsoluteCall(lines, target)
             logger:Debug(MODULE_PREFIX .. " Relocated call from " .. self:_formatAddressLiteral(source) .. " to " .. target)
             return false
         end
     end
-
     local text = self:_extractInstructionText(self:_getInstructionText(source))
     if text then
         local rewritten = self:_rewriteAbsoluteMemoryInstruction(text)
@@ -557,11 +701,26 @@ function Trampolines:_getPeHeaderInfo(addr)
     local optionalHeader = ntHeader + 0x18
     local sizeOfHeaders, headersErr = self:_readLittleEndian(optionalHeader + 0x3C, 4)
     if not sizeOfHeaders then return nil, "failed to read SizeOfHeaders: " .. tostring(headersErr) end
+    -- The lowest VirtualAddress of any section. Everything below it is header
+    -- slack the loader zero-fills and nothing maps - the only region where a
+    -- relay may safely live. Without this the search was bounded only by
+    -- max(SizeOfHeaders, 0x1000), which reaches into .text whenever
+    -- SectionAlignment is smaller than 0x1000 (packers, some system DLLs), and
+    -- _isHeaderCaveFree accepts 0xCC - exactly MSVC's inter-function padding.
+    local sectionTable = optionalHeader + optionalSize
+    local firstSectionRva = nil
+    for index = 0, sectionCount - 1 do
+        local rva = self:_readLittleEndian(sectionTable + (index * 0x28) + 0x0C, 4)
+        if rva and rva > 0 and (firstSectionRva == nil or rva < firstSectionRva) then
+            firstSectionRva = rva
+        end
+    end
     return {
         ModuleName = moduleInfo.Name,
         ModuleBase = moduleInfo.Base,
-        SectionHeadersEnd = optionalHeader + optionalSize + (sectionCount * 0x28),
-        SizeOfHeaders = sizeOfHeaders
+        SectionHeadersEnd = sectionTable + (sectionCount * 0x28),
+        SizeOfHeaders = sizeOfHeaders,
+        FirstSectionRva = firstSectionRva
     }, nil
 end
 
@@ -588,7 +747,15 @@ function Trampolines:_findHeaderRelaySlot(injectAddr, slotSize)
     local minStart = header.ModuleBase + self.HEADER_RELAY_MIN_OFFSET
     local sectionSafeStart = self:_alignUp(header.SectionHeadersEnd, self.HEADER_RELAY_ALIGNMENT)
     local searchStart = math.max(minStart, sectionSafeStart)
+    -- max(), not min(), on purpose: SizeOfHeaders is commonly 0x400 while the
+    -- usable slack runs to the first section at RVA 0x1000, and that slack is
+    -- the whole point of a header relay. But it must then be CLAMPED to where
+    -- the sections actually begin - that clamp is what was missing, and it is
+    -- what kept the search out of live code only by luck.
     local searchLimitOffset = math.max(header.SizeOfHeaders, self.HEADER_RELAY_MAX_OFFSET)
+    if header.FirstSectionRva and header.FirstSectionRva < searchLimitOffset then
+        searchLimitOffset = header.FirstSectionRva
+    end
     local searchEnd = header.ModuleBase + searchLimitOffset - slotSize
     if searchEnd < searchStart then
         return nil, "PE header relay range is empty from "
@@ -597,6 +764,8 @@ function Trampolines:_findHeaderRelaySlot(injectAddr, slotSize)
             .. getNameFromAddress(searchEnd)
             .. " (SizeOfHeaders="
             .. string.format("0x%X", header.SizeOfHeaders)
+            .. ", first section RVA="
+            .. (header.FirstSectionRva and string.format("0x%X", header.FirstSectionRva) or "unknown")
             .. ")"
     end
     for addr = searchStart, searchEnd, self.HEADER_RELAY_ALIGNMENT do
@@ -629,6 +798,63 @@ function Trampolines:_relaySlotOverlapsStore(store, addr, stopAddr)
         end
     end
     return false
+end
+
+--
+--- ∑ Finds a detour whose inject range intersects [addr, stopAddr].
+---   Relay slots were already protected against collision; the inject range was
+---   not, and that is the more dangerous of the two.
+--- @return table|nil # the colliding entry
+--
+function Trampolines:_injectRangeOverlapsStore(store, addr, stopAddr)
+    for _, entry in pairs(store or {}) do
+        local injectAddr = entry.InjectAddress
+        local size = entry.OverwriteSize
+        if injectAddr and size then
+            local injectStop = injectAddr + size - 1
+            if addr <= injectStop and stopAddr >= injectAddr then return entry end
+        end
+    end
+    return nil
+end
+
+--
+--- ∑ Refuses an install whose overwrite window collides with a live detour,
+---   or whose "original" bytes are visibly somebody else's patch.
+---
+---   Without this, two scripts hooking the same instruction produce a
+---   deterministic crash from nothing but enable/disable ordering: the second
+---   install decodes the first one's E9 as if it were original code and records
+---   it as OriginalBytes. Disabling the first restores the true bytes; disabling
+---   the second then writes the stale E9 back, re-arming a jump into a relay
+---   slot that has since been zeroed.
+--- @return boolean, string|nil # ok, reason
+--
+function Trampolines:_checkInjectRangeFree(injectAddr, size, originalBytes)
+    local stopAddr = injectAddr + size - 1
+    local clash = self:_injectRangeOverlapsStore(self.ActiveDetours, injectAddr, stopAddr)
+              or self:_injectRangeOverlapsStore(self.PendingDetours, injectAddr, stopAddr)
+    if clash then
+        return false, string.format(
+            "inject range %s..%s overlaps detour '%s' at %s (%d bytes). Destroy it first.",
+            self:_formatAddressLiteral(injectAddr), self:_formatAddressLiteral(stopAddr),
+            tostring(clash.Name), self:_formatAddressLiteral(clash.InjectAddress),
+            clash.OverwriteSize or 0)
+    end
+    -- Second line of defence: the range may be patched by something this module
+    -- does not know about, or by a previous session whose bookkeeping is gone.
+    local first = originalBytes and originalBytes[1]
+    if first == 0xE9 or first == 0xEB then
+        return false, string.format(
+            "refusing to hook %s: it already begins with a %s jump, so the bytes here are somebody else's patch, not original code.",
+            self:_formatAddressLiteral(injectAddr), first == 0xE9 and "rel32" or "rel8")
+    end
+    if first == 0xFF and originalBytes[2] == 0x25 then
+        return false, string.format(
+            "refusing to hook %s: it already begins with an indirect jump (FF 25), so the bytes here are somebody else's patch.",
+            self:_formatAddressLiteral(injectAddr))
+    end
+    return true, nil
 end
 
 function Trampolines:_isTransactionActive()
@@ -898,6 +1124,8 @@ function Trampolines:InstallDetour(name, injectExpr, destinationExpr, minOverwri
     if not range then return nil, nil, rangeErr end
     local originalBytes, readErr = self:_readBytes(injectAddr, range.OverwriteSize)
     if not originalBytes then return nil, nil, "failed to read original bytes: " .. tostring(readErr) end
+    local rangeFree, rangeClashErr = self:_checkInjectRangeFree(injectAddr, range.OverwriteSize, originalBytes)
+    if not rangeFree then return nil, nil, rangeClashErr end
     local pointerBytes = self:_isTarget64Bit() and 8 or 4
     local relaySize = self:_alignUp(6 + pointerBytes, self.HEADER_RELAY_ALIGNMENT)
     local relaySlot, relayErr = self:_findHeaderRelaySlot(injectAddr, relaySize)
