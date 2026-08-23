@@ -1,12 +1,12 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.5"
+local VERSION = "1.2.7"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
-
-    v1.2.6 (2026-08-21)
-        (Minor) Added Instruction Log to _aobScanModuleUnique.
+    v1.2.7 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 AssemblerCommands = {
