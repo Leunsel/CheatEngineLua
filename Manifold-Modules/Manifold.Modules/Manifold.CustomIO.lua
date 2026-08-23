@@ -4,14 +4,45 @@ local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework CustomIO"
 
 --[[
-    ∂ v1.0.3 (2026-04-21)
-        Reduced low-value log noise and focused logging on failures and meaningful state changes.
+    ∂ v1.0.4 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 CustomIO = {}
 CustomIO.__index = CustomIO
 
 local MODULE_PREFIX = "[CustomIO]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "CustomIO", global = "customIO",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "json", required = true },
+    },
+})
+
 
 --
 --- ∑ Internal helper function to check if a value is a non-empty string.
@@ -53,7 +84,7 @@ function CustomIO:New()
     self:CheckDependencies()
     instance.Name = NAME or "Unnamed Module"
     instance.DataDir = os.getenv("USERPROFILE") .. "\\AppData\\Local\\Manifold"
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -91,18 +122,16 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 --
 --- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function CustomIO:CheckDependencies()
-    if json ~= nil then
-        return
-    end
-    logger:Warning(MODULE_PREFIX .. " 'json' dependency not found. Attempting to load...")
-    local success, result = pcall(CETrequire, "Manifold.Json")
-    if success then
-        json = JSON:new()
-        logger:Info(MODULE_PREFIX .. " Loaded dependency 'json'.")
-    else
-        logger:Error(MODULE_PREFIX .. " Failed to load dependency 'json': " .. tostring(result))
-    end
+    return BOOTSTRAP.Resolve(MODULE)
 end
 registerLuaFunctionHighlight('CheckDependencies')
 
