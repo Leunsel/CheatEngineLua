@@ -1,15 +1,12 @@
 local NAME = "Manifold.Trampolines.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.1"
+local VERSION = "1.0.2"
 local DESCRIPTION = "Manifold Framework Trampolines"
 
 --[[
-    v1.0.0 (2026-06-19)
-        Added PE-header relay trampoline management for Auto Assembler detours.
-        Provides install, inline original emission, destroy, and runtime reset helpers.
-
-    v1.0.1 (2026-06-20)
-        Added original-code emission without an automatic return jump.
+    v1.0.2 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 Trampolines = {
