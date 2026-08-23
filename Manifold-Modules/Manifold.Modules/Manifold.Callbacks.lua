@@ -1,18 +1,48 @@
 local NAME = "Manifold.Callbacks.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.5"
+local VERSION = "1.0.6"
 local DESCRIPTION = "Manifold Framework Callbacks"
 
 --[[
-    ∂ v1.0.5 (2026-04-21)
-        Refactored callback config flags into a shared configuration system.
-        Reduced callback log noise by focusing on blocked actions and actual errors.
+    ∂ v1.0.6 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 Callbacks = {}
 Callbacks.__index = Callbacks
 
 local MODULE_PREFIX = "[Callbacks]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "Callbacks", global = "callbacks",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "ui", runtime = true },
+    },
+})
+
 local DEFAULT_CONFIG = {
     DisableAutoAssemblerEdits = false,
     DisableDescriptionChange = false,
@@ -46,7 +76,7 @@ function Callbacks:New()
     instance.Name = NAME or "Unnamed Module"
     instance.Config = _copyTable(DEFAULT_CONFIG)
     instance:ResetConfig()
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
