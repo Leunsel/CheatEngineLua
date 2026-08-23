@@ -1,18 +1,12 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.7"
+local VERSION = "1.2.8"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
-    v1.2.7 (2026-06-22)
-        Add a background process-exit fallback for cases where CE does not dispatch the watch timer.
-
-    v1.2.6 (2026-06-22)
-        Track process-watch timer ticks and log callback failures instead of failing silently.
-
-    v1.2.5 (2026-06-22)
-        Reset process-bound state after a successful manual attach when the PID changed.
-
+    v1.2.8 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 ProcessHandler = {
@@ -35,6 +29,38 @@ ProcessHandler = {
     AttachedProcessID = nil,
 }
 ProcessHandler.__index = ProcessHandler
+
+
+local MODULE_PREFIX = "[ProcessHandler]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "ProcessHandler", global = "processHandler",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "utils", runtime = true },
+    },
+})
 
 --
 --- ∑ Internal helper to compare process names in a case-insensitive manner, treating nil and empty strings as non-matching.
@@ -68,7 +94,7 @@ function ProcessHandler:New(config)
     for key, value in pairs(config or {}) do
         instance[key] = value
     end
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -96,23 +122,18 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 --
 --- ∑ Loads required dependencies when missing.
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function ProcessHandler:CheckDependencies()
-    local dependencies = {
-        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end },
-        { name = "utils", path = "Manifold.Utils", init = function() utils = Utils:New() end },
-    }
-    for _, dep in ipairs(dependencies) do
-        if _G[dep.name] == nil then
-            local ok, result = pcall(CETrequire, dep.path)
-            if ok then
-                if dep.init then dep.init() end
-                logger:Info("[ProcessHandler] Loaded dependency '" .. dep.name .. "'.")
-            else
-                logger:Error("[ProcessHandler] Failed to load dependency '" .. dep.name .. "': " .. tostring(result))
-            end
-        end
-    end
+    return BOOTSTRAP.Resolve(MODULE)
 end
+registerLuaFunctionHighlight('CheckDependencies')
 
 --
 --- ∑ Resolves and stores the target process name.
@@ -158,7 +179,15 @@ function ProcessHandler:CloseProcess()
         return
     end
     if not self:IsProcessAttached() then
-        utils:ShowError("Not attached to a process!\nWhat do you expect me to close? :(")
+        -- `utils` is declared runtime (see the deps list above), so a table is
+        -- entitled not to have it. Indexing it unguarded turned "nothing is
+        -- attached" - an ordinary, expected state - into a hard crash.
+        local message = "Not attached to a process!\nWhat do you expect me to close? :("
+        if utils and type(utils.ShowError) == "function" then
+            utils:ShowError(message)
+        else
+            logger:Error(MODULE_PREFIX .. " " .. message)
+        end
         return
     end
     local processID = getOpenedProcessID()
@@ -239,6 +268,20 @@ function ProcessHandler:GetAttachedProcessName()
     return nil
 end
 registerLuaFunctionHighlight('GetAttachedProcessName')
+
+--
+--- ∑ The attached process name without its ".exe" extension.
+---   Exists so Helper:GetProcessTrimmed - deprecated in Helper 1.1.0 - has an
+---   owner to delegate to. Parenthesised: a bare gsub returns the substitution
+---   count as a second value.
+--- @return string|nil
+--
+function ProcessHandler:GetAttachedNameNoExt()
+    local name = self:GetAttachedProcessName()
+    if type(name) ~= "string" or name == "" then return nil end
+    return (name:gsub("%.exe$", ""))
+end
+registerLuaFunctionHighlight('GetAttachedNameNoExt')
 
 --
 --- ∑ Stops and destroys the auto-attach timer if it exists, and resets related state.
