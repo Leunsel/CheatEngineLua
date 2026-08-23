@@ -1,12 +1,12 @@
 local NAME = "Manifold.Logger.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework Logger"
 
 --[[
-    ∂ v1.0.2 (2026-04-21)
-        Refactored duplicated log wrapper and file output logic into shared helpers.
-        Reduced module size by dynamically registering level-specific logging functions.
+    ∂ v1.0.3 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]]--
 
 Logger = {
@@ -16,6 +16,34 @@ Logger.__index = Logger
 
 local MODULE_PREFIX = "[Logger]"
 
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "Logger", global = "logger",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        -- no dependencies: this module is a framework leaf
+    },
+})
+
 function Logger:New()
     local instance = setmetatable({}, self)
     instance.Name = NAME or "Unnamed Module"
@@ -23,7 +51,7 @@ function Logger:New()
     instance.Output = print
     instance.DataDir = os.getenv("USERPROFILE") .. "\\AppData\\Local\\Manifold"
     instance.LogFileName = "Manifold.Runtime.Unknown.log"
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -258,7 +286,6 @@ function Logger:ClearLogFile()
         logger:Error(MODULE_PREFIX .. " Error clearing log file: " .. tostring(err))
         return false
     end
-
     return true
 end
 registerLuaFunctionHighlight('ClearLogFile')
