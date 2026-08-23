@@ -20,12 +20,43 @@ State.__index = State
 
 local MODULE_PREFIX = "[State]"
 
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
+---   table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "State", global = "state",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "customIO", required = true },
+        { "processHandler", runtime = true },
+    },
+})
+
+
 function State:New()
     local instance = setmetatable({}, self)
     self:CheckDependencies()
     instance.Name = NAME or "Unnamed Module"
     instance.TableStateDir = self:EnsureStateDirectory()
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -112,24 +143,16 @@ end
 --- @note This function checks for the existence of the 'json' and 'IO' dependencies,
 ---       and attempts to load them if not already present.
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function State:CheckDependencies()
-    local dependencies = {
-        { name = "logger", path = "Manifold.Logger",  init = function() logger = Logger:New() end },
-        { name = "customIO", path = "Manifold.CustomIO", init = function() customIO = CustomIO:New() end },
-        { name = "processHandler", path = "Manifold.ProcessHandler", init = function() processHandler = ProcessHandler:New() end}
-    }
-    for _, dep in ipairs(dependencies) do
-        if _G[dep.name] == nil then
-            logger:Warning(MODULE_PREFIX .. " '" .. dep.name .. "' dependency not found. Attempting to load...")
-            local success, result = pcall(CETrequire, dep.path)
-            if success then
-                if dep.init then dep.init() end
-                logger:Info(MODULE_PREFIX .. " Loaded dependency '" .. dep.name .. "'.")
-            else
-                logger:Error(MODULE_PREFIX .. " Failed to load dependency '" .. dep.name .. "': " .. tostring(result))
-            end
-        end
-    end  
+    return BOOTSTRAP.Resolve(MODULE)
 end
 registerLuaFunctionHighlight('CheckDependencies')
 
