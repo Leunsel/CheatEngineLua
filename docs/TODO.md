@@ -1,7 +1,9 @@
 # TODO
 
-Open work items from a code review of all three segments (reviewed 2026-08-21 against `main`).
-Every item names the file and line, what goes wrong, and what to do about it.
+Open work items from a code review of all three segments (reviewed 2026-08-21 against `main`,
+revised 2026-08-23). Every item names the file and line, what goes wrong, and what to do about it.
+
+Resolved items keep their original text with a ✅ note on top, so the reasoning stays readable.
 
 **Priorities**
 
@@ -24,17 +26,18 @@ Every item names the file and line, what goes wrong, and what to do about it.
 
 ### 🟠 High
 
-- [ ] [**T4** — `State:CheckDependencies` uses the logger before it exists](#t4-statecheckdependencies-uses-the-logger-before-it-exists) · Framework (Context-Specific)
+- [X] **T4** — Resolved 2026-08-23 by [R-B](#r-b-shared-dependency-bootstrapping). Every `CheckDependencies` is now three lines forwarding to `Bootstrap.Resolve`, and nothing in `Manifold.Bootstrap` indexes `logger` without a guard, so the class of bug is gone rather than the instance.
 - [ ] [**T5** — Callbacks and UI dereference `getLuaEngine()` unguarded](#t5-callbacks-and-ui-dereference-getluaengine-unguarded) · Framework (Context-Specific)
-- [ ] [**T6** — Teleporter uses `utils` without declaring the dependency](#t6-teleporter-uses-utils-without-declaring-the-dependency) · Framework (Context-Specific)
-- [ ] [**T7** — JSON instances do not survive a module reload](#t7-json-instances-do-not-survive-a-module-reload) · Framework
-- [ ] [**T8** — `helper:GetFileVersionStr` does not exist](#t8-helpergetfileversionstr-does-not-exist) · Framework
+- [ ] [**T6** — Teleporter uses `utils` without declaring the dependency](#t6-teleporter-uses-utils-without-declaring-the-dependency) · Framework (Context-Specific) — *still open; the fix is delicate, see the section*
+- [X] **T7** — Resolved 2026-08-23. `Manifold.Json` was rewritten without the `self.__index ~= JSON` guard that caused it; every entry point is call-style agnostic. `Manifold.Bootstrap` additionally reports a re-execution as `RELOAD` instead of letting it corrupt silently.
+- [X] **T8** — Resolved 2026-08-23 in Helper 1.1.0. Both halves: the function now exists, and `Utils:GetTitleComponents` does a real emptiness check so the `AppVersion` fallback is actually reachable.
 - [ ] [**T9** — State IDs collide with "Normalize Cheat Table IDs"](#t9-state-ids-collide-with-normalize-cheat-table-ids) · cross-segment
+- [ ] [**T23** — `Logger` and `CustomIO` can recurse without bound](#t23-logger-and-customio-can-recurse-without-bound) · Framework
 
 ### 🟡 Medium
 
 - [X] **T10** — No fix required. By design: the full file output makes it easier to debug inconsistencies or errors a user reports.
-- [ ] [**T11** — Every memory access emits an info log line](#t11-every-memory-access-emits-an-info-log-line) · Framework
+- [X] **T11** — Resolved 2026-08-23 in Memory 1.1.0. Success lines are `Debug` and gated behind `Memory.LogSuccessfulOperations`, default `false`.
 - [ ] [**T12** — Reading table files does not scale](#t12-reading-table-files-does-not-scale) · Framework
 - [ ] [**T13** — The data directory is hard-coded twice](#t13-the-data-directory-is-hard-coded-twice) · Framework
 - [ ] [**T14** — `EnsureDirectoryExists` is not recursive](#t14-ensuredirectoryexists-is-not-recursive) · Framework
@@ -47,13 +50,15 @@ Every item names the file and line, what goes wrong, and what to do about it.
 
 ### 🔵 Documentation and tests
 
-- [ ] [**T21** — Documentation and version drift](#t21-documentation-and-version-drift) · all
+- [ ] [**T21** — Documentation and version drift](#t21-documentation-and-version-drift) · all — *1 of 4 rows fixed: `Manifold.Utils` VERSION now matches its changelog. The other three and the CI check remain.*
 - [X] **T22** — No fix required. Unit tests are not relevant in this context.
+- [ ] [**T24** — Teleporter assigns to a `for` control variable](#t24-teleporter-assigns-to-a-for-control-variable) · Framework
+- [ ] [**T25** — Three game-specific custom types live in Utils](#t25-three-game-specific-custom-types-live-in-utils) · Framework
 
 ### Larger refactors
 
 - [ ] [**R-A** — A real namespace](#r-a-a-real-namespace)
-- [ ] [**R-B** — Shared dependency bootstrapping](#r-b-shared-dependency-bootstrapping)
+- [X] **R-B** — Implemented 2026-08-23 as [`Manifold.Bootstrap.lua`](../Manifold-Modules/Manifold.Modules/Manifold.Bootstrap.lua). See the section for what shipped and how it differs from the sketch.
 - [ ] [**R-C** — `CETrequire` with a module cache](#r-c-cetrequire-with-a-module-cache)
 - [ ] [**R-D** — Structured logging instead of text lines](#r-d-structured-logging-instead-of-text-lines)
 - [ ] [**R-E** — Contract checking for the template context](#r-e-contract-checking-for-the-template-context)
@@ -64,6 +69,13 @@ Every item names the file and line, what goes wrong, and what to do about it.
 # Framework
 
 ## T4. `State:CheckDependencies` uses the logger before it exists
+
+> **✅ Resolved 2026-08-23** — structurally, not locally. [R-B](#r-b-shared-dependency-bootstrapping)
+> shipped as `Manifold.Bootstrap`, and every module's `CheckDependencies` is now
+> three lines forwarding to `Bootstrap.Resolve`. There is exactly one `_log()` in
+> the core and it queues rather than indexing a logger that may not exist, so the
+> `ProcessHandler` twin in its `else` branch is closed by the same change.
+
 
 🟠 [`Manifold.State.lua:118–126`](../Manifold-Modules/Manifold.Modules/Manifold.State.lua)
 
@@ -147,6 +159,19 @@ end
 
 ## T6. Teleporter uses `utils` without declaring the dependency
 
+> **⚠️ Still open, and the obvious fix is not safe.** As of 2026-08-23 the dependency can
+> now simply be declared — `{ "utils", runtime = true }` in the module's
+> `BOOTSTRAP.Declare` block — which costs nothing and documents the edge. That part
+> should just be done.
+>
+> The fallback proposed below must **not** be applied as written. `GetTargetNoExt()`
+> determines the teleport **save file name**. Substituting `helper:GetProcessTrimmed()`
+> or `"Unknown"` when `utils` is absent resolves a *different* filename, so a user's
+> existing saves are not found and appear to have vanished. Any fallback has to
+> either produce the identical string or refuse loudly — it must never quietly
+> resolve to a second name.
+
+
 🟠 [`Manifold.Teleporter.lua:862`](../Manifold-Modules/Manifold.Modules/Manifold.Teleporter.lua)
 
 ```lua
@@ -178,6 +203,16 @@ local target = (utils and utils.GetTargetNoExt and utils:GetTargetNoExt())
 ---
 
 ## T7. JSON instances do not survive a module reload
+
+> **✅ Resolved 2026-08-23.** `Manifold.Json` was rewritten from scratch without the
+> `type(self) ~= 'table' or self.__index ~= JSON` guard that caused this — every entry
+> point is call-style agnostic and identifies itself by a stable marker field rather
+> than by table identity, so two loads still recognise each other's values.
+> `Manifold.Bootstrap` closes the other half: a re-execution is now reported as
+> `RELOAD gen N` naming the affected modules, instead of silently orphaning them.
+> The underlying cause — `CETrequire` has no cache — is still
+> [R-C](#r-c-cetrequire-with-a-module-cache), now visible rather than silent.
+
 
 🟠 [`Manifold.Json.lua:507`](../Manifold-Modules/Manifold.Modules/Manifold.Json.lua)
 
@@ -222,6 +257,14 @@ first place.
 ---
 
 ## T8. `helper:GetFileVersionStr` does not exist
+
+> **✅ Resolved 2026-08-23** in Helper 1.1.0, both halves as proposed below.
+> `Helper:GetFileVersionStr(path)` exists and guards `getFileVersion`,
+> `GetGameModule` and a non-table result. `Utils:GetTitleComponents` now tests
+> `AppVersion ~= ""` so the fallback is reachable, and no longer indexes `helper`
+> unguarded — `helper` is a runtime dependency, and a table without it used to get
+> `"Error: Failed to Set Title"` as its window caption.
+
 
 🟠 [`Manifold.Utils.lua:600`](../Manifold-Modules/Manifold.Modules/Manifold.Utils.lua)
 
@@ -302,6 +345,12 @@ if not rec then rec = descriptionLookup[mr.Description] end
 
 
 ## T11. Every memory access emits an info log line
+
+> **✅ Resolved 2026-08-23** in Memory 1.1.0, exactly as proposed: success cases are
+> `Debug` and gated behind `Memory.LogSuccessfulOperations`, default `false`.
+> Failures stay at `Error`. A teleport therefore performs zero log-file writes on
+> the success path instead of twelve.
+
 
 🟡 [`Manifold.Memory.lua:287, 308`](../Manifold-Modules/Manifold.Modules/Manifold.Memory.lua)
 
@@ -547,6 +596,92 @@ Rename `_checkProcessChangedOrThrow` to `_checkProcessChanged` accordingly and d
 
 ---
 
+## T23. `Logger` and `CustomIO` can recurse without bound
+
+🟠 [`Manifold.Logger.lua:174`](../Manifold-Modules/Manifold.Modules/Manifold.Logger.lua) and [`Manifold.CustomIO.lua:175`](../Manifold-Modules/Manifold.Modules/Manifold.CustomIO.lua)
+
+```
+Logger:_WriteToLogFile -> _EnsureLogDirectories -> customIO:CreateDirectory
+                                                        |
+                       (on failure)  logger:Error  <----+
+                              |
+                              +-> Logger:_DispatchLog -> _WriteToLogFile -> ...
+```
+
+`Logger:_DispatchLog` writes to the file *before* it applies the level filter (by design — see T10
+in the checklist, which records that as deliberate), so every line at every level walks `_EnsureLogDirectories`. That calls
+`customIO:CreateDirectory`, which calls `logger:Error` when it fails — and straight back in.
+
+**Impact.** Unbounded mutual recursion, ending in a stack overflow. It triggers on exactly the
+machine the logging exists to diagnose: an end-user box where
+`%USERPROFILE%\AppData\Local\Manifold\Logs` cannot be created. It affects `CustomIO`, `Patcher`
+and `State` equally — `Manifold.Json` and `Manifold.Bootstrap` pcall their own log calls, which
+protects their callers but not the cycle itself.
+
+**Fix.** One reentrancy latch in the logger, which is where the cycle closes:
+
+```lua
+function Logger:_WriteToLogFile(formattedMessage)
+    if self._writingToFile then return end     -- a failure inside the write must not re-enter
+    self._writingToFile = true
+    if self:_EnsureLogDirectories() then
+        customIO:AppendToFile(self:_GetLogFilePath(), formattedMessage)
+    end
+    self._writingToFile = nil
+end
+```
+
+Five lines, no new dependency, and it makes the `pcall`s in `Manifold.Json` and
+`Manifold.Bootstrap` belt-and-braces rather than load-bearing.
+
+---
+
+## T24. Teleporter assigns to a `for` control variable
+
+🔵 [`Manifold.Teleporter.lua:619`](../Manifold-Modules/Manifold.Modules/Manifold.Teleporter.lua)
+
+```lua
+for part in normalized:gmatch("[^/]+") do
+    part = trimString(part)
+```
+
+Legal in Lua 5.1–5.4, which is what Cheat Engine ships. **Lua 5.5 made generic-`for` control
+variables constant**, so this raises `attempt to assign to const variable 'part'` at load time
+there. `Manifold.Teleporter` is currently the only module in the framework that cannot be parsed
+by a 5.5 interpreter.
+
+**Impact.** None today. It becomes a hard load failure the day Cheat Engine updates its Lua, and
+it already blocks parsing the module with modern tooling.
+
+**Fix.** Use a second local:
+
+```lua
+for rawPart in normalized:gmatch("[^/]+") do
+    local part = trimString(rawPart)
+```
+
+Both occurrences — the `categoryInput` table branch and the string branch.
+
+---
+
+## T25. Three game-specific custom types live in Utils
+
+🔵 [`Manifold.Utils.lua`](../Manifold-Modules/Manifold.Modules/Manifold.Utils.lua) — `RegisterTimeTypes`, `RegisterDecryptionType`, `RegisterPlaytimeMilitaryType`
+
+All three register CE custom types for a *specific game* — the call sites in the shipped table
+script name them: Dying Light, Monster Hunter Wilds, Mewgenics. All three have **zero callers
+anywhere in the repository**, and in the reference table script all three are commented out.
+
+They are the clearest example of what makes `Manifold.Utils` hard to describe in one sentence:
+they are not framework code, they are per-table code that happens to live in the framework.
+
+**Fix.** Not urgent and not obviously worth a module of its own. The options, in order of
+increasing effort: leave them and label the block honestly; move them to an opt-in
+`Manifold.CustomTypes` that only tables needing them load; or delete them and let each table
+register its own, since that is where the knowledge actually belongs.
+
+---
+
 # Template Loader
 
 ## T2. `BaseAddressRegister` is always empty in the template context
@@ -710,6 +845,35 @@ That also makes `Manifold.Setup.IsRelease` valid without touching line 694.
 
 ## R-B. Shared dependency bootstrapping
 
+> **✅ Shipped 2026-08-23** as [`Manifold.Bootstrap.lua`](../Manifold-Modules/Manifold.Modules/Manifold.Bootstrap.lua).
+> All fifteen production modules use it. The sketch below is kept for history; what
+> actually shipped differs in five ways worth knowing:
+>
+> * **Refuse and report, not auto-load.** `Bootstrap.Resolve` never loads anything.
+>   A missing `required` dependency raises out of `New()` naming the dependency,
+>   instead of the module quietly pulling it in. Auto-loading is what made
+>   `Manifold.Forms` and `Manifold.Trampolines` appear in tables that never asked
+>   for them. `Settings.AutoLoad = true` restores the old behaviour.
+> * **Three dependency kinds.** `required` (refuses), plain (counted, survivable)
+>   and `runtime` (documented only, never ordered on). The last is what makes the
+>   `UI ↔ Teleporter` and `AutoAssembler ↔ ProcessHandler` cycles harmless.
+> * **One `Info` line per module** at the end of `New()`, carrying name and version.
+>   A second line for the same module is the collision signal.
+> * **`Bootstrap.ORDER`** is the order of execution as data, and `Bootstrap.Verify()`
+>   proves every load-time dependency sits earlier in it. Because each edge must
+>   point strictly backwards in a linear array, an order that verifies cannot
+>   contain a load-time cycle.
+> * **The registry survives re-execution.** The published API table is created once
+>   and mutated in place, so a module's captured `local BOOTSTRAP` stays valid after
+>   `CETrequire` runs the core again — which it does, see
+>   [R-C](#r-c-cetrequire-with-a-module-cache).
+>
+> The `validate` field the sketch proposed also shipped, as the `Validate`/`Contract`
+> split: `Validate` checks metatable identity *and* usability, `Contract` only
+> usability. An instance orphaned by a re-require still answers its calls, so it is
+> reported as a collision and **kept**, not silently rebuilt behind live state.
+
+
 `CheckDependencies` exists in six modules in four slightly different variants — two of them with
 the logger bug from [T4](#t4-statecheckdependencies-uses-the-logger-before-it-exists).
 
@@ -750,6 +914,12 @@ The `validate` field also resolves [T7](#t7-json-instances-do-not-survive-a-modu
 ```
 
 ## R-C. `CETrequire` with a module cache
+
+> **Still open, but no longer silent.** As of 2026-08-23 `Manifold.Bootstrap` reports every
+> re-execution as `RELOAD gen N` with the affected modules listed, and keeps orphaned-but-working
+> instances rather than rebuilding them behind live state. That turns this from a corruption
+> into a diagnosable event — the cache is still the actual fix.
+
 
 `CETrequire` runs `dofile`/`load` on every call. That is the root cause of the JSON instance
 invalidation and makes ordering problems needlessly sharp.
