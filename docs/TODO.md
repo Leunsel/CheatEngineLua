@@ -21,7 +21,7 @@ Resolved items keep their original text with a ✅ note on top, so the reasoning
 ### 🔴 Critical
 
 - [X] **T1** — Edit: No fix required. `Manifold` is supposed to be a Table Lua Script Global.
-- [ ] [**T2** — `BaseAddressRegister` is always empty in the template context](#t2-baseaddressregister-is-always-empty-in-the-template-context) · Template Loader
+- [X] **T2** — Resolved 2026-08-23. `Memory:GetRegisterData` now uses two anchored patterns instead of one with a fake optional group, and warns at the call site when no base register can be found.
 - [X] **T3** — Edit: No fix required. Patcher has been discontinued.
 
 ### 🟠 High
@@ -638,7 +638,7 @@ Five lines, no new dependency, and it makes the `pcall`s in `Manifold.Json` and
 
 ## T24. Teleporter assigns to a `for` control variable
 
-🔵 [`Manifold.Teleporter.lua:619`](../Manifold-Modules/Manifold.Modules/Manifold.Teleporter.lua)
+🔵 [`Manifold.Teleporter.lua:615`](../Manifold-Modules/Manifold.Modules/Manifold.Teleporter.lua) and [`Manifold-TemplateLoader-UI.lua:57`](../Manifold-TemplateLoader/Manifold-TemplateLoader-Modules/Manifold-TemplateLoader-UI.lua)
 
 ```lua
 for part in normalized:gmatch("[^/]+") do
@@ -647,8 +647,9 @@ for part in normalized:gmatch("[^/]+") do
 
 Legal in Lua 5.1–5.4, which is what Cheat Engine ships. **Lua 5.5 made generic-`for` control
 variables constant**, so this raises `attempt to assign to const variable 'part'` at load time
-there. `Manifold.Teleporter` is currently the only module in the framework that cannot be parsed
-by a 5.5 interpreter.
+there. Two files are affected — `Manifold.Teleporter` (both the `categoryInput` table branch and the
+string branch) and `Manifold-TemplateLoader-UI` (`gmatch("[^>]+")` over the category path). They
+are the only two files in either segment that a 5.5 interpreter cannot parse.
 
 **Impact.** None today. It becomes a hard load failure the day Cheat Engine updates its Lua, and
 it already blocks parsing the module with modern tooling.
@@ -660,7 +661,8 @@ for rawPart in normalized:gmatch("[^/]+") do
     local part = trimString(rawPart)
 ```
 
-Both occurrences — the `categoryInput` table branch and the string branch.
+All three occurrences — the two in `Manifold.Teleporter` and the one in
+`Manifold-TemplateLoader-UI`.
 
 ---
 
@@ -685,6 +687,24 @@ register its own, since that is where the knowledge actually belongs.
 # Template Loader
 
 ## T2. `BaseAddressRegister` is always empty in the template context
+
+> **✅ Resolved 2026-08-23**, as proposed, with three additions.
+> * The two patterns are anchored (`^%s*...%s*$`) against the extracted `[...]`
+>   operand rather than run over the whole instruction, so a scaled index such as
+>   `[rax+rcx*4+30]` no longer half-matches.
+> * `rip`/`eip` are rejected: `[rip+1234]` parses as a base+offset but
+>   `mov [Ptr],rip` does not assemble, and the address it names is already
+>   absolute.
+> * Anything more complex returns nil rather than a partial answer. A partial
+>   answer would silently generate a script capturing the WRONG pointer; nil
+>   keeps the existing loud failure for the genuinely ambiguous cases, and the
+>   new warning at the call site names the instruction and the affected template
+>   families.
+>
+> Verified empirically before and after: the shipped pattern returned `nil,nil`
+> for every real disassembly and matched only `"[rax+30?]"`, confirming the `?`
+> was being treated as a literal character.
+
 
 🔴 [`Manifold-TemplateLoader-Memory.lua:336`](../Manifold-TemplateLoader/Manifold-TemplateLoader-Modules/Manifold-TemplateLoader-Memory.lua)
 
