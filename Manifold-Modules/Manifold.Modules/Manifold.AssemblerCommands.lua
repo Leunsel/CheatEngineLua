@@ -4,29 +4,6 @@ local VERSION = "1.2.5"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
-    v1.2.0 (2026-06-19)
-        Added ManifoldInstallDetour and ManifoldDestroyDetour.
-        Detours use a 5-byte jmp rel32 into a near AA-allocated relay block.
-        The relay jumps absolutely to the destination and exposes an Original trampoline
-        generated from captured original bytes.
-        
-    v1.2.1 (2026-06-19)
-        Moved trampoline and detour runtime logic into Manifold.Trampolines.
-        AssemblerCommands now only owns AA command parsing and command registration.
-                
-    v1.2.2 (2026-06-19)
-        --- Change Removed ---
-
-    v1.2.3 (2026-06-19)
-        ManifoldEmitOriginal no longer accepts an emit mode parameter.
-        It now delegates to the default trampoline original emission path.
-
-    v1.2.4 (2026-06-19)
-        Added ManifoldEmitReturn for skipping original code and jumping back to the detour return address.
-        ManifoldEmitOriginal now uses the relocated original emitter from Manifold.Trampolines.
-
-    v1.2.5 (2026-06-20)
-        Added ManifoldEmitOriginalNoReturn for emitting relocated original code without an automatic return jump.
 
     v1.2.6 (2026-08-21)
         (Minor) Added Instruction Log to _aobScanModuleUnique.
@@ -46,6 +23,36 @@ AssemblerCommands = {
 AssemblerCommands.__index = AssemblerCommands
 
 local MODULE_PREFIX = "[Commands]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the Cheat
+---   Table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "AssemblerCommands", global = "assemblerCommands",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "trampolines", required = true },
+    },
+})
+
 local EMPTY_RESULT = ""
 
 local COMMAND_SPECS = {
@@ -73,7 +80,7 @@ function AssemblerCommands:New()
     instance.Author = AUTHOR
     instance.Version = VERSION
     instance.Description = DESCRIPTION
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
 
@@ -87,31 +94,6 @@ registerLuaFunctionHighlight('New')
 ---   does not need to repeat the same CETrequire and logger guards.
 --- @param dep table # {name = string, path = string, init = function|nil}
 --- @return boolean # True if the dependency is available after this call.
---
-function AssemblerCommands:_ensureDependency(dep)
-    local depName = dep.name
-    if _G[depName] ~= nil then
-        if logger and logger.Debug then
-            logger:Debug(string.format("%s Dependency '%s' is already loaded", MODULE_PREFIX, depName))
-        end
-        return true
-    end
-    if logger and logger.Warning then
-        logger:Warning(string.format("%s '%s' dependency not found. Attempting to load...", MODULE_PREFIX, depName))
-    end
-    local success, result = pcall(CETrequire, dep.path)
-    if not success then
-        if logger and logger.Error then
-            logger:Error(string.format("%s Failed to load dependency '%s': %s", MODULE_PREFIX, depName, tostring(result)))
-        end
-        return false
-    end
-    if dep.init then dep.init() end
-    if logger and logger.Info then
-        logger:Info(string.format("%s Loaded dependency '%s'.", MODULE_PREFIX, depName))
-    end
-    return true
-end
 
 --
 --- ∑ Ensures all required global dependencies for this module are loaded.
@@ -119,14 +101,16 @@ end
 ---   driven loader makes later growth predictable and avoids duplicated bootstrap code.
 --- @return nil
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function AssemblerCommands:CheckDependencies()
-    local dependencies = {
-        { name = "logger", path = "Manifold.Logger", init = function() logger = Logger:New() end },
-        { name = "trampolines", path = "Manifold.Trampolines", init = function() trampolines = Trampolines:New() end }
-    }
-    for _, dep in ipairs(dependencies) do
-        self:_ensureDependency(dep)
-    end
+    return BOOTSTRAP.Resolve(MODULE)
 end
 registerLuaFunctionHighlight('CheckDependencies')
 
