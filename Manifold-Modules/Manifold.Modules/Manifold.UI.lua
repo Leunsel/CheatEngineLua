@@ -1,15 +1,13 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.5"
+local VERSION = "1.0.6"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
 --[[
-    ∂ v1.0.5 (2026-06-17)
-        Added Manifold.Forms integration for live theming of registered forms.
-        Requires Manifold.Forms for Theme Creator UI control generation.
-        Removed legacy CE-control fallback builders from the Theme Creator path.
-        Corrected minor logging inconsistencies.
+    ∂ v1.0.6 (2026-08-23)
+        Implemented the Bootstrap handshake so this module
+        can be loaded on its own or through the framework.
 ]] 
 
 UI = {
@@ -24,6 +22,41 @@ UI = {
     SignatureStr = ""
 }
 UI.__index = UI
+
+
+local MODULE_PREFIX = "[UI]"
+
+--
+--- ∑ Manifold.Bootstrap handshake. Uses the framework core when the Cheat
+---   Table has loaded it, and degrades to an inert stub when it has not, so
+---   this module stays loadable on its own. Identical in every module - this
+---   is the one duplication the design costs, and it is irreducible: something
+---   has to reach the loader before the loader exists.
+--
+local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
+    Declare = function(spec) return spec end,
+    Resolve = function() return true end,
+    Ready   = function(_, instance) return instance end,
+    Once    = function(_, fn) if type(fn) == "function" then pcall(fn) end return true end,
+}
+
+--
+--- ∑ This module's identity and its dependency contract, in one place.
+---     required = true -> New() refuses rather than pretending to be ready
+---     runtime  = true -> documented only; never loaded here, never ordered on
+--
+local MODULE = BOOTSTRAP.Declare({
+    class = "UI", global = "ui",
+    name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
+    prefix = MODULE_PREFIX,
+    deps = {
+        { "logger", required = true },
+        { "customIO", required = true },
+        { "forms", required = true },
+        { "json" },
+        { "teleporter", runtime = true },
+    },
+})
 
 --
 --- ∑ Compares two version strings to determine if the current version meets or exceeds the required version.
@@ -90,7 +123,7 @@ function UI:New(config)
             logger:WarningF("Invalid property: '%s'", key)
         end
     end
-    return instance
+    return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight("New")
 
@@ -194,49 +227,18 @@ UI.TokenDescriptions = {
 --- @return # void
 --- @note Checks for 'json' as well as "customIO" and loads them if not already present.
 --
+--- ∑ The single dependency lookup, shared by every Manifold module.
+---   The name is kept so external callers and the docs keep working, and so a
+---   module can still be checked without being constructed.
+---   Behaviour is refuse-and-report: Bootstrap.Resolve never loads anything.
+---   A missing `required` dependency raises out of New() with one legible
+---   message instead of this module pretending to be ready.
+--- @return boolean, table # resolved, list of missing dependency names
+--
 function UI:CheckDependencies()
-    local function depLog(level, message)
-        if logger and logger[level] then
-            logger[level](logger, message)
-        end
-    end
-    local dependencies = {
-        {name = "logger", path = "Manifold.Logger", init = function()
-                logger = Logger:New()
-            end},
-        {name = "json", path = "Manifold.Json", init = function()
-                json = JSON:new()
-            end},
-        {name = "customIO", path = "Manifold.CustomIO", init = function()
-                customIO = CustomIO:New()
-            end},
-        {name = "forms", path = "Manifold.Forms", init = function()
-                forms = Forms:New()
-            end}
-    }
-    for _, dep in ipairs(dependencies) do
-        local depName = dep.name
-        if _G[depName] == nil then
-            depLog("Warning", "[UI] '" .. depName .. "' dependency not found. Attempting to load...")
-            local success, result = pcall(CETrequire, dep.path)
-            if success then
-                if dep.init then
-                    dep.init()
-                end
-                depLog("Info", "[UI] Loaded dependency '" .. depName .. "'.")
-            else
-                depLog("Error", "[UI] Failed to load dependency '" .. depName .. "': " .. tostring(result))
-            end
-        else
-            depLog("Debug", "[UI] Dependency '" .. depName .. "' is already loaded")
-        end
-    end
-    if _VersionAtLeast(VERSION, "1.0.5") and not (forms and type(forms.CreatePanel) == "function") then
-        local message = "[UI] As of Version 1.0.5, Manifold.Forms is required to generate the UI-Components."
-        depLog("Error", message)
-        error(message, 2)
-    end
+    return BOOTSTRAP.Resolve(MODULE)
 end
+registerLuaFunctionHighlight('CheckDependencies')
 
 --
 --- ∑ Ensures that the Theme Directory exists within the Data Directory.
