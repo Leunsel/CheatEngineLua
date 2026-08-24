@@ -9,6 +9,9 @@
 local Log = require("Manifold-TemplateLoader-Log")
 local log = Log:New()
 
+local Icons = require("Manifold-TemplateLoader-Icons")
+local icons = Icons:New()
+
 local UI = { ManagedMenuTag = 1297374284 }
 UI.__index = UI
 
@@ -95,7 +98,13 @@ function UI:BuildTree(parent, tree)
                 Checked = entry.checked == true,
                 OnClick = entry.onClick
             })
+            -- Order is load-bearing. TMenuItem.SetImageIndex bails out early
+            -- when no image list resolves, and GetImageList walks up from the
+            -- item's PARENT - so the parent must already be carrying
+            -- SubMenuImages before any child sets its ImageIndex.
+            if entry.iconParent then icons:AttachTo(item) end
             if entry.sub then self:BuildTree(item, entry.sub) end
+            if entry.icon then icons:Apply(item, entry.icon) end
         end
     end
 end
@@ -146,11 +155,20 @@ local function loggerMenu(config, indices, callbacks)
             name = "ManifoldLogLevel_" .. level,
             radio = true,
             checked = config.Logger.Level == level,
+            -- Resolved against the parent's SubMenuImages, not the menu's own
+            -- Images, so it indexes the Manifold icon list rather than CE's.
+            icon = level,
             onClick = function(sender) callbacks.onLevelChange(level, sender) end
         }
     end
     return {
-        { caption = "Log level", name = "ManifoldLogLevel", image = indices.Level, sub = levelItems },
+        -- The active level is repeated in the caption on purpose. On Win32 an
+        -- item carrying a glyph draws it in the same gutter the radio mark
+        -- uses, so the mark alone is not a dependable indicator once these
+        -- items have icons.
+        { caption = "Log level (" .. tostring(config.Logger.Level) .. ")",
+          name = "ManifoldLogLevel", image = indices.Level,
+          iconParent = true, sub = levelItems },
         { caption = "Write log file", name = "ManifoldLogToFile", image = indices.Log, autoCheck = true,
           checked = config.Logger.LogToFile == true, onClick = callbacks.onLogToFile },
         { caption = "View log file", name = "ManifoldViewLog", image = indices.Eye, onClick = callbacks.onViewLog }
