@@ -462,8 +462,17 @@ function Loader:GetTrackedForms()
         add(getForm(index))
     end
     self.AutoInjectForms = forms
-    self.FormIndices = setmetatable({}, { __mode = "k" })
-    for _, form in ipairs(forms) do self.FormIndices[form] = true end
+    -- Drop cached indices for forms that are gone, and KEEP the ones still
+    -- tracked. The previous version rebuilt the table and stored `true` per
+    -- form, which GetMenuIndices then returned verbatim in place of the index
+    -- table - so RebuildOptionsMenu handed a boolean to GetMainMenuTree and
+    -- died on `indices.Template`.
+    local retained = setmetatable({}, { __mode = "k" })
+    for _, form in ipairs(forms) do
+        local cached = self.FormIndices and self.FormIndices[form]
+        if type(cached) == "table" then retained[form] = cached end
+    end
+    self.FormIndices = retained
     return forms
 end
 
@@ -698,7 +707,8 @@ end
 -- Menu lifecycle ------------------------------------------------------------
 
 function Loader:GetMenuIndices(form)
-    if self.FormIndices[form] then return self.FormIndices[form] end
+    local cached = self.FormIndices[form]
+    if type(cached) == "table" then return cached end
     local imageList = form and form.aaImageList
     local memoryView = type(getMemoryViewForm) == "function" and getMemoryViewForm() or nil
     local indices = {
