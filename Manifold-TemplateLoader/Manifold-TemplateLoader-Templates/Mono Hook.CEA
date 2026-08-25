@@ -1,0 +1,46 @@
+{
+   Mono Hook
+   ---------
+   A code cave hook on a managed method. The symbol comes from
+   FINDMONOMETHOD, so the script finds the method by name on every enable
+   instead of scanning for bytes that the JIT rebuilds each run.
+
+   Suggested hook name for this method: << MonoHookName >>
+}
+<< include("Mono-Header") >>
+
+[ENABLE]
+
+<< MonoResolve >>
+<< Alloc >>
+
+label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
+
+n_<< HookName >>:
+  // Your code goes here.
+
+o_<< HookName >>:
+  readMem(<< HookNameParsed >><< MonoOffsetSuffix >>,<< JumpSize >>)
+  jmp r_<< HookName >>
+
+z_<< HookName >>:
+  readMem(<< HookNameParsed >><< MonoOffsetSuffix >>,<< JumpSize >>)
+
+<< HookNameParsed >><< MonoOffsetSuffix >>:
+  << JumpType >> n_<< HookName >>
+  << NopPadding >>
+r_<< HookName >>:
+registersymbol(z_<< HookName >>)
+
+[DISABLE]
+
+// FINDMONOMETHOD produces a define, and a define only lives inside the
+// block that created it. Unlike a scan symbol it cannot be registered
+// and carried over, so the disable resolves the method a second time.
+<< MonoResolve >>
+
+<< HookNameParsed >><< MonoOffsetSuffix >>:
+  readMem(z_<< HookName >>,<< JumpSize >>)
+
+unregisterSymbol(*)
+dealloc(*)

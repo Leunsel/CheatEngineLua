@@ -34,7 +34,8 @@ local PROVIDER_MODULES = {
     "Manifold-TemplateLoader-Provider-Process",
     "Manifold-TemplateLoader-Provider-Instruction",
     "Manifold-TemplateLoader-Provider-Hook",
-    "Manifold-TemplateLoader-Provider-Framework"
+    "Manifold-TemplateLoader-Provider-Framework",
+    "Manifold-TemplateLoader-Provider-Mono"
 }
 
 local Runtime = {}
@@ -157,6 +158,11 @@ function Runtime:_BuildContextServices()
     -- cannot be asked whether an Auto Assembler command is registered.
     extensions:RegisterCapability("Manifold.AssemblerCommands", function()
         return type(rawget(_G, "assemblerCommands")) == "table"
+    end)
+    -- Cheat Engine's own Mono support, registered by autorun/monoscript.lua.
+    extensions:RegisterCapability("Mono.Runtime", function()
+        return type(rawget(_G, "mono_getJitInfo")) == "function"
+            and type(rawget(_G, "LaunchMonoDataCollector")) == "function"
     end)
     extensions:RegisterCapability("Manifold.Trampolines", function()
         return type(rawget(_G, "assemblerCommands")) == "table"

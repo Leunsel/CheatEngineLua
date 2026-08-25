@@ -28,7 +28,7 @@ autorun/
 │   ├── Manifold-TemplateLoader-Version.lua   the version number
 │   ├── Manifold-TemplateLoader-Engine.lua    template engine
 │   ├── Manifold-TemplateLoader-Context.lua   context registry and resolution
-│   ├── Manifold-TemplateLoader-Provider-*.lua  five built-in providers
+│   ├── Manifold-TemplateLoader-Provider-*.lua  six built-in providers
 │   ├── Manifold-TemplateLoader-Registry.lua  discovery and settings schemas
 │   ├── Manifold-TemplateLoader-Generator.lua the generation pipeline
 │   ├── Manifold-TemplateLoader-Inputs.lua    declarative input dialogs
@@ -64,7 +64,7 @@ Persistent Host   owns the single registerFormAddNotification, never reloaded
          ├── File and CE      defensive file system and Cheat Engine layers
          ├── Engine           parser, compiled chunk cache, renderer
          ├── ContextRegistry  providers, variables, dependency graph
-         │     └── Providers  Runtime, Process, Instruction, Hook, Framework
+         │     └── Providers  Runtime, Process, Instruction, Hook, Framework, Mono
          ├── TemplateRegistry discovery, settings schemas 1 and 2, validation
          ├── Extensions       providers, variables, helpers and hooks from outside
          ├── Generator        the staged pipeline
@@ -207,7 +207,7 @@ The registry is the single source of truth. *Diagnostics > Runtime Status* lists
 including extension providers. The built-ins are:
 
 **Runtime provider.** `Version`, `Date`, `Time`, `DateTime`, `Header` (a lazy render of
-`Header.CEA`) and `MonoSupportStatus`, a placeholder until a Mono provider exists.
+`Header.CEA`) and `MonoSupportStatus`, kept for 2.x compatibility.
 
 **Process provider.** `Process`, `ProcessBase`, `IsTarget64Bit`, `PointerType` (`dq` or `dd`),
 `PointerSize` (8 or 4), `DefaultPointerBytes`, `Module` and `ModuleBase`.
@@ -234,6 +234,29 @@ module under its declared global, so `assemblerCommands` and `trampolines` being
 the modules were constructed. Cheat Engine offers no way to ask whether an Auto Assembler command
 name is registered. The same predicate backs the built-in capabilities
 `Manifold.AssemblerCommands` and `Manifold.Trampolines`.
+
+**Mono provider.** Facts about the managed method the injection address falls into.
+`MonoAvailable` and `MonoIsIl2Cpp` describe the target, `MonoIsJitted` says whether the address
+is inside JIT compiled managed code at all, and `MonoNamespace`, `MonoClass`, `MonoClassFullName`,
+`MonoMethod` and `MonoImage` name it. `MonoDescriptor` is the `Namespace:Class:Method` form Cheat
+Engine's `FINDMONOMETHOD` command parses, `MonoMethodEntry`, `MonoMethodSize` and
+`MonoMethodOffset` describe the compiled body, and `MonoHookName` is a sanitized `Class_Method`
+suitable as a hook name. `MonoResolve` emits the `USEMONO` and `FINDMONOMETHOD` pair that defines
+the hook symbol at assemble time.
+
+One thing to know before writing another provider against Cheat Engine's Mono API. Those getters
+return raw qwords, so a lookup that found nothing answers with `0` and never with `nil`, and a
+class that is not nested answers `0` as well. Zero is true in Lua, so a handle has to be compared
+against zero and never merely tested. Names work the same way, an invalid class gives back an
+empty string rather than nothing. Cheat Engine normalizes this itself in `dotnetinfo.lua` before
+it trusts a nesting type, and the provider now does too. Getting it wrong is quiet, because the
+values still have the right type and flow straight through into a descriptor that looks fine.
+
+A managed hook is anchored by the method name, not by a byte signature. JIT compiled code is
+produced fresh on every run, so a signature over it is worthless after a restart and the JIT
+address must never be written into a script. `MonoMethodEntry` exists for inspection, not for the
+generated text. Nested types resolve to no descriptor at all, because `FINDMONOMETHOD` splits on
+the first two colons and a nested full name would mis-split.
 
 **Set by the generator.** `TemplateSettings` carries the normalized settings, the legacy
 spellings `SubMenuName` and `MenuOrder`, the flattened memory overrides and any custom fields the
@@ -511,6 +534,29 @@ All bundled templates use schema-2 settings with stable ids, `Category` and `Cat
 `Requires` contracts and tags. The `Requires` list of each one is derived from what the template
 actually references.
 
+### Mono templates
+
+Three templates sit in the `Mono` category and are anchored by the method name rather than by a
+byte signature. `Mono Hook` is the plain code cave. `Mono Hook, Instance Capture` stores an
+argument register into a named pointer, which at the prologue of an instance method is the object
+in `rcx`. `Mono Byte Patch` overwrites the entry so the method returns straight away.
+
+All three emit `USEMONO` and `FINDMONOMETHOD` through `MonoResolve`, and all three restore with
+`readMem` rather than writing back recorded bytes. That is the important part. JIT code is rebuilt
+on every run, so bytes captured while the script was generated may not be the bytes that are there
+the next time it is enabled, and writing them back would corrupt the method.
+
+The `[DISABLE]` block resolves the method a second time. `FINDMONOMETHOD` returns a `define`,
+and a define only lives inside the block that created it. A scan symbol can be registered and
+read back later, a define cannot, so the disable has to ask for the address again rather than
+carry it over.
+
+They declare the `Mono.Runtime` capability, which checks for Cheat Engine's own Mono support, and
+they require `MonoDescriptor` and `MonoResolve`. Requiring those two is what makes a generation on
+native code stop with a readable message before anything renders. `MonoIsJitted` is deliberately
+not in the list, because it is a boolean and a required check treats only `nil` and the empty
+string as missing, so `false` would pass.
+
 ### The Manifold Framework is optional
 
 Every template that scans and asserts now writes:
@@ -610,8 +656,9 @@ that required those directly has to switch to the public globals.
 
 ## Known limits
 
-There is no Mono or managed provider yet. The provider system is built for it, so a future
-MonoProvider can register `MonoClass`, `MonoMethod` and the rest without core changes.
+IL2CPP is detected and reported, not supported. There is no Mono runtime in an IL2CPP build to
+ask for a method, so name based resolution cannot work. Support for it needs a separate provider
+that reads a metadata dump.
 
 Templates are not discovered recursively. Subfolders are reserved, and `Partials/` is one of
 them.

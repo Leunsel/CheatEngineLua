@@ -1,0 +1,38 @@
+{
+   ── Managed Method ──
+   Hook           : << HookNameParsed >>
+   Process        : << Process >>
+   Image          : << default(MonoImage, "unknown") >>
+   Namespace      : << default(MonoNamespace, "(global namespace)") >>
+   Class          : << MonoClass >>
+   Method         : << MonoMethod >>
+   Descriptor     : << MonoDescriptor >>
+
+   ── Script Details ──
+   Cheat Name     : << HookName >>
+   Author         : Leunsel
+   Date           : << Date >>
+   Version        : << Version >>
+   Method Entry   : resolved at assemble time
+   Method Size    : $<< hex(MonoMethodSize) >>
+   Injection      : entry +$<< hex(MonoMethodOffset) >>
+
+   There is no signature here and no copy of the original bytes, which is
+   deliberate. The method is JIT compiled, so its code is built fresh every
+   time the process starts. A signature over it stops matching after a
+   restart, and bytes written down now would be the wrong ones to put back
+   later. The anchor is the name, FINDMONOMETHOD resolves it inside the
+   target while the script assembles, and readMem takes the backup from
+   whatever is really there at that moment.
+
+   ── Additional Information ──
+   Support My Work: 
+     Patreon:  https://www.patreon.com/c/Leunsel
+	 Website:  https://leunsel.com/
+   
+   Without "LeFiXER" my tables wouldn't be what they are today:
+     Ko-Fi:    https://ko-fi.com/lefixer_
+
+   Script Generated Using The Manifold Template Loader  
+      ── https://github.com/Leunsel/CheatEngineLua/tree/main ──
+}

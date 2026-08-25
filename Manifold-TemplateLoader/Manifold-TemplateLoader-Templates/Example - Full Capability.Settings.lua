@@ -30,7 +30,7 @@ return {
     -- '>' nests categories. CategoryOrder replaces the legacy "[n] " prefix
     -- (which still works for legacy templates).
     Category = "Examples",
-    CategoryOrder = 13,
+    CategoryOrder = 14,
     -- Order sorts templates inside their category.
     Order = 10,
 

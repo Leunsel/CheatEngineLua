@@ -1,0 +1,64 @@
+{
+   Mono Hook - Instance Capture
+   ----------------------------
+   A prologue hook that stores an argument register into a named pointer.
+
+   On x64 the first four arguments arrive in rcx, rdx, r8 and r9. A managed
+   instance method receives the object in rcx and its declared parameters
+   from rdx onwards, while a static method starts its parameters in rcx.
+   That is why the register is an input rather than a fixed rcx. Pick rcx
+   for the instance, rdx for the first parameter of an instance method.
+
+   Capturing at the prologue matters here. Further into the method the JIT
+   is free to move the value into another register or spill it to the
+   stack, so only the entry gives a reliable argument.
+
+   Suggested hook name for this method: << MonoHookName >>
+}
+<< include("Mono-Header") >>
+
+[ENABLE]
+
+<% if MonoMethodOffset ~= 0 then %>{
+   Warning: the injection address is << hex(MonoMethodOffset) >> bytes past
+   the method entry, so << CaptureRegister >> no longer holds an argument
+   here. Regenerate on the first line of the method.
+}
+
+<% end %><< MonoResolve >>
+<< Alloc >>
+
+label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
+label(<< HookName >>Ptr)
+
+n_<< HookName >>:
+  mov [<< HookName >>Ptr],<< CaptureRegister >>
+
+o_<< HookName >>:
+  readMem(<< HookNameParsed >><< MonoOffsetSuffix >>,<< JumpSize >>)
+  jmp r_<< HookName >>
+
+z_<< HookName >>:
+  readMem(<< HookNameParsed >><< MonoOffsetSuffix >>,<< JumpSize >>)
+
+<< HookName >>Ptr:
+  << PointerType >> 0
+
+<< HookNameParsed >><< MonoOffsetSuffix >>:
+  << JumpType >> n_<< HookName >>
+  << NopPadding >>
+r_<< HookName >>:
+registersymbol(z_<< HookName >> << HookName >>Ptr)
+
+[DISABLE]
+
+// FINDMONOMETHOD produces a define, and a define only lives inside the
+// block that created it. Unlike a scan symbol it cannot be registered
+// and carried over, so the disable resolves the method a second time.
+<< MonoResolve >>
+
+<< HookNameParsed >><< MonoOffsetSuffix >>:
+  readMem(z_<< HookName >>,<< JumpSize >>)
+
+unregisterSymbol(*)
+dealloc(*)

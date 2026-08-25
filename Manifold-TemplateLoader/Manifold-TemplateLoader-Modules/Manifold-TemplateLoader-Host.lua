@@ -46,6 +46,7 @@ local RELOADABLE_MODULES = {
     "Manifold-TemplateLoader-Provider-Instruction",
     "Manifold-TemplateLoader-Provider-Hook",
     "Manifold-TemplateLoader-Provider-Framework",
+    "Manifold-TemplateLoader-Provider-Mono",
     "Manifold-TemplateLoader-Runtime"
 }
 
