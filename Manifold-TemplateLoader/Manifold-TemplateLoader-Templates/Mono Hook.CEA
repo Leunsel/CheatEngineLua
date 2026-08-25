@@ -1,12 +1,3 @@
-{
-   Mono Hook
-   ---------
-   A code cave hook on a managed method. The symbol comes from
-   FINDMONOMETHOD, so the script finds the method by name on every enable
-   instead of scanning for bytes that the JIT rebuilds each run.
-
-   Suggested hook name for this method: << MonoHookName >>
-}
 << include("Mono-Header") >>
 
 [ENABLE]

@@ -1,21 +1,3 @@
-{
-   Mono Byte Patch
-   ---------------
-   Overwrites the start of a managed method so it returns straight away, or
-   nops the selected instruction. No code cave and no jump, which makes it
-   the smallest way to disable a method outright.
-
-   A patch that returns belongs at the method entry and nowhere else. At the
-   entry the stack is still the caller's, so a plain ret hands control back
-   correctly. Once the prologue has run there is a frame to unwind and a
-   bare ret leaves the stack unbalanced.
-
-   The backup is taken with readMem while the script assembles, so disabling
-   restores the bytes that were really there rather than the ones recorded
-   when the script was generated.
-
-   Suggested hook name for this method: << MonoHookName >>
-}
 << include("Mono-Header") >>
 
 [ENABLE]
