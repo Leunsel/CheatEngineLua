@@ -1,11 +1,11 @@
 << Header >>
+<< FrameworkWarning >>
 
 [ENABLE]
 
-// aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
-ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+<< ScanModule >>
 
-ManifoldResolveStatic(<< HookName >>Ptr,<< HookNameParsed >>)
+ManifoldResolveStatic(<< HookName >>Ptr,<< HookNameParsed >><< AoBOffset >>)
 
 registersymbol(<< HookNameParsed >> << HookName >>Ptr)
 

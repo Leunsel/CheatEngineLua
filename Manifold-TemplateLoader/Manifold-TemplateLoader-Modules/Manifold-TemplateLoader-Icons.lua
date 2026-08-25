@@ -2,13 +2,12 @@
     Custom menu icons for the Template Loader.
 
     Loads the PNGs in Manifold-Icons/ into a dedicated TImageList and hands out
-    indices. The list is OURS: nothing is added to CE's own aaImageList, so no
+    indices. The list is OURS. Nothing is added to CE's own aaImageList, so no
     index CE relies on can shift, and a hot reload cannot grow a shared list
     without bound.
 
     The API facts this file depends on, all read out of the CE 7.5 and Lazarus
-    sources rather than assumed:
-
+    sources:
       * createPNG(w,h) returns a TPortableNetworkGraphic, which descends
         TFPImageBitmap -> TCustomBitmap. CE's customimagelist_add casts its
         first argument to exactly TCustomBitmap, so a PNG object is the one
@@ -23,10 +22,10 @@
         pcall'd, and we pre-check the PNG magic so the decoder never sees input
         it could choke on.
       * imagelist.add NEVER returns -1. Given nil it returns the pre-insert
-        Count - a phantom index for an image that was never added - so success
+        Count, a phantom index for an image that was never added, so success
         is verified by watching Count actually increase.
       * Alpha survives. TCustomImageList.Insert copies RGBA per pixel and the
-        Win32 list is created ILC_COLOR32; Masked/DrawingStyle defaults are
+        Win32 list is created ILC_COLOR32. Masked/DrawingStyle defaults are
         already correct and must NOT be touched.
       * A size mismatch STRETCHES (TFPImageCanvas.StretchDraw), it does not
         centre or clip. The PNGs are 16x16 and so is this list, so nothing is
@@ -43,14 +42,42 @@ local instance = nil
 Icons.Folder = "Manifold-Icons"
 Icons.IconSize = 16
 
---- Level name -> file. SUCCESS has no log level; it marks "log file is on".
+--- Logical name -> file. The log levels came first (SUCCESS has no level. It
+--- marks "log file is on").
 Icons.Files = {
+    -- Logging
     DEBUG    = "Manifold-Debug.png",
     INFO     = "Manifold-Info.png",
     WARNING  = "Manifold-Warning.png",
     ERROR    = "Manifold-Error.png",
     CRITICAL = "Manifold-Critical.png",
     SUCCESS  = "Manifold-Success.png",
+    -- Core
+    Template    = "Manifold-Template.png",
+    Templates   = "Manifold-Templates.png",
+    Reload      = "Manifold-Reload.png",
+    Validate    = "Manifold-Validate.png",
+    Folder      = "Manifold-Folder.png",
+    Status      = "Manifold-Status.png",
+    Favorite    = "Manifold-Favorite.png",
+    FavoriteOff = "Manifold-FavoriteOff.png",
+    Recent      = "Manifold-Recent.png",
+    Settings    = "Manifold-Settings.png",
+    Generation  = "Manifold-Generation.png",
+    Memory      = "Manifold-Memory.png",
+    Reset       = "Manifold-Reset.png",
+    Logging     = "Manifold-Logging.png",
+    Level       = "Manifold-Level.png",
+    WriteFile   = "Manifold-WriteFile.png",
+    File        = "Manifold-File.png",
+    Eye         = "Manifold-Eye.png",
+    Development = "Manifold-Development.png",
+    Providers   = "Manifold-Providers.png",
+    FullReload  = "Manifold-FullReload.png",
+    Diagnostics = "Manifold-Diagnostics.png",
+    SelfCheck   = "Manifold-SelfCheck.png",
+    Copy        = "Manifold-Copy.png",
+    About       = "Manifold-About.png",
 }
 
 function Icons:New()
@@ -94,15 +121,12 @@ end
 function Icons:LoadGraphic(path)
     local okMagic, magicErr = looksLikePng(path)
     if not okMagic then return nil, magicErr end
-
     local createFn = rawget(_G, "createPNG")
     if type(createFn) ~= "function" then return nil, "createPNG is not available" end
-
     -- Explicit 1x1: createPNG defaults to the SCREEN size when called with no
     -- arguments. loadFromFile replaces the contents and the dimensions anyway.
     local ok, png = pcall(createFn, 1, 1)
     if not ok or png == nil then return nil, "createPNG failed: " .. tostring(png) end
-
     local loaded, loadErr = pcall(function() png.loadFromFile(path) end)
     if not loaded then return nil, "loadFromFile failed: " .. tostring(loadErr) end
     return png
@@ -114,7 +138,7 @@ end
 --
 function Icons:Load()
     if self.Loaded then return true end
-    if self.Reason then return false, self.Reason end   -- do not retry a hard failure
+    if self.Reason then return false, self.Reason end -- do not retry a hard failure
     local createList = rawget(_G, "createImageList")
     if type(createList) ~= "function" then
         self.Reason = "createImageList is not available"
@@ -133,7 +157,7 @@ function Icons:Load()
     local okW, width = pcall(function() return list.Width end)
     local okH, height = pcall(function() return list.Height end)
     if okW and okH and (width ~= self.IconSize or height ~= self.IconSize) then
-        self.Reason = string.format("image list is %sx%s, icons are %dx%d - refusing to ship stretched art",
+        self.Reason = string.format("image list is %sx%s, icons are %dx%d, refusing to ship stretched art",
             tostring(width), tostring(height), self.IconSize, self.IconSize)
         return false, self.Reason
     end
@@ -141,7 +165,7 @@ function Icons:Load()
     for name, fileName in pairs(self.Files) do
         local png, err = self:LoadGraphic(self:PathOf(fileName))
         if png then
-            -- add() never returns -1; given nil it returns the pre-insert Count
+            -- add() never returns -1. Given nil it returns the pre-insert Count
             -- for an image it did not insert. Watch Count instead.
             local before = tonumber(list.Count) or 0
             local added, position = pcall(function() return list.add(png) end)
@@ -187,15 +211,14 @@ end
 --
 --- Attaches this list to a parent menu item so its CHILDREN resolve their
 --- ImageIndex against it.
----
 --- SubMenuImages, not ImageList. TMenuItem has no ImageList property in any
---- Lazarus version - CE's lua_setProperty stashes unknown property writes in
---- the userdata's metatable inside a try..except, so `item.ImageList = list`
+--- Lazarus version, CE's lua_setProperty stashes unknown property writes in
+--- the userdata's metatable inside a try..except, so "item.ImageList = list"
 --- assigns cleanly, reads back correctly, and does absolutely nothing.
 --- Resolution is TMenuItem.GetImageList: it starts at the item's PARENT and
 --- walks up to the nearest ancestor with a non-nil SubMenuImages, then falls
 --- back to the owning menu's Images. Because the walk starts at Parent, an
---- item's own SubMenuImages never applies to itself - only to its children,
+--- item's own SubMenuImages never applies to itself, only to its children,
 --- which is exactly what is wanted here.
 --- @return boolean
 --
@@ -209,7 +232,7 @@ end
 --
 --- Sets an icon on one item.
 --- TMenuItem.SetImageIndex early-exits when the new value equals the old, and
---- again when no image list resolves - so write -1 first to guarantee a real
+--- again when no image list resolves, so write -1 first to guarantee a real
 --- transition, and only after SubMenuImages is already attached to the parent.
 --- @return boolean
 --
@@ -219,7 +242,7 @@ function Icons:Apply(item, name)
     pcall(function() item.ImageIndex = -1 end)
     local ok = pcall(function() item.ImageIndex = position end)
     -- Menu glyphs can be suppressed by Application.ShowMenuGlyphs or the OS
-    -- "show menu icons" setting. Ask for them explicitly; ignore a failure,
+    -- "show menu icons" setting. Ask for them explicitly. Ignore a failure,
     -- since the enum is only reachable through CE's RTTI fallback.
     pcall(function() item.GlyphShowMode = "gsmAlways" end)
     return ok == true
@@ -227,7 +250,7 @@ end
 
 --
 --- Diagnostic. Run this once in CE and read the log before trusting any of the
---- above: none of it was executed when it was written.
+--- above. None of it was executed when it was written.
 --- @return table
 --
 function Icons:Probe()

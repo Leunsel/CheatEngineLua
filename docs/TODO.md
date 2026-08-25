@@ -52,7 +52,7 @@ Resolved items keep their original text with a ✅ note on top, so the reasoning
 
 - [ ] [**T21** — Documentation and version drift](#t21-documentation-and-version-drift) · all — *1 of 4 rows fixed: `Manifold.Utils` VERSION now matches its changelog. The other three and the CI check remain.*
 - [X] **T22** — No fix required. Unit tests are not relevant in this context.
-- [ ] [**T24** — Teleporter assigns to a `for` control variable](#t24-teleporter-assigns-to-a-for-control-variable) · Framework
+- [ ] [**T24** — Teleporter assigns to a `for` control variable](#t24-teleporter-assigns-to-a-for-control-variable) · Framework — *the `Manifold-TemplateLoader-UI.lua` occurrence was fixed in the 3.0 recode (2026-08-24); the two `Manifold.Teleporter` occurrences remain*
 - [ ] [**T25** — Three game-specific custom types live in Utils](#t25-three-game-specific-custom-types-live-in-utils) · Framework
 
 ### Larger refactors
@@ -61,7 +61,7 @@ Resolved items keep their original text with a ✅ note on top, so the reasoning
 - [X] **R-B** — Implemented 2026-08-23 as [`Manifold.Bootstrap.lua`](../Manifold-Modules/Manifold.Modules/Manifold.Bootstrap.lua). See the section for what shipped and how it differs from the sketch.
 - [ ] [**R-C** — `CETrequire` with a module cache](#r-c-cetrequire-with-a-module-cache)
 - [ ] [**R-D** — Structured logging instead of text lines](#r-d-structured-logging-instead-of-text-lines)
-- [ ] [**R-E** — Contract checking for the template context](#r-e-contract-checking-for-the-template-context)
+- [X] **R-E** — Implemented 2026-08-24 by the TemplateLoader 3.0 recode: unknown identifiers warn at render time and are flagged by "Validate all templates"; schema-2 settings declare `Requires`/`Optional` contracts that abort with an actionable hint before anything renders. See [`docs/Manifold-Template-Loader.md`](Manifold-Template-Loader.md).
 - [ ] [**R-F** — Reproducible release builds](#r-f-reproducible-release-builds)
 
 ---
@@ -638,6 +638,11 @@ Five lines, no new dependency, and it makes the `pcall`s in `Manifold.Json` and
 
 ## T24. Teleporter assigns to a `for` control variable
 
+> **Partially resolved 2026-08-24:** the `Manifold-TemplateLoader-UI.lua` occurrence no longer
+> exists — the 3.0 recode's `categoryParts` uses a separate local (`rawPart`/`part`). The two
+> `Manifold.Teleporter` occurrences remain open.
+
+
 🔵 [`Manifold.Teleporter.lua:615`](../Manifold-Modules/Manifold.Modules/Manifold.Teleporter.lua) and [`Manifold-TemplateLoader-UI.lua:57`](../Manifold-TemplateLoader/Manifold-TemplateLoader-Modules/Manifold-TemplateLoader-UI.lua)
 
 ```lua
@@ -983,6 +988,13 @@ Written as JSON lines to a file, that becomes machine-analysable — for instanc
 hook sites regularly fail to take a detour.
 
 ## R-E. Contract checking for the template context
+
+> **✅ Implemented 2026-08-24** by the TemplateLoader 3.0 recode, beyond the sketch below:
+> the context registry knows every provider variable, the render environment warns once per
+> unknown identifier, `Validate all templates` flags unknown names statically, and schema-2
+> settings declare `Requires`/`Optional` contracts that abort generation with the variable's
+> own hint before anything renders. The `KNOWN` table from the sketch is the registry itself.
+
 
 A template writing `<< HookNamePased >>` (typo) produces an empty string through `_safe` and a
 silently broken script. `_safe` should report unknown identifiers:

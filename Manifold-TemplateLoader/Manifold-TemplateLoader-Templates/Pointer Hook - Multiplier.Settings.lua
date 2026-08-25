@@ -1,10 +1,20 @@
-local Settings = {
-    InSubMenu = true,
-    SubMenuName = "[1] x86/x64 — Pointer Hooks",
+return {
+    SchemaVersion = 2,
+    Id = "manifold.pointer.multiplier",
     Caption = "Pointer Hook — Multiplier",
-    Shortcut = "",
-    AskForInjectionAddress = true,
-    AskForHookName = true,
-    AppendToHookName = "Hook"
+    Description = "Captures a base pointer and multiplies the hooked float value.",
+    Category = "x86/x64 — Pointer Hooks",
+    CategoryOrder = 1,
+    Order = 30,
+    Tags = { "pointer", "multiplier" },
+    Requires = {
+        "AddressValue", "Module", "HookName",
+        "AoBStr", "OriginalBytes", "OriginalOpcodes",
+        "BaseAddressRegister"
+    },
+    Memory = {
+        AskForInjectionAddress = false,
+        AskForHookName = true,
+        AppendToHookName = "Hook"
+    }
 }
-return Settings

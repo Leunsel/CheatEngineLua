@@ -1,0 +1,27 @@
+<< Header >>
+<< TrampolineWarning >>
+
+[ENABLE]
+
+<< ScanModule >>
+<< GlobalAlloc >>
+
+ManifoldInstallDetour(<< HookName >>,<< HookNameParsed >><< AoBOffset >>,n_<< HookName >>)
+<< AssertBytes >>
+
+label(o_<< HookName >>)
+
+n_<< HookName >>:
+
+
+o_<< HookName >>:
+  ManifoldEmitOriginal(<< HookName >>)
+
+registersymbol(<< HookNameParsed >>)
+
+[DISABLE]
+
+ManifoldDestroyDetour(<< HookName >>)
+
+unregisterSymbol(*)
+dealloc(*)

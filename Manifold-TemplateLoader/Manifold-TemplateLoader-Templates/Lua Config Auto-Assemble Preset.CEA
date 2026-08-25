@@ -1,0 +1,18 @@
+{$lua}
+if syntaxcheck then return end
+autoAssembler:AutoAssemble("<< HookNameParsed >>.CEA", memrec)
+[ENABLE]
+-- ...........................[ENABLE]...........................
+{$asm}
+
+<< HookName >>Flag:
+  db 2 // Flag
+          // 0: Disabled
+          // 1: Feature
+          // 2: Multiplier (Default)
+<< HookName >>Multiplier:
+  dd (float)3.00 // Multiplier
+
+{$lua}
+[DISABLE]
+-- ..........................[DISABLE]...........................

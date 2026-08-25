@@ -1,0 +1,31 @@
+<< Header >>
+<< TrampolineWarning >>
+
+[ENABLE]
+
+<< ScanModule >>
+<< GlobalAlloc >>
+
+ManifoldInstallDetour(<< HookName >>,<< HookNameParsed >><< AoBOffset >>,n_<< HookName >>)
+<< AssertBytes >>
+
+label(o_<< HookName >>)
+label(<< HookName >>Ptr)
+
+n_<< HookName >>:
+  mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+
+o_<< HookName >>:
+  ManifoldEmitOriginal(<< HookName >>)
+
+<< HookName >>Ptr:
+  << PointerType >> 0
+
+registersymbol(<< HookNameParsed >> << HookName >>Ptr)
+
+[DISABLE]
+
+ManifoldDestroyDetour(<< HookName >>)
+
+unregisterSymbol(*)
+dealloc(*)

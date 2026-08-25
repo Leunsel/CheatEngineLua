@@ -1,0 +1,7 @@
+{
+   ── Generation Notes (rendered by Partials/Example-Notes.CEA) ──
+   Jump          : << JumpType >> (<< JumpSize >> byte(s), minimum << MinJumpSize >>)
+   Architecture  : <% if IsTarget64Bit then %>x64<% else %>x86<% end %>
+   Pointer       : << PointerType >> (<< PointerSize >> bytes)
+   Allocation    : << AllocationSize >> near=<< AllocationNear >>
+}

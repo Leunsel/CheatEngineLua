@@ -1,686 +1,627 @@
 # Manifold Template Loader
 
-> Directory: [`Manifold-TemplateLoader/`](../Manifold-TemplateLoader/)
-> Version: 2.0.0 · License: MIT · Authors: Leunsel, LeFiXER
+Directory: [`Manifold-TemplateLoader/`](../Manifold-TemplateLoader/)
+Version 3.0.0, MIT, by Leunsel and LeFiXER. The version number lives in
+`Manifold-TemplateLoader-Version.lua` and nowhere else.
 
-An autorun system that registers custom **Auto Assembler templates** with Cheat Engine. Picking a
-template fills a `.CEA` script with data from the current disassembler selection (address, module,
-original bytes, unique AoB signature, jump size, allocation statement, …) and writes the result
-into the open Auto Assembler window.
+An autorun system that turns `.CEA` templates into finished Auto Assembler scripts. Picking a
+template runs a staged pipeline. It validates the template, collects inputs, resolves context
+lazily, renders into a buffer, validates the output and only then writes to the Auto Assembler
+editor. A failure at any earlier stage leaves the editor untouched.
 
----
+3.0 is a full recode of the 2.x loader. The template syntax, the bundled templates, the
+`.Settings.lua` files, the configuration file and the public globals stay compatible. The
+internals became a provider-based context system with lazy resolution, a template engine with
+line-mapped errors, declarative inputs, partials, an extension API, structured errors, a log
+viewer and diagnostics. The compatibility section near the end lists exactly what changed.
 
-## 1. Installation
+## Installation
 
-Both parts belong in the `autorun` folder:
+Everything belongs in the `autorun` folder.
 
 ```
 autorun/
-├── Manifold-TemplateLoader-Main.lua          ← entry point
-├── Manifold-TemplateLoader-Modules/          ← 8 Lua modules
-│   ├── Manifold-TemplateLoader-Host.lua
-│   ├── Manifold-TemplateLoader-Loader.lua
-│   ├── Manifold-TemplateLoader-Manager.lua
-│   ├── Manifold-TemplateLoader-Memory.lua
-│   ├── Manifold-TemplateLoader-UI.lua
-│   ├── Manifold-TemplateLoader-File.lua
-│   ├── Manifold-TemplateLoader-Log.lua
+├── Manifold-TemplateLoader-Main.lua          entry point
+├── Manifold-TemplateLoader-Modules/
+│   ├── Manifold-TemplateLoader-Host.lua      persistent, not reloadable
+│   ├── Manifold-TemplateLoader-Runtime.lua   service container
+│   ├── Manifold-TemplateLoader-Version.lua   the version number
+│   ├── Manifold-TemplateLoader-Engine.lua    template engine
+│   ├── Manifold-TemplateLoader-Context.lua   context registry and resolution
+│   ├── Manifold-TemplateLoader-Provider-*.lua  five built-in providers
+│   ├── Manifold-TemplateLoader-Registry.lua  discovery and settings schemas
+│   ├── Manifold-TemplateLoader-Generator.lua the generation pipeline
+│   ├── Manifold-TemplateLoader-Inputs.lua    declarative input dialogs
+│   ├── Manifold-TemplateLoader-Extensions.lua extension registry and hooks
+│   ├── Manifold-TemplateLoader-Config.lua    config, schema 4, migrations
+│   ├── Manifold-TemplateLoader-Errors.lua    structured error model
+│   ├── Manifold-TemplateLoader-Log.lua       TRACE to FATAL, ring buffer
+│   ├── Manifold-TemplateLoader-Diagnostics.lua
+│   ├── Manifold-TemplateLoader-UI.lua        menus, log viewer, preview
+│   ├── Manifold-TemplateLoader-Theme.lua     window styling
+│   ├── Manifold-TemplateLoader-CE.lua        defensive Cheat Engine wrappers
+│   ├── Manifold-TemplateLoader-File.lua      file system layer
+│   ├── Manifold-TemplateLoader-Icons.lua and Manifold-Icons/
 │   └── Manifold-TemplateLoader-Json.lua
-└── Manifold-TemplateLoader-Templates/        ← *.CEA + *.Settings.lua
+└── Manifold-TemplateLoader-Templates/        *.CEA and *.Settings.lua
+    └── Partials/                             fragments for include()
 ```
 
-`Manifold-TemplateLoader-Main.lua` extends `package.path` with the module directory, creates the
-`Loader` and the `Host`, wires them together and calls `LoadTemplates()`:
+Upgrading from 2.x means replacing the files and restarting Cheat Engine once. The 2.x hot
+reload cannot load the 3.0 module set, and its rollback keeps the old version running until the
+restart. The configuration is migrated automatically and private templates keep working.
 
-```lua
-local sep = package.config:sub(1, 1)
-package.path = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "?.lua;" .. package.path
+The bundled templates no longer require the Manifold Framework. See the section on the framework
+below for how that works.
 
-local Host   = require("Manifold-TemplateLoader-Host")
-local Loader = require("Manifold-TemplateLoader-Loader")
-
-local activeLoader = Loader:New()
-local host = Host:New()
-host:Attach(activeLoader)
-
-_G.ManifoldTemplateLoaderHost = host
-_G.ManifoldTemplateLoader     = host.Loader
-loader = activeLoader          -- backwards compatibility
-
-host.Loader:LoadTemplates()
-```
-
-> **Important:** the bundled templates use `ManifoldScanModule` and `ManifoldAssert`. Those Auto
-> Assembler commands come from the **Manifold Framework** (`Manifold.AssemblerCommands`), not from
-> the Loader. Without the framework loaded you have to switch the templates to `aobScanModule` —
-> `Default Injection Hook.CEA` already ships that line commented out.
-
----
-
-## 2. Architecture
+## Architecture
 
 ```
-Manifold-TemplateLoader-Main.lua
-│
-├─ Host          persistent, NOT part of the reload set
-│                 └─ owns the single registerFormAddNotification
-│
-└─ Loader        the swappable implementation
-     ├─ Manager   template discovery + settings validation
-     ├─ Memory    context from the target process (address, bytes, AoB, …)
-     ├─ UI        menu tree + categorization
-     ├─ File      defensive file-system wrapper
-     ├─ Log       five-level logging
-     └─ Json      JSON for the configuration file
+Persistent Host   owns the single registerFormAddNotification, never reloaded
+    └── Runtime   one loader generation, replaced wholesale by a full reload
+         ├── Config           schema-versioned JSON, migrations, atomic writes
+         ├── Log              TRACE to FATAL, ring buffer, file, viewer feed
+         ├── File and CE      defensive file system and Cheat Engine layers
+         ├── Engine           parser, compiled chunk cache, renderer
+         ├── ContextRegistry  providers, variables, dependency graph
+         │     └── Providers  Runtime, Process, Instruction, Hook, Framework
+         ├── TemplateRegistry discovery, settings schemas 1 and 2, validation
+         ├── Extensions       providers, variables, helpers and hooks from outside
+         ├── Generator        the staged pipeline
+         ├── Inputs           declarative input dialogs
+         ├── Diagnostics      report and self-check
+         └── UI               menus, categorization, log viewer, preview
 ```
 
-### Why a host?
+`registerFormAddNotification` cannot be unregistered in Cheat Engine. The host registers it once
+and forwards to whichever Runtime is active, which is what makes the whole Runtime replaceable
+without restarting Cheat Engine. The host also skips the initial form scan on purpose, because
+Cheat Engine's own hidden script window is a `TfrmAutoInject` as well and would otherwise be
+mistaken for an Auto Assembler window.
 
-`registerFormAddNotification` cannot be unregistered in Cheat Engine. If the Loader registered it
-itself, every hot reload would leave behind another dead registration pointing at an old Loader
-instance.
-
-The host solves that: it registers the notification **exactly once** and forwards it to
-`self.Loader` — that is, to whichever instance is currently active. This is what makes it possible
-to replace the Loader entirely without restarting Cheat Engine.
-
-```lua
-registerFormAddNotification(function(form)
-    if self.Loader and isAutoInjectForm(form) then
-        self.Loader:TrackAutoInjectForm(form)
-    end
-end)
-```
-
-The host deliberately skips the initial form scan: Cheat Engine's **"Execute Table Lua Script"**
-window is also a `TfrmAutoInject` and would otherwise be mistaken for an Auto Assembler window —
-a failure that is practically impossible to track down. Instead it waits for newly opened windows.
-
----
-
-## 3. Templates
-
-A template always consists of **two files** sharing a base name in
-`Manifold-TemplateLoader-Templates/`:
-
-| File | Contents |
-|---|---|
-| `<Name>.CEA` | The template with placeholders |
-| `<Name>.Settings.lua` | Metadata (caption, menu, options) |
-
-There is also a special file `Header.CEA` — it is not registered as a template but included by
-every other template through `<< Header >>`.
-
-### 3.1 Settings file
-
-```lua
-return {
-    Caption                = "Pointer Hook",
-    Shortcut               = "",
-    InSubMenu              = true,
-    SubMenuName            = "[1] Hooks > Pointer",
-    MenuOrder              = 10,
-    AskForInjectionAddress = true,
-    AskForHookName         = true,
-    AppendToHookName       = "Hook",
-    AllocationSize         = "$1000",
-    AllocationNear         = true,
-    DefaultHookName        = "Injection"
-}
-```
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `Caption` | string | file name | Menu text. **Must be unique**; duplicate captions are skipped. |
-| `Shortcut` | string | `""` | Keyboard shortcut. Conflicts are reported and the second one is disabled. |
-| `InSubMenu` | boolean | `true` | `false` ⇒ entry sits directly in the template root menu |
-| `SubMenuName` | string | `"Templates"` | Category path; `>` creates nesting |
-| `MenuOrder` | number | `math.huge` | Ordering within the category |
-| `AskForInjectionAddress` | boolean | memory default | Prompt for the address instead of using the disassembler selection |
-| `AskForHookName` | boolean | memory default | Prompt for the hook name |
-| `AppendToHookName` | string | memory default | Suffix for the scan symbol |
-| `AllocationSize` | string \| number | memory default | `"$1000"` or a decimal number |
-| `AllocationNear` | boolean | memory default | `alloc(n_X, size, HookName)` instead of `alloc(n_X, size)` |
-| `DefaultHookName` | string | memory default | Pre-fills the prompt |
-
-Template settings **override** the global memory defaults for that one template
-(`Loader:GetMemoryOverrides`).
-
-### 3.2 Sandbox
-
-Settings files are **data, not plugins**. They run in a minimal environment:
-
-```lua
-{ ipairs, pairs, tonumber, tostring, math, string, table }
-```
-
-No `io`, no `os`, no Cheat Engine API, no `_G`. A settings script can therefore neither read files
-nor touch the process. `Manager:ValidateSettings` then checks every type and produces a concrete
-error message that lands in the log.
-
-### 3.3 Menu categories
-
-`SubMenuName` is split at `>` into path segments, which become a nested menu:
+### The generation pipeline
 
 ```
-"[1] Hooks > Pointer > ReadMem"
-   ↓
-Template ▸ Hooks ▸ Pointer ▸ ReadMem ▸ <Caption>
+resolve template          registry lookup by the registered callback
+validate template         compile (cached) before any prompt or process access
+collect inputs            dialog only if the template declares Inputs
+build isolated context    fresh per generation, nothing leaks between runs
+resolve requirements      the Requires list, or the legacy prelude
+render                    into a buffer, with includes, helpers and lazy context
+validate output           loader checks plus the optional autoAssembleCheck
+preview                   optional window before anything is applied
+commit                    the editor is touched here and only here
 ```
 
-A bracketed prefix (`[1]`, `[2]`, …) controls **ordering only** and is not shown in the menu
-(`categoryCaption`). The bundled templates use:
-
-| Prefix | Category |
-|---|---|
-| `[1]` | x86/x64 — Pointer Hooks |
-| `[2]` | x86/x64 — Pointer Hooks — ReadMem |
-| `[3]` | x86/x64 — Conditional Hooks |
-| `[4]` | x86/x64 — Conditional Hooks — ReadMem |
-| `[5]` | x86/x64 — Byte Patch Hooks |
-| `[6]` | x86/x64 — Default Hooks |
-| `[7]` | x86/x64 — Teleporter Hooks |
-| `[8]` | x86/x64 — Static Address Resolver |
-
-Ordering within a category: `MenuOrder` ascending, ties broken alphabetically by caption
-(case-insensitive).
-
----
-
-## 4. Template syntax
-
-The template engine knows two tags:
-
-| Tag | Meaning |
-|---|---|
-| `<< expression >>` | Evaluate a Lua expression and insert it (through `_safe`, `nil` ⇒ `""`) |
-| `<% code %>` | Execute Lua statements, insert nothing |
-
-Everything outside the tags is copied verbatim. Compilation turns the template into a Lua chunk:
-
-```lua
-local _ret = {}
-_ret[#_ret + 1] = "[ENABLE]\n"
-_ret[#_ret + 1] = _safe((HookNameParsed))
-...
-return table.concat(_ret)
-```
-
-The chunk runs with the context as its environment; `setmetatable(environment, {__index = _G})`
-lets advanced templates still reach global CE functions.
-
-An unclosed block is reported with a line number: `Unclosed << block at line 12`.
-
-### Example with control flow
+A cancelled prompt aborts silently. A real failure produces one structured error dialog:
 
 ```
-<% if IsTarget64Bit then %>
-  mov rax,[<< HookName >>Ptr]
-<% else %>
-  mov eax,[<< HookName >>Ptr]
+Template generation failed
+
+Template:  Pointer Hook
+Source:    .../Pointer Hook.CEA
+Variable:  BaseAddressRegister
+Provider:  Instruction
+Reason:    Required context variable 'BaseAddressRegister' could not be resolved.
+
+This template requires a simple memory operand such as:
+[rax] / [rax+30] / [rbx-10]
+The selected instruction uses:
+movss [rax+rcx*4+30],xmm0
+Select a compatible instruction or use a template that does not require BaseAddressRegister.
+```
+
+## Template syntax
+
+Unchanged from 2.x. `<< expression >>` evaluates a Lua expression and inserts the result, where
+`nil` becomes an empty string. `<% lua code %>` executes statements and inserts nothing.
+
+All nodes of one template compile into a single chunk, so a `local` or a loop variable declared
+in one `<% %>` block is visible to later blocks and expressions.
+
+```
+<% for slot = 1, PointerCount do %>
+  << PointerType >> 0 // slot << slot >>
 <% end %>
 ```
 
-### Example: a complete template
+New in 3.0:
 
-```
-<< Header >>
+Errors carry template line numbers. Both syntax errors such as `Unclosed << block` and runtime
+errors inside expressions are mapped back to the `.CEA` line.
 
-[ENABLE]
+Partials. `<< include("Name") >>` renders another `.CEA` with the same context. The lookup order
+is `Templates/Partials/Name.CEA` and then `Templates/Name.CEA`. Cycles and missing files are
+reported with the searched paths. `<< Header >>` still works and is now lazy, so templates that
+do not use it do not pay for it.
 
-ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
-<< Alloc >>
+Helpers. `hex(v)`, `join(sep, ...)`, `default(v, fallback)`, `isEmpty(v)` and `trim(s)`.
+Extensions can add more.
 
-ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
+Unknown variables warn. A typo like `<< HookNamePased >>` still renders as an empty string, but
+it now logs a warning naming the identifier, and *Validate All Templates* flags it statically.
 
-label(o_<< HookName >> r_<< HookName >>)
+## Settings files
 
-n_<< HookName >>:
+`<Name>.Settings.lua` returns a table and runs in a data sandbox with `ipairs`, `pairs`,
+`tonumber`, `tostring` and copies of `math`, `string` and `table`. There is no `io`, no `os`, no
+`_G` and no Cheat Engine API. Settings are metadata, not plug-ins. Executable extensions have
+their own API.
 
-o_<< HookName >>:
-<< OriginalOpcodes >>
-  jmp r_<< HookName >>
+### Schema 1
 
-<< HookNameParsed >><< AoBOffset >>:
-  << JumpType >> n_<< HookName >>
-  << NopPadding >>
-r_<< HookName >>:
-registersymbol(<< HookNameParsed >>)
+Every existing file. All 2.x fields keep working unchanged: `Caption`, `Shortcut`, `InSubMenu`,
+`SubMenuName` with its `[n]` sort prefix, `MenuOrder`, `AskForInjectionAddress`,
+`AskForHookName`, `AppendToHookName`, `AllocationSize`, `AllocationNear` and `DefaultHookName`.
+Legacy templates get a derived stable id of the form `legacy.<file-name>` and keep the
+unrestricted 2.x template environment, so globals stay reachable.
 
-[DISABLE]
+### Schema 2
 
-<< HookNameParsed >><< AoBOffset >>:
-  db << OriginalBytes >>
+Set `SchemaVersion = 2`. Everything above still applies, with `Category` preferred over
+`SubMenuName` and `Order` over `MenuOrder`, plus:
 
-unregisterSymbol(*)
-dealloc(*)
-```
-
----
-
-## 5. Context variables
-
-`Memory:GetMemoryInfo(overrides)` builds the environment. Full list:
-
-### Metadata
-
-| Variable | Type | Example |
-|---|---|---|
-| `Version` | string | `"2.1.0"` |
-| `Date` | string | `"2026-08-21"` |
-| `Time` | string | `"14:32:05"` |
-| `DateTime` | string | `"2026-08-21 14:32:05"` |
-
-### Process and module
-
-| Variable | Type | Description |
-|---|---|---|
-| `Process` | string | `"Game.exe"` |
-| `ProcessBase` | string | Base address of the main module, formatted |
-| `Module` | string | Module containing the injection address |
-| `ModuleBase` | string | Base address of that module, formatted |
-| `IsTarget64Bit` | boolean | |
-
-### Address and signature
-
-| Variable | Type | Description |
-|---|---|---|
-| `Address` | string | Resolved display name, e.g. `"Game.exe+1255B5B"` |
-| `AddressValue` | number | Numeric address |
-| `AoBStr` | string | Unique AoB signature (`getUniqueAOB`) |
-| `AoBOffset` | string | `"+3F"` or `""` — offset of the address inside the signature |
-
-`AoBStr` and `AoBOffset` belong together: the scan finds the start of the signature, `AoBOffset`
-shifts to the actual injection site. That is why templates always write
-`<< HookNameParsed >><< AoBOffset >>:`.
-
-### Jump and bytes
-
-| Variable | Type | Description |
-|---|---|---|
-| `Is14ByteJump` | boolean | State of `mi14ByteJMP` in the AA window |
-| `MinJumpSize` | number | `14` or `5` |
-| `JumpType` | string | `"jmp far"` or `"jmp"` |
-| `JumpSize` | number | Bytes actually overwritten (whole instructions ≥ `MinJumpSize`) |
-| `SelectionSize` | number | Size of the **first** instruction only |
-| `OriginalInstruction` | string | Disassembled first instruction |
-| `OriginalOpcodes` | string | All overwritten instructions, one per line, indented by two spaces |
-| `OriginalBytes` | string | `"48 8B 41 34 89 45 08"` |
-| `NopPadding` | string | `"db 90 90\n"` or `""` |
-
-### Pointers
-
-| Variable | Type | Description |
-|---|---|---|
-| `PointerType` | string | `"dq"` (x64) or `"dd"` (x86) |
-| `PointerSize` | number | `8` or `4` |
-| `DefaultPointerBytes` | number | Identical to `PointerSize` |
-| `BaseAddressRegister` | string | Register from `[reg+off]` of the first instruction, otherwise `""` |
-| `BaseAddressOffset` | string | The offset from it, otherwise `"0"` |
-
-> `BaseAddressRegister` / `BaseAddressOffset` are currently always empty due to a pattern bug —
-> see [TODO T2](TODO.md#t2-baseaddressregister-is-always-empty-in-the-template-context).
-
-### Hook and allocation
-
-| Variable | Type | Description |
-|---|---|---|
-| `HookName` | string | Normalized symbol name (`[%w_]` only, leading digit ⇒ `_` prefix) |
-| `HookNameParsed` | string | `HookName .. AppendToHookName`, e.g. `"HealthHook"` |
-| `Alloc` | string | `alloc(n_<Hook>, <Size>[, <HookNameParsed>])` |
-| `GlobalAlloc` | string | `alloc(n_<Hook>, <Size>)` — never with the near parameter |
-
-### Injection info and options
-
-| Variable | Type | Description |
-|---|---|---|
-| `InjectionInfo` | string | Surrounding instructions as text (see `Header.CEA`) |
-| `InjInfoLineCount` | number | |
-| `InjInfoRemoveSpaces` | boolean | |
-| `InjInfoAddTabs` | boolean | |
-| `AppendToHookName` | string | Effective value |
-| `AskForHookName` | boolean | |
-| `AskForInjectionAddress` | boolean | |
-| `AllocationSize` | string | |
-| `AllocationNear` | boolean | |
-| `MonoSupportStatus` | string | Placeholder — Mono is not implemented |
-
-### Others
-
-| Variable | Type | Description |
-|---|---|---|
-| `Header` | string | Compiled `Header.CEA` |
-| `TemplateSettings` | table | This template's settings table |
-| `FinalCompilation` | boolean | Always `false` |
-| `_safe(v)` | function | `nil` ⇒ `""`, otherwise `tostring(v)` |
-
----
-
-## 6. Menu in the Auto Assembler window
-
-When an Auto Assembler window opens, `Loader:SetupMenu(form)` runs 50 ms later. It builds two
-things:
-
-1. **Under `Template`** — the categorized template entries (separated from Cheat Engine's own
-   `CheatTablecompliantcodee1` entry by a separator).
-2. **In the main menu bar** — the `Template Loader` menu.
-
-### The "Template Loader" menu
-
-| Entry | Sub-entries |
+| Field | Meaning |
 |---|---|
-| **Template settings** ▸ | Set info line count… · Remove spaces ☑ · Indent information ☑ · Hook-name suffix… |
-| **Memory defaults** ▸ | Ask for hook name ☑ · Ask for injection address ☑ · Allocate near injection ☑ · Set allocation size… · Default hook name… |
-| **Logging** ▸ | Log level ▸ (DEBUG/INFO/WARNING/ERROR) · Write log file ☑ · View log file |
-| *— separator —* | |
-| **Reload templates (new AA windows)** | Rediscover and re-register templates |
-| **Hot reload modules and templates** | Full module restart |
-| **Open template folder** | Explorer in the template directory |
-| **Reset configuration** | Back to defaults (with a prompt) |
+| `Id` | Stable identity such as `"manifold.pointer.extended"`. Favorites, recent templates, diagnostics and validation key on it |
+| `Description`, `Author`, `Version`, `Tags` | Metadata for diagnostics, validation and future browsing |
+| `Category`, `CategoryOrder` | `>` nests categories. `CategoryOrder` replaces the `[n]` caption prefix |
+| `Requires` | Context contract. Generation aborts with an explanation before rendering |
+| `Optional` | Resolved if possible. The template must cope with nil |
+| `Inputs` | Declarative typed inputs |
+| `Architectures` | `{ "x86" }`, `{ "x64" }` or both. A mismatch is rejected with a clear message |
+| `Capabilities` | Declared framework requirements such as `"Manifold.AssemblerCommands"` |
+| `AllowUnsafeGlobals` | Schema-2 templates render restricted unless this is true |
+| `Memory` | Nested memory overrides. The flat legacy fields are still accepted |
 
-Every change is written to the configuration file immediately (`SaveConfig`).
+`Example - Full Capability.Settings.lua` documents every field inline and is the reference.
 
-`SetupMenu` also applies a few cosmetic window properties:
+### Inputs
 
 ```lua
-form.Assemblescreen.ScrollBars = "ssAutoBoth"
-form.Assemblescreen.RightEdge  = -1
-form.Panel2.BorderStyle        = "bsNone"
-```
-
----
-
-## 7. Configuration
-
-File:
-
-```
-%LOCALAPPDATA%\Manifold\TemplateLoader\Manifold-TemplateLoader-Config.json
-```
-
-An older location (`autorun\Manifold-TemplateLoader-Modules\…-Config.json`) is read at startup and
-migrated to the new one automatically.
-
-```json
-{
-  "SchemaVersion": 3,
-  "Logger":        { "Level": "ERROR", "LogToFile": true },
-  "InjectionInfo": { "LineCount": 3, "RemoveSpaces": true, "AddTabs": true,
-                     "AppendToHookName": "Hook" },
-  "Memory":        { "AskForHookName": true, "AskForInjectionAddress": false,
-                     "AllocationSize": "$1000", "AllocationNear": true,
-                     "DefaultHookName": "Injection" }
+Inputs = {
+    { Name = "CompareRegister", Type = "string",  Caption = "Compare Register", Default = "rax" },
+    { Name = "UseReadMem",      Type = "boolean", Caption = "Use readMem",      Default = true },
+    { Name = "PointerCount",    Type = "integer", Caption = "Pointer Count",    Default = 2, Min = 1, Max = 16 },
+    { Name = "RegisterMode",    Type = "enum",    Caption = "Register Mode",
+      Values = { "Player", "Entity", "Both" },    Default = "Both" },
 }
 ```
 
-`mergeKnown` only accepts **known keys with a matching type**. Unknown fields or wrong types are
-silently replaced by the default, so a corrupted configuration file cannot break the Loader. If
-the file cannot be parsed at all, the defaults are used **without** overwriting the file.
+The types are `string`, `boolean`, `integer`, `number` and `enum`. The dialog only appears when a
+template declares inputs. Values become plain template variables such as `<< CompareRegister >>`
+or `<% if UseReadMem then %>`. Cancelling aborts the generation before anything renders.
 
-`ApplyConfig` pushes every value through the matching `Memory:Set…` setter. If a setter rejects a
-value, the field falls back to the default and the corrected value is written back.
+## The context system
 
----
+Templates read variables by plain name. Internally every variable belongs to a provider and is
+resolved lazily. Nothing is computed until something asks for it, declared dependencies resolve
+first, and every result is memoized for that one generation. Three uses of `<< OriginalBytes >>`
+read the target process once. Cycles are detected at registration and again at resolution.
+Values that cannot be determined reliably resolve to `nil`, because the loader never guesses.
+An unknown value beats a wrong one in generated assembly.
 
-## 8. Reload behaviour
+### Variable reference
 
-There are two levels, and the difference matters:
+The registry is the single source of truth. *Diagnostics > Runtime Status* lists the live set,
+including extension providers. The built-ins are:
 
-### "Reload templates (new AA windows)" — `Loader:ReloadTemplates()`
+**Runtime provider.** `Version`, `Date`, `Time`, `DateTime`, `Header` (a lazy render of
+`Header.CEA`) and `MonoSupportStatus`, a placeholder until a Mono provider exists.
 
-```
-RefreshTemplates()
- ├─ manager:DiscoverTemplates()          rediscover templates
- ├─ abort when 0 were found              (the existing set stays active)
- ├─ CreateRegistrationPlan()             validate captions/shortcuts
- ├─ UnloadTemplates()                    unregister the old callbacks
- ├─ LoadTemplates(new)                   register the new ones
- │    └─ on failure ⇒ restore the previous set
- └─ TemplateGeneration + 1
-```
+**Process provider.** `Process`, `ProcessBase`, `IsTarget64Bit`, `PointerType` (`dq` or `dd`),
+`PointerSize` (8 or 4), `DefaultPointerBytes`, `Module` and `ModuleBase`.
 
-- Already **open** Auto Assembler windows are left untouched.
-- A **new** window gets the current generation and therefore the new menus.
-- `SetupMenu` checks `FormTemplateGeneration[form] == TemplateGeneration` and skips windows from
-  an older generation.
+**Instruction provider.** `Address`, `AddressValue`, `Is14ByteJump` (read from the generating
+window's toggle), `MinJumpSize`, `JumpType`, `JumpSize` (whole instructions covering at least the
+minimum, so no instruction is ever partially overwritten), `SelectionSize`, `OriginalInstruction`,
+`OriginalOpcodes`, `OriginalBytes`, `NopPadding`, `NopBytes`, `BaseAddressRegister` and
+`BaseAddressOffset`. The last two are `nil` for anything more complex than `[reg]` or
+`[reg±off]`, including scaled indexes and `rip`.
 
-### "Hot reload modules and templates" — `Host:HotReload()`
+**Hook provider.** `HookName`, `HookNameParsed`, `Alloc`, `GlobalAlloc`, `AoBStr`, `AoBOffset`,
+`InjectionInfo`, `InjInfoLineCount`, `InjInfoRemoveSpaces`, `InjInfoAddTabs`, `AppendToHookName`,
+`AskForHookName`, `AskForInjectionAddress`, `AllocationSize` and `AllocationNear`.
 
-```
-StageHotReload()
- ├─ LoadCandidate()          reload all 7 modules (clearing package.loaded)
- │                            on failure ⇒ restore the old cache, abort
- ├─ candidate:New()
- ├─ CreateRegistrationPlan() validate the candidate
- └─ timer 50 ms ─────────────────────────────┐
-                                             ▼
-CommitHotReload()
- ├─ previousLoader:DestroyAutoInjectForms()   closes ALL AA windows ⚠️
- └─ timer 50 ms ─────────────────────────────┐   (TForm.Close is deferred)
-                                             ▼
-FinishHotReload()
- ├─ previousLoader:UnloadTemplates()
- ├─ candidate:AdoptRuntimeState(previous)
- ├─ candidate:LoadTemplates()
- │    └─ on failure ⇒ restore the old module cache and the old set
- ├─ Host.Loader = candidate
- └─ candidate:AdvanceTemplateGeneration()
-```
+**Framework provider.** `HasManifoldCommands` and `HasManifoldTrampolines` say what the Cheat
+Table has loaded right now. `ScanModule` and `AssertBytes` are ready-made statements that use the
+Manifold commands when available and Cheat Engine's `aobScanModule` and `assert` otherwise.
+`FrameworkWarning` and `TrampolineWarning` produce a comment block for scripts that cannot fall
+back, and an empty string when everything is present.
 
-⚠️ **Unsaved scripts in open Auto Assembler windows are lost.** That is intentional: Cheat Engine
-holds menu references to the old template callbacks, which would become invalid on the swap.
+Detection uses the same signal the framework uses on itself. `Manifold.Bootstrap` publishes each
+module under its declared global, so `assemblerCommands` and `trampolines` being present means
+the modules were constructed. Cheat Engine offers no way to ask whether an Auto Assembler command
+name is registered. The same predicate backs the built-in capabilities
+`Manifold.AssemblerCommands` and `Manifold.Trampolines`.
 
-The two 50 ms timers are necessary because `TForm.Close` defers destruction until Cheat Engine
-returns to its message loop. Without those pauses the registrations would be swapped while CE
-still holds menu entries from the old generation.
+**Set by the generator.** `TemplateSettings` carries the normalized settings, the legacy
+spellings `SubMenuName` and `MenuOrder`, the flattened memory overrides and any custom fields the
+settings file declares. A field like `MyOffset = 0x30` stays reachable as
+`TemplateSettings.MyOffset`, exactly as in 2.x. `FinalCompilation` is always false, and every
+declared input value is set as well.
 
----
-
-## 9. Module reference
-
-### Manifold-TemplateLoader-Host
-
-Singleton. Not part of the reload set.
-
-| Function | Description |
-|---|---|
-| `Host:New()` | Singleton |
-| `host:Attach(loader)` | Sets `Loader`, updates `_G.ManifoldTemplateLoader`/`_G.loader`, registers the form notification once |
-| `host:HotReload()` | Starts the full restart |
-| `host:StageHotReload()` | Load and validate the candidate |
-| `host:CommitHotReload(...)` | Close the AA windows |
-| `host:FinishHotReload(...)` | Swap the registrations |
-| `host:LoadCandidate()` | Reloads all 7 modules with cache rollback |
-| `host:RestoreModuleCache(candidateSet)` | |
-| `host:TrackOpenForms()` | Initial scan (deliberately **not** called) |
-| `host:Log(message [, isError])` | Forwards to `Loader:LogReload` |
-
-### Manifold-TemplateLoader-Loader
-
-Singleton, the central controller.
-
-| Area | Functions |
-|---|---|
-| Configuration | `LoadConfig`, `SaveConfig`, `CreateConfig`, `ResetConfig`, `ApplyConfig` |
-| Discovery | `DiscoverTemplates`, `GetTemplateDefinitions`, `CreateRegistrationPlan` |
-| Registration | `RegisterTemplate`, `LoadTemplates`, `UnloadTemplates` |
-| Reload | `RefreshTemplates`, `ReloadTemplates`, `ReloadDependencies`, `AdvanceTemplateGeneration`, `AdoptRuntimeState`, `QueueHotReloadUIRefresh`, `ScheduleTemplateMenuRebuild` |
-| Compilation | `GetEnvironment`, `GetMemoryOverrides`, `Compile`, `CompileFile`, `CompileHeaderTemplate`, `AppendLiteral`, `ApplyCompiledTemplate`, `GetTemplateScript`, `ReportTemplateError` |
-| Menu | `GetMenuIndices`, `BuildUICallbacks`, `BuildMenu`, `RemoveOldMenuEntries`, `SetupMenu`, `RebuildOptionsMenu`, `RebuildOptionsMenus`, `CleanupTemplateMenus`, `RebuildTemplateMenus`, `AttachMenuToForm` |
-| Forms | `TrackAutoInjectForm`, `GetTrackedForms`, `DestroyAutoInjectForms` |
-| Logging | `LogReload` |
-
-### Manifold-TemplateLoader-Manager
-
-Singleton. Discovery and validation.
-
-| Function | Returns | Description |
-|---|---|---|
-| `manager:DiscoverTemplates()` | `table` | Scans the template folder (non-recursively), skips `Header.CEA`, sorts by `MenuOrder` + caption |
-| `manager:LoadSettings(path, name)` | `table\|nil, string` | Loads inside the sandbox and validates |
-| `manager:ValidateSettings(name, settings, path)` | `table\|nil, string` | Type checks with a concrete error message |
-| `manager:GetSettingsEnvironment()` | `table` | The sandbox |
-| `manager:LoadScript(path)` | `string\|nil, string` | |
-| `manager:InitTemplate(name)` | `string, table` \| `nil, string` | Script + settings in one call |
-| `manager:NormalizePath(path)` | `string\|nil` | `\` → `/`, `//` → `/`, trailing slash removed |
-| `manager:GetScriptExtension()` / `GetLuaExtension()` / `GetTemplateFolder()` | `string` | `.CEA` / `.Settings.lua` / folder |
-
-### Manifold-TemplateLoader-Memory
-
-Singleton. Collects context from the target process. It **never raises** — every failure path
-returns `nil, message` so that a template is not generated half-way.
-
-| Area | Functions |
-|---|---|
-| Configuration | `SetInjInfoLineCount`, `SetInjInfoRemoveSpaces`, `SetInjInfoAddTabs`, `SetAppendToHookName`, `SetAskForHookName`, `SetAskForInjectionAddress`, `SetAllocationNear`, `SetAllocationSize`, `SetDefaultHookName`, `NormalizeAllocationSize`, `GetConfig`, `GetOptions` |
-| Runtime | `IsTarget64Bit`, `GetDefaultPointerSize`, `Is14ByteJump`, `GetMinJumpSize`, `GetJumpType`, `GetProcessName`, `GetProcessBase`, `GetProcessBaseStr`, `FormatAddress` |
-| Selection | `GetSelectionAddress`, `GetSelection`, `GetSelectionSize`, `GetModuleName`, `GetModuleBase`, `GetModuleBaseStr` |
-| Instructions | `GetInstructionSize`, `IsValidInstructionSize`, `GetInstructionSpan`, `GetJumpSize`, `GetDisassembledOpcode`, `GetOpcodes`, `GetBytes`, `GetNopPadding`, `GetRegisterData` |
-| Template | `NormalizeSymbolName`, `PromptForHookName`, `FormatHookName`, `GetHookNames`, `GetInjectionAddress`, `GetAllocStatement`, `GetGlobalAllocStatement`, `GetAoB`, `GetInjectionInfo`, `GetInjectionInfoStr` |
-| Time | `GetCurrentDate`, `GetCurrentTime`, `GetCurrentDateTime` |
-| Mono | `GetMonoSupportStatus` — placeholder |
-| Context | `GetMemoryInfo(overrides)` |
-
-`GetInstructionSpan` walks at most 64 instructions and only accepts sizes of 1–15 bytes — both
-guards against unreadable memory.
-
-### Manifold-TemplateLoader-UI
-
-Singleton. Menu construction.
-
-| Function | Description |
-|---|---|
-| `ui:GetMainMenuTree(config, indices, callbacks)` | Declarative menu tree |
-| `ui:BuildTree(parent, tree)` | Turns the tree into real menu items |
-| `ui:RemoveManagedItems(parent)` | Removes everything with the `Manifold` name prefix |
-| `ui:FindMenuItem(form, name)` | Recursive lookup (e.g. `"emplate1"`) |
-| `ui:AddSeparatorAfter(parentMenu, itemName)` | |
-| `ui:CategorizeMenuItems(loader, rootMenu, indices)` | Moves the flat template entries into the category hierarchy |
-
-Menu entries are tables:
+### Adding a variable
 
 ```lua
-{ caption = "…", name = "ManifoldXyz", image = idx, sub = { … },
-  onClick = fn, autoCheck = true, checked = bool, radio = true, separator = true }
-```
-
-The `Manifold` name prefix is the ownership marker: `RemoveManagedItems` only deletes entries
-carrying it and leaves Cheat Engine's own menu items alone.
-
-### Manifold-TemplateLoader-File
-
-Singleton. Defensive file-system wrapper — every `lfs` call is wrapped in `pcall`.
-
-| Function | Returns |
-|---|---|
-| `file:Exists(path)` | `boolean` |
-| `file:FolderExists(path)` | `boolean` |
-| `file:EnsureFolder(path)` | `boolean, string?` — **recursive** |
-| `file:Size(path)` | `number` |
-| `file:ReadFile(path)` | `string\|nil, string?` — binary mode |
-| `file:WriteFile(path, content)` | `boolean, string?` |
-| `file:ScanFolder(path [, recursive])` | `table` — sorted, case-insensitive |
-
-### Manifold-TemplateLoader-Log
-
-Singleton, self-contained (independent of `Manifold.Logger`).
-
-| Function | Description |
-|---|---|
-| `log:SetLogLevel(level)` | `0` (NONE) to `5` (CRITICAL) |
-| `log:GetLogLevel()` / `GetLogLevelName()` | |
-| `log:Log(level, msg)` / `ForceLog(level, msg)` | |
-| `log:<Level>(msg)` / `<Level>F(fmt, …)` / `Force<Level>(…)` | Generated for Debug/Info/Warning/Error/Critical |
-| `log:Stringify(tbl)` | |
-| `log:ClearLogFile()` | |
-
-Log file: `autorun\Manifold-TemplateLoader-Modules\Manifold-TemplateLoader-Log.txt`
-(only when `LogToFile` is enabled). Writing there requires the autorun directory to be writable —
-under a default `C:\Program Files` installation that means Cheat Engine has to run elevated, which
-CE 7.5 does by default.
-
-### Manifold-TemplateLoader-Json
-
-A private copy of Jeffrey Friedl's `json.lua`, identical to `Manifold.Json` in the framework. Used
-only for the configuration file.
-
----
-
-## 10. Creating your own template
-
-**1. Script file** `Manifold-TemplateLoader-Templates/Health Hook.CEA`:
-
-```
-<< Header >>
-
-[ENABLE]
-
-ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
-<< Alloc >>
-ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
-
-label(return_<< HookName >>)
-
-n_<< HookName >>:
-  mov [<< BaseAddressRegister >>+<< BaseAddressOffset >>],(int)9999
-<< OriginalOpcodes >>
-  jmp return_<< HookName >>
-
-<< HookNameParsed >><< AoBOffset >>:
-  << JumpType >> n_<< HookName >>
-  << NopPadding >>
-return_<< HookName >>:
-registersymbol(<< HookNameParsed >>)
-
-[DISABLE]
-
-<< HookNameParsed >><< AoBOffset >>:
-  db << OriginalBytes >>
-
-unregisterSymbol(*)
-dealloc(*)
-```
-
-**2. Settings file** `Health Hook.Settings.lua`:
-
-```lua
-return {
-    Caption                = "Health Hook",
-    InSubMenu              = true,
-    SubMenuName            = "[9] Custom Hooks",
-    MenuOrder              = 10,
-    AskForHookName         = true,
-    AskForInjectionAddress = false,
-    AppendToHookName       = "Hook",
-    AllocationSize         = "$1000",
-    AllocationNear         = true,
+ManifoldTemplateLoader:RegisterExtension{
+    Name = "MyVariables",
+    Variables = {
+        InstructionCount = {
+            Type = "number",
+            DependsOn = { "AddressValue", "JumpSize" },
+            Resolve = function(ctx)
+                local current, count, total = ctx:Get("AddressValue"), 0, 0
+                while total < ctx:Get("JumpSize") do
+                    local size = getInstructionSize(current)
+                    total, current, count = total + size, current + size, count + 1
+                end
+                return count
+            end
+        }
+    }
 }
 ```
 
-**3.** In the Auto Assembler window choose **Template Loader → Reload templates**, then open a
-**new** Auto Assembler window.
+`<< InstructionCount >>` works immediately, with no loader, compiler or UI change. That is the
+core promise of the provider system.
 
-### Troubleshooting checklist
+## Menus
 
-| Symptom | Cause |
-|---|---|
-| Template does not appear | Duplicate `Caption`, or the settings file is missing / returns no table |
-| Template is in the menu but a reload does not show it | Menu belongs to the **old** generation — open a new AA window |
-| "No unique AoB was found" | `getUniqueAOB` cannot find a unique signature at that site |
-| "Injection address is not inside a loaded module" | The selection is in dynamically allocated memory |
-| "Unable to determine instruction size" | The address is not (or no longer) readable |
-| Shortcut does not work | Conflict with another template — see the log |
-| `ManifoldScanModule is not a valid command` | Manifold Framework not loaded — switch to `aobScanModule` |
+Every Auto Assembler window gets two things, 50 ms after it opens.
 
----
+Under `Template` there are favorites and recent templates, which are plain references and never
+duplicate registrations, followed by the categorized template entries. Categories nest with `>`.
+`CategoryOrder` in schema 2 or the `[n]` caption prefix in legacy settings controls their order,
+and `Order` sorts within a category.
 
-## 11. Known limits
+In the menu bar there is the `Template Loader` menu:
 
-- **No Mono/managed support.** `Memory:GetMonoSupportStatus()` returns a TODO string; the entry
-  point for an implementation is marked as a comment in the memory module. Templates receive
-  native x86/x64 context only.
-- **Templates are not discovered recursively.** `ScanFolder(folder, false)` — subfolders inside the
-  template directory are ignored.
-- **No template cache.** Every invocation re-reads `.CEA` and `Header.CEA` from disk and recompiles
-  them. At the usual rate (one invocation per menu click) that is harmless.
-- Details and further findings: [TODO — Template Loader](TODO.md#template-loader).
+```
+Template Loader
+├── Templates      Reload Templates, Validate All Templates, Open Template Folder,
+│                  Template Status, Add Favorite, Remove Favorite
+├── Settings       Generation (info lines, spaces, indent, suffix, validate output,
+│                  preview before apply), Memory (prompts, near alloc, size,
+│                  default hook name), Reset Settings
+├── Logging        Log Level, Write Log File, View Logs, Open Log File, Open Log Folder
+├── Development    Reload Templates, Reload Providers And Extensions, Full Runtime Reload
+├── Diagnostics    Runtime Status, Run Self-Check, Copy Diagnostic Report
+└── About
+```
+
+All loader-created menu items carry an ownership tag. Rebuilds remove exactly those and never
+touch Cheat Engine's own or other extensions' entries.
+
+### Menu icons
+
+`Manifold-Icons/` holds a 25-icon set for the Template Loader menu next to the original six
+log-level icons. It follows the style measured from the originals, which is 16 by 16 RGBA with
+one RGB value per icon and all shading in the alpha channel. Colors come from the Bearded-Arc
+theme and are grouped so a menu section reads as one, with blue for templates, gold for settings,
+muted blue for logging, pink for development, green for diagnostics and cyan for about.
+
+The icon list is attached to the root `Template Loader` item only. `TMenuItem.GetImageList` walks
+up from an item's parent to the nearest ancestor carrying `SubMenuImages`, so one attach covers
+the whole subtree. Attaching it at the main menu would re-index every other top-level menu of the
+Auto Assembler window. Inside that subtree entries use `icon = "Name"`. `image` must not be used
+there, because the two index different lists.
+
+### Windows
+
+Every window the loader opens is built in the Manifold visual language with bordered cards, a
+header strip, panel buttons with hover feedback and a status line. The default palette is the
+Bearded-Arc theme. When the Cheat Table has a live `Manifold.Forms` instance with an applied
+theme, the loader adopts that palette read-only. It never loads `Manifold.Forms` itself, because
+that module defines a global class and belongs to the Cheat Table's lifecycle, and a second copy
+from autorun is exactly the collision `Manifold.Bootstrap` exists to detect.
+
+All windows are `bsSizeable` and laid out by alignment. The button bar and status line are
+`alBottom` and the content card is `alClient`, so resizing works. Captions use title case.
+
+The preview renders in a `createSynEdit` with Auto Assembler highlighting and falls back to a
+themed memo when that API is unavailable. Three details govern how it is styled, all verified
+against the Cheat Engine and Lazarus sources.
+
+The background is copied from Cheat Engine's own editor. `TSynEdit.Color` defaults to white, and
+`TSynAASyn` takes its token colors from the user's registry syntax settings with a dark or light
+default set chosen by `ShouldAppsUseDarkMode`. None of that is reachable from Lua. Taking the
+background from an open Auto Assembler window's `Assemblescreen`, falling back to the Lua Engine
+editor and then to the palette, keeps the tokens readable in both modes. `RightEdge` is set to
+`-1` as Cheat Engine does for its own editors, because highlighter attributes only paint up to
+the right edge column and leaving it at the default 80 shows a bright block beyond it.
+
+Memos get the same treatment. `TMemo` inherits the window color and a read-only edit control is
+painted through `WM_CTLCOLORSTATIC` on Win32, so every memo goes through one helper that turns
+`ParentColor` off and sets `Color` explicitly. A memo standing in for a code view takes the editor
+colors rather than the palette.
+
+The gutter must be themed explicitly, which is what otherwise leaves a white strip beside a dark
+editor. Cheat Engine's SynEdit binding covers `Lines`, `SelStart` and similar only, so the gutter
+is reached through Cheat Engine's generic `__index` chain, which tries a published property first
+and then `FindComponent` on a `TComponent`. `TSynGutter` publishes `Color`, `Visible`, `Width`
+and `Parts`, and the parts list is a component whose children carry the fixed names
+`SynGutterMarks1`, `SynGutterLineNumber1`, `SynGutterChanges1`, `SynGutterSeparator1` and
+`SynGutterCodeFolding1`. The loader hides the bookmark strip, the change bar and the separator,
+sets `Gutter.Color`, and also sets `SynGutterLineNumber1.MarkupInfo.Background` and
+`.Foreground`, because the line-number part paints its own background over the gutter color.
+`BorderStyle` is set to `bsNone` to drop the sunken 3D frame.
+
+## Configuration
+
+The file is `%LOCALAPPDATA%\Manifold\TemplateLoader\Manifold-TemplateLoader-Config.json` at
+schema 4. A 2.x file at schema 3, or an older unversioned one, is migrated in memory and on disk
+on first load. The legacy location under `autorun\...\Modules\` is still read once and moved.
+
+Saves are atomic. The loader writes, verifies and then replaces, so a failed save cannot destroy
+the only working copy. A file from a newer schema loads read-only and is never overwritten. A
+file that fails to parse is preserved as `...Config.json.invalid` and the loader continues with
+defaults, still writable. Broken values such as an invalid allocation size or an empty default
+hook name are repaired to defaults on load. Log files live under
+`%LOCALAPPDATA%\Manifold\TemplateLoader\Logs\`.
+
+Schema 4 adds two sections. `Generation` holds `ValidateOutput`, which is off by default because
+`autoAssembleCheck` runs custom Auto Assembler commands during its check, plus
+`PreviewBeforeApply` and `WarnDeprecated`. `UI` holds `Favorites`, `Recent` and `RecentLimit`,
+which store template ids.
+
+## Extensions
+
+```lua
+ManifoldTemplateLoader:RegisterExtension{
+    Name = "Mono", Version = "1.0.0",
+    Providers = {
+        { Name = "Mono", Variables = { MonoClass = { Resolve = function(ctx) ... end } } }
+    },
+    Variables = { ... },
+    Helpers = { comment = function(v) return "// " .. tostring(v) end },
+    Capabilities = { ["My.Capability"] = function() return _G.MyFramework ~= nil end },
+    Hooks = {
+        BeforeTemplateValidation = ..., AfterTemplateValidation = ...,
+        BeforeContextResolution = ...,  AfterContextResolution = ...,
+        BeforeRender = ...,             AfterRender = ...,
+        BeforeApply = ...,              AfterApply = ...
+    }
+}
+```
+
+Hooks run isolated. A broken hook is logged and skipped, never allowed to corrupt the loader.
+Only `Before*` hooks may veto by returning `false` and a reason, and a veto aborts the generation
+with the editor untouched. Extensions survive *Reload Providers* and full reloads automatically,
+because their definitions are replayed. Name collisions with existing variables are rejected at
+registration with both owners named.
+
+### A complete custom provider
+
+Drop this into a Cheat Table Lua script or your own autorun file after the loader has run. No
+core module is touched.
+
+```lua
+local loaderRuntime = _G.ManifoldTemplateLoader
+if loaderRuntime and loaderRuntime.RegisterExtension then
+    local ok, err = loaderRuntime:RegisterExtension{
+        Name = "MyCustomProvider",
+        Version = "1.0.0",
+        Providers = {
+            {
+                Name = "Game",
+                Variables = {
+                    GameName = {
+                        Type = "string",
+                        Description = "Marketing name of the target game",
+                        Resolve = function() return "My Game" end
+                    },
+                    GameVersion = {
+                        Type = "string",
+                        Description = "File version of the main module",
+                        DependsOn = { "Process" },
+                        Resolve = function(ctx)
+                            local info = getFileVersion and select(2, getFileVersion(ctx:Get("Process")))
+                            return type(info) == "table"
+                                and string.format("%d.%d.%d.%d", info.major or 0, info.minor or 0,
+                                    info.release or 0, info.build or 0)
+                                or nil   -- unknown beats guessed
+                        end
+                    },
+                    BuildTimestamp = {
+                        Type = "string",
+                        Description = "When this generation ran",
+                        Resolve = function() return os.date("%Y-%m-%d %H:%M:%S") end
+                    }
+                }
+            }
+        }
+    }
+    if not ok then print("MyCustomProvider failed: " .. tostring(err)) end
+end
+```
+
+`<< GameName >>`, `<< GameVersion >>` and `<< BuildTimestamp >>` now work in every template,
+appear in *Diagnostics > Runtime Status*, are checked by *Validate All Templates* and can be
+listed in a template's `Requires`.
+
+## Reload levels and rollback
+
+| Level | Menu entry | What reloads | What survives |
+|---|---|---|---|
+| 1 | Reload Templates | Discovery, compile validation, registrations, menus for new windows | Modules, providers, extensions, config, open windows |
+| 2 | Reload Providers And Extensions | Provider modules, context registry, extension replay, then level 1 | Core modules, config, open windows |
+| 3 | Full Runtime Reload | Every module except the host, as a complete candidate Runtime | The host, tracked window state, extension definitions |
+
+Every level validates before it commits. Candidates are discovered, compiled and planned first,
+and the active set is only unregistered after the candidate proved valid. On any failure the
+current generation stays active, and if unregistration already happened the previous set is
+re-registered. A failed reload is never a reason to restart Cheat Engine.
+
+Level 3 has to close open Auto Assembler windows, because Cheat Engine holds menu references to
+the old callbacks. It asks first:
+
+```
+Full reload requires closing 3 Auto Assembler window(s).
+Their editor contents may contain unsaved changes.
+Reload anyway?          [Yes] [No]
+```
+
+Cancelling keeps the current runtime and restores the module cache. Stale callbacks from a
+replaced generation are guarded, so a template callback only fires when its runtime is still the
+host's active one.
+
+## Logging and diagnostics
+
+The levels are TRACE, DEBUG, INFO, WARNING, ERROR and FATAL. CRITICAL is accepted as a legacy
+alias of FATAL. Entries carry context such as generation, template, stage, provider and duration.
+DEBUG shows a per-stage profile of each generation:
+
+```
+[Generator] 'Pointer Hook' generated in 28.4 ms (generation 7)
+  Template validation: 0.4 ms
+  Inputs: 0.0 ms
+  Context resolution: 21.9 ms
+  Render: 1.2 ms
+  Output validation: 0.1 ms
+```
+
+Capturing and printing are separate. The bounded ring buffer holds the last 500 entries and
+receives everything down to `CaptureLevel`, which defaults to TRACE. The log level only decides
+what reaches the console and the file. So the viewer can show a full DEBUG trace of what just
+happened while the console stays at ERROR. Lower the filter in the viewer instead of raising the
+log level and reproducing the problem. Entries that never printed are flagged and the viewer's
+status line names how many there are. Dropping them would save almost nothing anyway, because
+call sites build their text with `string.format` before calling in, so the formatting cost is
+already paid by the time the level is checked.
+
+*View Logs* opens a native viewer with a level filter, search, clear, copy and shortcuts to the
+log file and folder. *Copy Diagnostic Report* puts the loader version, Cheat Engine version,
+target, generation, template, provider and extension lists, paths, log level, the last reload and
+generation status and the full context variable reference on the clipboard. *Run Self-Check*
+verifies that the runtime is initialized, the template folder exists, the config is readable, the
+registry is valid, providers have no circular dependencies, there are no duplicate ids, callbacks
+are attached and the engine compiles and renders a probe.
+
+The same core checks also run headless. `Manifold-TemplateLoader-Tests/Run.lua` is a development
+aid that is not part of the published tree. It executes 71 tests covering the engine, context
+resolution, config migration, settings schemas, menu categorization and flattening, window
+tracking, gutter styling and window layout, discovery and validation over the real bundled
+templates, and full generations against a stubbed Cheat Engine target. It runs on any Lua 5.3,
+including Cheat Engine's own `lua53-64.dll`.
+
+## Bundled templates
+
+All bundled templates use schema-2 settings with stable ids, `Category` and `CategoryOrder`,
+`Requires` contracts and tags. The `Requires` list of each one is derived from what the template
+actually references.
+
+### The Manifold Framework is optional
+
+Every template that scans and asserts now writes:
+
+```
+<< ScanModule >>
+<< Alloc >>
+
+<< AssertBytes >>
+```
+
+That renders as `ManifoldScanModule(...)` and `ManifoldAssert(...)` with the framework loaded,
+and as `aobScanModule(...)` and `assert(...)` without it. `aobScanModule` defines the same
+symbol, and `assert(address,aob)` is Cheat Engine's own Auto Assembler command that reads the
+bytes at the symbol and aborts when they differ. The guard survives either way, with one
+difference. `ManifoldAssert` only warns on a mismatch, while `assert` refuses to enable the
+script.
+
+Both address `<< HookNameParsed >><< AoBOffset >>` rather than the bare scan symbol. The symbol
+names the start of the signature, and `getUniqueAOB` returns offset 0 only when the injection's
+own bytes are already unique in the module, otherwise it grows the pattern backwards and the hook
+site sits `AoBOffset` bytes in. Cheat Engine's own template generator compensates the same way.
+Without it the guard compared the wrong bytes, which was a permanent false warning with
+`ManifoldAssert` and, once the plain `assert` fallback existed, a script that could never be
+enabled.
+
+The Nop and byte patch templates branch explicitly, because their argument shapes differ:
+
+```
+<% if HasManifoldCommands then %>
+ManifoldNop(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
+<% else %>
+<< HookNameParsed >><< AoBOffset >>:
+  db << NopBytes >>
+<% end %>
+```
+
+`NopBytes` from the Instruction provider covers the whole overwritten span, so the fallback nops
+exactly what the command would have.
+
+`ManifoldInstallDetour`, `ManifoldEmitOriginal`, `ManifoldDestroyDetour` and
+`ManifoldResolveStatic` have no plain Cheat Engine equivalent. Those templates keep the commands,
+declare `Capabilities = { "Manifold.Trampolines" }` or `"Manifold.AssemblerCommands"`, and render
+`<< TrampolineWarning >>` or `<< FrameworkWarning >>`, a comment block naming what is missing. The
+script then fails loudly when it is assembled instead of quietly assembling into a hook that was
+never installed.
+
+### Categories
+
+Categories were renumbered so families stay together and each category has a unique order.
+Pointer is 1, Pointer ReadMem 2, Pointer Trampoline 3, Conditional 4, Conditional ReadMem 5,
+Conditional Trampoline 6, Byte Patch 7, Default 8, Hooks Trampoline 9, Teleporter 10, Static
+Resolver 11, Lua Presets 12 and Examples 13.
+
+`Example — Full Capability` is the reference template. It shows the header, includes,
+expressions, code blocks, all four input types, `Requires` and `Optional`, helpers, conditional
+readMem and db sections, `TemplateSettings` and the framework predicates, using only the public
+template API.
+
+## Compatibility with 2.x
+
+Fully compatible:
+
+The template tags `<< expression >>` and `<% code %>`, shared chunk locals and the `nil` to empty
+string rule. All documented context variables with their 2.x value formats. Schema 1
+`.Settings.lua` files including the `[n]` prefixes and flat overrides. `<< Header >>` and
+`Header.CEA`. The globals `_G.ManifoldTemplateLoaderHost`, `_G.ManifoldTemplateLoader` and
+`loader`, plus the runtime methods 2.x exposed such as `LoadTemplates`, `ReloadTemplates`,
+`GetTemplateScript` and `GetTemplateDefinitions`. Configuration file contents, migrated from 3 to
+4 in place, with the legacy path still read once. The template folder location, non-recursive
+discovery and the `Header` exclusion. Legacy templates keep access to Lua globals through the
+environment.
+
+Compatible through an alias or a migration:
+
+The config value `Logger.Level = "CRITICAL"` maps to FATAL and is accepted forever. Captions
+remain unique keys for Cheat Engine registration, while identity for favorites, recent templates
+and diagnostics moved to stable ids, derived as `legacy.<file>` for schema-1 templates. The
+deprecation mechanism `registry:RegisterAlias(old, new, true)` exists for future renames, and no
+built-in variable is deprecated today.
+
+Changed on purpose and visible to the user:
+
+Cancelling a prompt aborts silently where 2.x showed an error dialog. `BaseAddressRegister` and
+`BaseAddressOffset` resolve to `nil` instead of an empty string and `"0"` when no simple base
+register exists. The rendered output is empty either way, and templates declaring `Requires` now
+fail early with an actionable hint. A full runtime reload asks for confirmation before closing
+Auto Assembler windows. The log file moved from `autorun\...\Modules\` to
+`%LOCALAPPDATA%\Manifold\TemplateLoader\Logs\`. The `Template Loader` menu was restructured.
+`TemplateSettings` exposes normalized fields plus the legacy spellings.
+
+Removed:
+
+The module files `Manifold-TemplateLoader-Loader.lua`, `-Manager.lua` and `-Memory.lua`, which
+were superseded by Runtime, Registry and the providers. No legacy duplicates remain. Anything
+that required those directly has to switch to the public globals.
+
+## Known limits
+
+There is no Mono or managed provider yet. The provider system is built for it, so a future
+MonoProvider can register `MonoClass`, `MonoMethod` and the rest without core changes.
+
+Templates are not discovered recursively. Subfolders are reserved, and `Partials/` is one of
+them.
+
+Architecture filtering rejects at generation time rather than hiding menu entries, because menu
+state cannot reliably track process attach and detach events.
+
+There is no file watcher. Reloads are manual by design, since Cheat Engine has no reliable native
+file watching and a polling loop is not worth its cost.
+
+Output validation is opt-in, because Cheat Engine's `autoAssembleCheck` executes custom Auto
+Assembler commands during the check. With the Manifold Framework loaded that means a real
+`ManifoldScanModule` scan.

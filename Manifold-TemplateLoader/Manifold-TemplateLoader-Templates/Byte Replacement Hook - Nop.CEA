@@ -1,0 +1,26 @@
+<< Header >>
+
+[ENABLE]
+
+<< ScanModule >>
+
+<< AssertBytes >>
+<% if HasManifoldCommands then %>
+ManifoldNop(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
+<% else %>
+<< HookNameParsed >><< AoBOffset >>:
+  db << NopBytes >>
+<% end %>
+
+registersymbol(<< HookNameParsed >>)
+
+[DISABLE]
+
+<% if HasManifoldCommands then %>
+ManifoldNop(<< HookNameParsed >><< AoBOffset >>)
+<% else %>
+<< HookNameParsed >><< AoBOffset >>:
+  db << OriginalBytes >>
+<% end %>
+
+unregisterSymbol(*)
