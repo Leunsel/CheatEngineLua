@@ -1,20 +1,3 @@
-{
-   Mono Hook - Instance Capture
-   ----------------------------
-   A prologue hook that stores an argument register into a named pointer.
-
-   On x64 the first four arguments arrive in rcx, rdx, r8 and r9. A managed
-   instance method receives the object in rcx and its declared parameters
-   from rdx onwards, while a static method starts its parameters in rcx.
-   That is why the register is an input rather than a fixed rcx. Pick rcx
-   for the instance, rdx for the first parameter of an instance method.
-
-   Capturing at the prologue matters here. Further into the method the JIT
-   is free to move the value into another register or spill it to the
-   stack, so only the entry gives a reliable argument.
-
-   Suggested hook name for this method: << MonoHookName >>
-}
 << include("Mono-Header") >>
 
 [ENABLE]
