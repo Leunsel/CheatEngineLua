@@ -209,13 +209,17 @@ end
 function Log:Stringify(value)
     if type(value) ~= "table" then return tostring(value) end
     local parts = {}
+    -- A second local rather than assigning to the loop variable. Lua 5.1 to
+    -- 5.4 allow that, but Lua 5.5 made generic-for control variables const,
+    -- so the assignment would stop the file from loading there.
     for key, entry in pairs(value) do
+        local text = entry
         if type(entry) == "table" then
-            entry = self:Stringify(entry)
+            text = self:Stringify(entry)
         elseif type(entry) == "string" then
-            entry = '"' .. entry .. '"'
+            text = '"' .. entry .. '"'
         end
-        parts[#parts + 1] = tostring(key) .. ": " .. tostring(entry)
+        parts[#parts + 1] = tostring(key) .. ": " .. tostring(text)
     end
     return "{ " .. table.concat(parts, ", ") .. " }"
 end
