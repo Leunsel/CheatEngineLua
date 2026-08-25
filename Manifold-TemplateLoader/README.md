@@ -163,5 +163,16 @@ over the gutter color. Memos all go through one helper that turns `ParentColor` 
 `Color` explicitly, because a read-only edit on Win32 is painted through `WM_CTLCOLORSTATIC` and
 would ignore the color.
 
-Mono and managed runtime support is still not implemented. The provider system is prepared for
-it, so a `MonoProvider` can register its variables without any core changes.
+A Mono provider ships as the sixth built-in provider. It resolves the managed method an
+injection address falls into and exposes its namespace, class, method, image, entry address,
+body size and the `Namespace:Class:Method` descriptor that Cheat Engine's `FINDMONOMETHOD`
+command parses.
+
+Three templates use it, a plain code cave hook, a prologue hook that captures an argument
+register, and a byte patch that makes the method return immediately. They resolve the method by
+name on every enable and restore with `readMem`, so nothing depends on JIT bytes staying the same
+between runs.
+
+IL2CPP builds are detected and reported through `MonoIsIl2Cpp`, but not supported. They have no
+Mono runtime to resolve a method by name, so that needs a separate provider reading a metadata
+dump.

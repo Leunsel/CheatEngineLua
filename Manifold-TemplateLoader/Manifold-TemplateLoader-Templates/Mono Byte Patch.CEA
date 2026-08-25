@@ -1,0 +1,80 @@
+{
+   Mono Byte Patch
+   ---------------
+   Overwrites the start of a managed method so it returns straight away, or
+   nops the selected instruction. No code cave and no jump, which makes it
+   the smallest way to disable a method outright.
+
+   A patch that returns belongs at the method entry and nowhere else. At the
+   entry the stack is still the caller's, so a plain ret hands control back
+   correctly. Once the prologue has run there is a frame to unwind and a
+   bare ret leaves the stack unbalanced.
+
+   The backup is taken with readMem while the script assembles, so disabling
+   restores the bytes that were really there rather than the ones recorded
+   when the script was generated.
+
+   Suggested hook name for this method: << MonoHookName >>
+}
+<< include("Mono-Header") >>
+
+[ENABLE]
+
+<%
+-- Managed methods return in rax on x64, so al carries a bool and eax an
+-- int or anything smaller that fits. Nop is the empty case and gets padded
+-- like the others.
+local kinds = {
+    ["Nop"]          = {},
+    ["Return"]       = { "C3" },
+    ["Return True"]  = { "B0", "01", "C3" },
+    ["Return False"] = { "32", "C0", "C3" },
+    ["Return Zero"]  = { "33", "C0", "C3" }
+}
+local patch = {}
+for _, byte in ipairs(kinds[PatchKind] or {}) do patch[#patch + 1] = byte end
+-- Cover whole instructions. A shorter patch is padded out to the selected
+-- instruction, a longer one keeps its own length and spills into the next.
+local patchSize = SelectionSize
+if patchSize < 1 then patchSize = 1 end
+if #patch > patchSize then patchSize = #patch end
+while #patch < patchSize do patch[#patch + 1] = "90" end
+%><% if MonoMethodOffset ~= 0 and PatchKind ~= "Nop" then %>{
+   Warning: this patch sits << hex(MonoMethodOffset) >> bytes past the
+   method entry, where a ret would leave the stack unbalanced. Regenerate on
+   the first line of the method, or switch to Nop.
+}
+
+<% end %><% if #patch > SelectionSize then %>{
+   Note: << PatchKind >> needs << #patch >> bytes and the instruction at the
+   entry is only << SelectionSize >>, so the patch reaches into the
+   instruction after it. That is harmless for a method that returns here,
+   but check the disassembly if the result looks wrong.
+}
+
+<% end %><< MonoResolve >>
+<< GlobalAlloc >>
+
+label(z_<< HookName >>)
+
+n_<< HookName >>:
+z_<< HookName >>:
+  readMem(<< HookNameParsed >><< MonoOffsetSuffix >>,<< patchSize >>)
+
+<< HookNameParsed >><< MonoOffsetSuffix >>:
+  db << table.concat(patch, " ") >>
+
+registersymbol(z_<< HookName >>)
+
+[DISABLE]
+
+// FINDMONOMETHOD produces a define, and a define only lives inside the
+// block that created it. Unlike a scan symbol it cannot be registered
+// and carried over, so the disable resolves the method a second time.
+<< MonoResolve >>
+
+<< HookNameParsed >><< MonoOffsetSuffix >>:
+  readMem(z_<< HookName >>,<< patchSize >>)
+
+unregisterSymbol(*)
+dealloc(*)
