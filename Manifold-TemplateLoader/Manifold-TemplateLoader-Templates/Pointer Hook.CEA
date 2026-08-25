@@ -2,11 +2,10 @@
 
 [ENABLE]
 
-// aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
-ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+<< ScanModule >>
 << Alloc >>
 
-ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
+<< AssertBytes >>
 
 label(o_<< HookName >> r_<< HookName >>)
 label(<< HookName >>Ptr)

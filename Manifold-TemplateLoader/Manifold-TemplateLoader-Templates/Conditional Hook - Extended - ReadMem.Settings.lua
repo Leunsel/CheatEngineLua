@@ -1,10 +1,20 @@
-local Settings = {
-    InSubMenu = true,
-    SubMenuName = "[4] x86/x64 — Conditional Hooks — ReadMem",
+return {
+    SchemaVersion = 2,
+    Id = "manifold.conditional.extended.readmem",
     Caption = "Conditional Hook — Extended — ReadMem",
-    Shortcut = "",
-    AskForInjectionAddress = true,
-    AskForHookName = true,
-    AppendToHookName = "Hook"
+    Description = "Player/entity flag-controlled hook with readMem restore.",
+    Category = "x86/x64 — Conditional Hooks — ReadMem",
+    CategoryOrder = 5,
+    Order = 20,
+    Tags = { "conditional", "flag", "compare", "readmem" },
+    Requires = {
+        "AddressValue", "Module", "HookName",
+        "AoBStr", "OriginalBytes", "JumpSize",
+        "BaseAddressRegister"
+    },
+    Memory = {
+        AskForInjectionAddress = false,
+        AskForHookName = true,
+        AppendToHookName = "Hook"
+    }
 }
-return Settings

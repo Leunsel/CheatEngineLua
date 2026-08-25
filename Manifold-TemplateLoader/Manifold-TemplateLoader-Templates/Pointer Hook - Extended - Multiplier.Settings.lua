@@ -1,10 +1,20 @@
-local Settings = {
-    InSubMenu = true,
-    SubMenuName = "[1] x86/x64 — Pointer Hooks",
+return {
+    SchemaVersion = 2,
+    Id = "manifold.pointer.extended.multiplier",
     Caption = "Pointer Hook — Extended — Multiplier",
-    Shortcut = "",
-    AskForInjectionAddress = true,
-    AskForHookName = true,
-    AppendToHookName = "Hook"
+    Description = "Compare-driven capture with separate increase/decrease multipliers.",
+    Category = "x86/x64 — Pointer Hooks",
+    CategoryOrder = 1,
+    Order = 40,
+    Tags = { "pointer", "multiplier", "compare" },
+    Requires = {
+        "AddressValue", "Module", "HookName",
+        "AoBStr", "OriginalBytes", "OriginalOpcodes",
+        "BaseAddressRegister"
+    },
+    Memory = {
+        AskForInjectionAddress = false,
+        AskForHookName = true,
+        AppendToHookName = "Hook"
+    }
 }
-return Settings

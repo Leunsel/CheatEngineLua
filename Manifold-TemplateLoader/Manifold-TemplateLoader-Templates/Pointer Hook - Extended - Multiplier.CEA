@@ -2,11 +2,10 @@
 
 [ENABLE]
 
-// aobScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
-ManifoldScanModule(<< HookNameParsed >>,<< Module >>,<< AoBStr >>)
+<< ScanModule >>
 << Alloc >>
 
-ManifoldAssert(<< HookNameParsed >>,<< OriginalBytes >>)
+<< AssertBytes >>
 
 label(o_<< HookName >> r_<< HookName >>)
 label(<< HookName >>Ptr << HookName >>Multiplier)
@@ -37,7 +36,7 @@ o_<< HookName >>:
   dd (float)3.00
   dd (float)0.25
 
-<< HookNameParsed >><< AoBOffset>>:
+<< HookNameParsed >><< AoBOffset >>:
   << JumpType >> n_<< HookName >>
   << NopPadding >>
 r_<< HookName >>:
@@ -45,7 +44,7 @@ registersymbol(<< HookNameParsed >> << HookName >>Ptr << HookName >>Multiplier)
 
 [DISABLE]
 
-<< HookNameParsed >><< AoBOffset>>:
+<< HookNameParsed >><< AoBOffset >>:
   db << OriginalBytes >>
 
 unregisterSymbol(*)

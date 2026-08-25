@@ -1,10 +1,19 @@
-local Settings = {
-    InSubMenu = true,
-    SubMenuName = "[6] x86/x64 — Default Hooks",
+return {
+    SchemaVersion = 2,
+    Id = "manifold.hook.default",
     Caption = "Default Injection Hook",
-    Shortcut = "",
-    AskForInjectionAddress = false,
-    AskForHookName = true,
-    AppendToHookName = "Hook"
+    Description = "The standard code-cave injection: scan, allocate, jump, restore.",
+    Category = "x86/x64 — Default Hooks",
+    CategoryOrder = 8,
+    Order = 10,
+    Tags = { "injection", "default" },
+    Requires = {
+        "AddressValue", "Module", "HookName",
+        "AoBStr", "OriginalBytes", "OriginalOpcodes"
+    },
+    Memory = {
+        AskForInjectionAddress = false,
+        AskForHookName = true,
+        AppendToHookName = "Hook"
+    }
 }
-return Settings

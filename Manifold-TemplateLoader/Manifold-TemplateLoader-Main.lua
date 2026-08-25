@@ -3,11 +3,9 @@
     --------------------------------
 
     AUTHOR  : Leunsel, LeFiXER
-    VERSION : 2.0.0
     LICENSE : MIT
     CREATED : 2025-06-21
-    UPDATED : 2025-06-24
-    
+
     MIT License:
         Copyright (c) 2025 Leunsel
 
@@ -30,20 +28,30 @@
         SOFTWARE.
 
     This file is part of the Manifold TemplateLoader system.
+    The version number lives in Manifold-TemplateLoader-Version.lua.
 ]]
 
 local sep = package.config:sub(1, 1)
 package.path = getAutorunPath() .. "Manifold-TemplateLoader-Modules" .. sep .. "?.lua;" .. package.path
 
 local Host = require("Manifold-TemplateLoader-Host")
-local Loader = require("Manifold-TemplateLoader-Loader")
+local Runtime = require("Manifold-TemplateLoader-Runtime")
 
-local activeLoader = Loader:New()
 local host = Host:New()
-host:Attach(activeLoader)
+
+-- Re-executing this file (e.g. from the table Lua script) must not build a
+-- second runtime and double-register every template. The 2.x singleton had
+-- the same effect, use "Full runtime reload" to actually reload.
+if host.Loader then
+    host:Log("Main.lua re-executed, the active runtime stays attached. Use 'Full runtime reload' to reload.")
+    return
+end
+
+local runtime = Runtime:New()
+host:Attach(runtime)
 
 _G.ManifoldTemplateLoaderHost = host
 _G.ManifoldTemplateLoader = host.Loader
-loader = activeLoader -- backwards compatibility for existing autorun snippets
+loader = host.Loader -- backwards compatibility for existing autorun snippets
 
 host.Loader:LoadTemplates()
