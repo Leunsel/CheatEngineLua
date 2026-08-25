@@ -109,8 +109,14 @@ function Provider.Register(registry, services)
                         error("No target process is attached", 0)
                     end
                     local selected = ce:GetSelectedDisassemblerAddress()
+                    -- The last argument is Sections, and Cheat Engine defaults it to
+                    -- false for a reason. With it on the name comes back as
+                    -- Module.section+offset, which getAddress cannot read back, and
+                    -- the offset is counted from the section rather than the module
+                    -- base. It has to stay false: this text is handed straight to
+                    -- GetAddressSafe below and is offered as the prompt default.
                     local selectedText = selected
-                        and (ce:GetNameFromAddress(selected, true, true, true) or string.format("%X", selected))
+                        and (ce:GetNameFromAddress(selected, true, true, false) or string.format("%X", selected))
                         or nil
                     local requested = selectedText
                     if ctx.Options.AskForInjectionAddress then
@@ -129,7 +135,9 @@ function Provider.Register(registry, services)
                     if not address then
                         error("Unable to resolve injection address '" .. tostring(requested) .. "'", 0)
                     end
-                    local text = ce:GetNameFromAddress(address, true, true, true) or tostring(requested)
+                    -- Sections stays false here too. This text becomes Address, which
+                    -- a template may print or hand back to Cheat Engine.
+                    local text = ce:GetNameFromAddress(address, true, true, false) or tostring(requested)
                     log:Debug(string.format("[Instruction] Injection address: %s ($%X)", text, address))
                     return { Text = text, Value = address }
                 end
