@@ -73,9 +73,12 @@ Persistent Host   owns the single registerFormAddNotification, never reloaded
          └── UI               menus, categorization, log viewer, preview
 ```
 
-`registerFormAddNotification` cannot be unregistered in Cheat Engine. The host registers it once
-and forwards to whichever Runtime is active, which is what makes the whole Runtime replaceable
-without restarting Cheat Engine. The host also skips the initial form scan on purpose, because
+The host registers the form notification once and forwards to whichever Runtime is active, which
+is what makes the whole Runtime replaceable without restarting Cheat Engine. Registering once is
+a deliberate choice rather than a limitation. Cheat Engine does offer
+`unregisterFormAddNotification`, but tearing the registration down and building it again would
+leave a window with none, and a candidate runtime that failed to load would leave the loader with
+nothing registered at all. The host also skips the initial form scan on purpose, because
 Cheat Engine's own hidden script window is a `TfrmAutoInject` as well and would otherwise be
 mistaken for an Auto Assembler window.
 

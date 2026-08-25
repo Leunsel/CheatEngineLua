@@ -2,10 +2,17 @@
     Persistent host for the Template Loader runtime.
 
     This module is deliberately NOT part of the reload set and holds no
-    business logic. It exists because registerFormAddNotification cannot be
-    unregistered in Cheat Engine. The host registers it exactly once and
-    forwards to whichever Runtime is currently active. That is what makes a
+    business logic. It registers the form notification exactly once and
+    forwards to whichever Runtime is currently active, which is what makes a
     full runtime reload possible without restarting Cheat Engine.
+
+    An earlier version of this comment claimed the notification cannot be
+    unregistered. That is wrong. Cheat Engine documents
+    unregisterFormAddNotification and registerFormAddNotification returns the
+    object for it. Registering once and forwarding is still the better shape,
+    because unregistering and registering again would leave a window with no
+    notification at all, and a candidate runtime that fails to load would
+    leave the loader with nothing registered.
 
         Persistent Host
             -> current Runtime generation
