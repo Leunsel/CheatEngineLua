@@ -1,9 +1,14 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.6"
+local VERSION = "1.2.0"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
+    ∂ v1.2.0 (2026-08-26)
+        Saves are keyed by their full category path plus name
+        instead of the name alone, so the same name may exist
+        in several categories. Legacy files migrate on load.
+
     ∂ v1.1.6 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
@@ -679,6 +684,92 @@ end
 registerLuaFunctionHighlight('SetSaveCategoryPath')
 
 --
+--- ∑ Builds the unique storage key for a save from its category path and display name.
+---   Identity is the full path, so the same display name may live in several categories.
+--- @param categoryInput table|string # Category path parts or path text.
+--- @param saveName string # Display name of the save.
+--- @return string|nil # Storage key, or nil when the name is empty.
+--
+function Teleporter:MakeSaveKey(categoryInput, saveName)
+    local name = trimString(saveName)
+    if name == "" then
+        return nil
+    end
+    local path = self:NormalizeCategoryPath(categoryInput)
+    if #path == 0 then
+        path[1] = DEFAULT_CATEGORY
+    end
+    path[#path + 1] = name
+    return table.concat(path, CATEGORY_PATH_SEPARATOR)
+end
+registerLuaFunctionHighlight('MakeSaveKey')
+
+--
+--- ∑ Returns the storage key a save should live under, derived from its own fields.
+--- @param save table # Save data carrying Name and Categories.
+--- @return string|nil # Storage key, or nil when the save carries no name.
+--
+function Teleporter:GetSaveKey(save)
+    if type(save) ~= "table" then
+        return nil
+    end
+    return self:MakeSaveKey(self:GetSaveCategoryPath(save, true), save.Name)
+end
+registerLuaFunctionHighlight('GetSaveKey')
+
+--
+--- ∑ Returns the display name of a save, falling back to the key for legacy data.
+--- @param save table # Save data.
+--- @param fallbackKey string|nil # Key to fall back to when no name is stored.
+--- @return string # Display name.
+--
+function Teleporter:GetSaveDisplayName(save, fallbackKey)
+    if type(save) == "table" then
+        local name = trimString(save.Name)
+        if name ~= "" then
+            return name
+        end
+    end
+    return trimString(fallbackKey)
+end
+registerLuaFunctionHighlight('GetSaveDisplayName')
+
+--
+--- ∑ Resolves caller input to a storage key.
+---   Accepts a full key, or a bare display name while it stays unambiguous. That name
+---   fallback is what keeps scripts generated before path keys existed working.
+--- @param input string # Storage key or display name.
+--- @return string|nil, string|nil # Resolved key, or nil plus the reason it failed.
+--
+function Teleporter:ResolveSaveKey(input)
+    local needle = trimString(input)
+    if needle == "" then
+        return nil, "empty name"
+    end
+    if type(self.Saves) ~= "table" then
+        return nil, "no saves loaded"
+    end
+    if type(self.Saves[needle]) == "table" then
+        return needle
+    end
+    local matches = {}
+    for key, save in pairs(self.Saves) do
+        if type(save) == "table" and trimString(save.Name) == needle then
+            matches[#matches + 1] = key
+        end
+    end
+    if #matches == 1 then
+        return matches[1]
+    end
+    if #matches > 1 then
+        sortCaseInsensitive(matches)
+        return nil, string.format("ambiguous, matches %d categories (%s)", #matches, table.concat(matches, ", "))
+    end
+    return nil, "not found"
+end
+registerLuaFunctionHighlight('ResolveSaveKey')
+
+--
 --- ∑ Adds a save name to a nested category tree.
 --- @param root table # Category tree root.
 --- @param categoryPath table # Ordered category path parts.
@@ -696,23 +787,23 @@ registerLuaFunctionHighlight('AddSaveToCategoryTree')
 
 --
 --- ∑ Builds the Author -> Category Path -> Save hierarchy used by UI and CE records.
---- @param includeSaveFunc function|nil # Optional predicate: fn(saveName, saveData, author, categoryText).
---- @return table # Nested hierarchy grouped by author.
+--- @param includeSaveFunc function|nil # Optional predicate: fn(saveKey, saveData, author, categoryText).
+--- @return table # Nested hierarchy grouped by author. Leaf entries are storage keys.
 --
 function Teleporter:BuildSaveHierarchy(includeSaveFunc)
     self:EnsureAuthorsAndCategories()
     local grouped = {}
-    for saveName, data in pairs(self.Saves or {}) do
-        if type(saveName) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
+    for saveKey, data in pairs(self.Saves or {}) do
+        if type(saveKey) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
             local author = trimString(data.Author)
             if author == "" then
                 author = "Unknown"
             end
             local categoryPath = self:GetSaveCategoryPath(data, true)
             local categoryText = self:CategoryPathToText(categoryPath, true)
-            if not includeSaveFunc or includeSaveFunc(saveName, data, author, categoryText) then
+            if not includeSaveFunc or includeSaveFunc(saveKey, data, author, categoryText) then
                 grouped[author] = grouped[author] or newCategoryNode()
-                self:AddSaveToCategoryTree(grouped[author], categoryPath, saveName)
+                self:AddSaveToCategoryTree(grouped[author], categoryPath, saveKey)
             end
         end
     end
@@ -721,20 +812,50 @@ end
 registerLuaFunctionHighlight('BuildSaveHierarchy')
 
 --
---- ∑ Resolves a save name from a tree node, ignoring author/category headers.
+--- ∑ Rebuilds the storage key a tree node points at, ignoring author/category headers.
+---   The tree mirrors Author -> Category Path -> Save, so the ancestor texts below the
+---   author node are exactly the save's category path followed by its display name.
 --- @param node table # Tree node to inspect.
---- @return string|nil # Save name when the node represents a save.
+--- @return string|nil # Save key when the node represents a save.
 --
-function Teleporter:GetSaveNameFromTreeNode(node)
-    if not node or not self.Saves then
+function Teleporter:GetSaveKeyFromTreeNode(node)
+    if not node or type(self.Saves) ~= "table" then
         return nil
     end
-    local name = node.Text
-    local childCount = tonumber(node.Count) or 0
-    if childCount == 0 and name and self.Saves[name] then
-        return name
+    if (tonumber(node.Count) or 0) > 0 then
+        return nil
     end
-    return nil
+    local chain = {}
+    local current, guard = node, 0
+    while current and guard < 64 do
+        chain[#chain + 1] = trimString(current.Text)
+        local ok, parent = pcall(function() return current.Parent end)
+        current = ok and parent or nil
+        guard = guard + 1
+    end
+    if #chain > 1 then
+        -- chain runs leaf -> author. Drop the author entry and flip back into path order.
+        local path = {}
+        for index = #chain - 1, 1, -1 do
+            path[#path + 1] = chain[index]
+        end
+        local key = table.concat(path, CATEGORY_PATH_SEPARATOR)
+        if type(self.Saves[key]) == "table" then
+            return key
+        end
+    end
+    -- Fallback for hosts where TTreeNode.Parent is unavailable: match on the leaf text.
+    return (self:ResolveSaveKey(node.Text))
+end
+registerLuaFunctionHighlight('GetSaveKeyFromTreeNode')
+
+--
+--- ∑ Deprecated alias kept for callers written against the pre-path-key API.
+--- @param node table # Tree node to inspect.
+--- @return string|nil # Save key when the node represents a save.
+--
+function Teleporter:GetSaveNameFromTreeNode(node)
+    return self:GetSaveKeyFromTreeNode(node)
 end
 registerLuaFunctionHighlight('GetSaveNameFromTreeNode')
 
@@ -761,11 +882,11 @@ function Teleporter:PrintSaves()
             printCategoryNode(node.Categories[category], indentLevel + 1)
         end
         sortCaseInsensitive(node.Saves)
-        for _, saveName in ipairs(node.Saves) do
-            local save = self.Saves[saveName]
+        for _, saveKey in ipairs(node.Saves) do
+            local save = self.Saves[saveKey]
             if type(save) == "table" then
                 logger:ForceInfoF("[Teleporter] %s- %s | (%.3f, %.3f, %.3f)",
-                    string.rep("  ", indentLevel), saveName, save.X, save.Y, save.Z)
+                    string.rep("  ", indentLevel), self:GetSaveDisplayName(save, saveKey), save.X, save.Y, save.Z)
                 if save.Description and tostring(save.Description) ~= "" then
                     logger:ForceInfoF("[Teleporter] %s  Description: %s", string.rep("  ", indentLevel), save.Description)
                 end
@@ -798,7 +919,7 @@ end
 
 --
 --- ∑ Teleports the player to a saved position.
---- @param name string # The name of the save to teleport to.
+--- @param name string # Storage key of the save, or its display name when unambiguous.
 --- @return boolean # true if teleportation was successful, false otherwise.
 --
 function Teleporter:TeleportToSave(name)
@@ -806,14 +927,15 @@ function Teleporter:TeleportToSave(name)
         logger:Error("[Teleporter] Invalid save name.")
         return false
     end
-    local savePosition = self.Saves and self.Saves[name]
+    local saveKey, reason = self:ResolveSaveKey(name)
+    local savePosition = saveKey and self.Saves and self.Saves[saveKey]
     if not savePosition or type(savePosition) ~= "table" or not savePosition.X or not savePosition.Y or not savePosition.Z then
-        logger:ErrorF("[Teleporter] Save Not Found or invalid format: '%s'", name)
+        logger:ErrorF("[Teleporter] Save Not Found or invalid format: '%s' (%s)", tostring(name), tostring(reason or "invalid entry"))
         return false
     end
     local success = self:TeleportToCoordinates({ savePosition.X, savePosition.Y, savePosition.Z --[[+ 10.000 ]] })
     if success then
-        logger:InfoF("[Teleporter] Teleported to Save: '%s'", name)
+        logger:InfoF("[Teleporter] Teleported to Save: '%s'", saveKey)
     end
     return success
 end
@@ -888,13 +1010,15 @@ function Teleporter:SaveLookup()
         local data, err = customIO:ReadFromFileAsJson(saveFilePath)
         if data then
             self.Saves = data
-            self:EnsureAuthorsAndCategories()
+            if (self:EnsureAuthorsAndCategories() or 0) > 0 then
+                self:PersistSaves(true)
+            end
             local saveCount = 0
             for _, _ in pairs(self.Saves) do
                 saveCount = saveCount + 1
             end
             logger:Info("[Teleporter] Successfully loaded save data with " .. tostring(saveCount) .. " saves.")
-            return data
+            return self.Saves
         elseif err then
             logger:Warning("[Teleporter] Error loading save file: " .. err)
         end
@@ -903,13 +1027,15 @@ function Teleporter:SaveLookup()
     local tableData, tableErr = customIO:ReadFromTableFileAsJson(saveFileName)
     if tableData then
         self.Saves = tableData
-        self:EnsureAuthorsAndCategories()
+        if (self:EnsureAuthorsAndCategories() or 0) > 0 then
+            self:PersistSaves(true)
+        end
         local saveCount = 0
         for _, _ in pairs(self.Saves) do
             saveCount = saveCount + 1
         end
         logger:Info("[Teleporter] Successfully loaded table data with " .. tostring(saveCount) .. " saves.")
-        return tableData
+        return self.Saves
     elseif tableErr then
         logger:Warning("[Teleporter] Error loading from TableFiles: " .. tableErr)
     end
@@ -991,17 +1117,18 @@ function Teleporter:CreateTeleporterSaves()
         self:ClearSubrecords(root)
         local grouped = self:BuildSaveHierarchy()
         local totalSaves = 0
-        local function createSaveRecord(parentRecord, saveName, author)
-            local position = self.Saves[saveName]
+        local function createSaveRecord(parentRecord, saveKey, author)
+            local position = self.Saves[saveKey]
             if type(position) ~= "table" then
                 return
             end
+            local displayName = self:GetSaveDisplayName(position, saveKey)
             local categoryText = self:CategoryPathToText(self:GetSaveCategoryPath(position, true), true)
             local scriptContent = string.format([[
 {$lua}
-[ENABLE]
 if syntaxcheck then return end
--- .................................................................
+[ENABLE]
+-- ...........................[ENABLE]...........................
 --- Save: %s
 --- Author: %s
 --- Category: %s
@@ -1010,17 +1137,17 @@ if syntaxcheck then return end
 ---- Z: %.4f
 teleporter:TeleportToSave("%s")
 utils:AutoDisable(memrec.ID)
--- .................................................................
 [DISABLE]
+-- ..........................[DISABLE]...........................
 
 --- Script generated using %s
 ---- Version: %s
 ---- Source: https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Modules
-]], saveName, author, categoryText, position.X, position.Y, position.Z, saveName, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
+]], displayName, author, categoryText, position.X, position.Y, position.Z, saveKey, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
 
             local mr = addressList.createMemoryRecord()
             mr.Type = vtAutoAssembler
-            mr.Description = "Teleport To: '" .. saveName .. "' ()->"
+            mr.Description = "Teleport To: '" .. displayName .. "' ()->"
             mr.Color = 0xFFFFFF
             mr.Parent = parentRecord
             mr.Script = scriptContent
@@ -1037,8 +1164,8 @@ utils:AutoDisable(memrec.ID)
                 createCategoryRecords(categoryHeader, node.Categories[category], author)
             end
             sortCaseInsensitive(node.Saves)
-            for _, saveName in ipairs(node.Saves) do
-                createSaveRecord(parentRecord, saveName, author)
+            for _, saveKey in ipairs(node.Saves) do
+                createSaveRecord(parentRecord, saveKey, author)
             end
         end
         for _, author in ipairs(sortedKeys(grouped)) do
@@ -1264,19 +1391,20 @@ function Teleporter:SetSelectedSaveName(name)
 end
 
 --
---- ∑ Loads a save by name into the editor fields. Returns false if the save is not found.
---- @param name string # The name of the save to load.
+--- ∑ Loads a save into the editor fields. Returns false if the save is not found.
+--- @param name string # Storage key of the save, or its display name when unambiguous.
 --- @returns boolean # true if the save was loaded successfully, false otherwise.
 --
 function Teleporter:LoadSaveIntoEditor(name)
     local ui = self:EnsureUiState()
-    local save = self.Saves and self.Saves[name]
+    local saveKey = self:ResolveSaveKey(name)
+    local save = saveKey and self.Saves and self.Saves[saveKey]
     if not save then
         self:ClearEditor()
         return false
     end
-    ui.CurrentSelection = name
-    ui.NameEdit.Text = name
+    ui.CurrentSelection = saveKey
+    ui.NameEdit.Text = self:GetSaveDisplayName(save, saveKey)
     ui.AuthorEdit.Text = save.Author or self:GetCurrentAuthor()
     ui.CategoryEdit.Text = self:CategoryPathToText(self:GetSaveCategoryPath(save, false), false)
     ui.XEdit.Text = tostring(save.X or "")
@@ -1302,14 +1430,15 @@ function Teleporter:TryGetEditorPosition()
 end
 
 --
---- ∑ Generates a unique copy name for a save based on an existing name.
---- @param baseName string # The original name to base the copy name on.
+--- ∑ Generates a copy name that is unique inside the given category.
+--- @param baseName string # The original display name to base the copy name on.
+--- @param categoryInput table|string # Category path the copy will live in.
 --- @returns string # A unique name for the copied save (e.g., "Save (Copy)", "Save (Copy 2)", etc.).
 --
-function Teleporter:GenerateUniqueCopyName(baseName)
+function Teleporter:GenerateUniqueCopyName(baseName, categoryInput)
     local index = 1
     local name = string.format("%s (Copy)", baseName)
-    while self.Saves and self.Saves[name] do
+    while self.Saves and self.Saves[self:MakeSaveKey(categoryInput, name)] do
         index = index + 1
         name = string.format("%s (Copy %d)", baseName, index)
     end
@@ -1330,9 +1459,11 @@ function Teleporter:RefreshUi(preserveSelection)
     local query = (ui.SearchEdit and ui.SearchEdit.Text or ui.SearchQuery or ""):lower()
     ui.TreeView.beginUpdate()
     ui.TreeView.Items:clear()
-    local grouped = self:BuildSaveHierarchy(function(saveName, data, author, categoryText)
+    local grouped = self:BuildSaveHierarchy(function(saveKey, data, author, categoryText)
         local description = data.Description or ""
-        local haystack = string.lower(table.concat({ saveName, author, categoryText, description }, " "))
+        local haystack = string.lower(table.concat({
+            saveKey, self:GetSaveDisplayName(data, saveKey), author, categoryText, description
+        }, " "))
         return query == "" or haystack:find(query, 1, true)
     end)
     local function addCategoryNodes(parentTreeNode, categoryNode)
@@ -1342,10 +1473,10 @@ function Teleporter:RefreshUi(preserveSelection)
             addCategoryNodes(categoryTreeNode, categoryNode.Categories[category])
         end
         sortCaseInsensitive(categoryNode.Saves)
-        for _, saveName in ipairs(categoryNode.Saves) do
+        for _, saveKey in ipairs(categoryNode.Saves) do
             local saveNode = parentTreeNode:add()
-            saveNode.Text = saveName
-            if previousSelection and previousSelection == saveName then
+            saveNode.Text = self:GetSaveDisplayName(self.Saves[saveKey], saveKey)
+            if previousSelection and previousSelection == saveKey then
                 ui.TreeView.Selected = saveNode
             end
         end
@@ -1389,6 +1520,7 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
     end
     self.Saves = self.Saves or {}
     local save = {
+        Name = trimString(saveName),
         X = position[1],
         Y = position[2],
         Z = position[3],
@@ -1396,13 +1528,22 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
         Description = description or "",
     }
     self:SetSaveCategoryPath(save, category)
-    self.Saves[saveName] = save
+    local saveKey = self:GetSaveKey(save)
+    if not saveKey then
+        logger:Error("[Teleporter] Cannot create a save without a name.")
+        return false
+    end
+    if self.Saves[saveKey] then
+        logger:ErrorF("[Teleporter] Save Already Exists In That Category: '%s'.", saveKey)
+        return false
+    end
+    self.Saves[saveKey] = save
     self:PersistSaves(true)
-    self:SetSelectedSaveName(saveName)
+    self:SetSelectedSaveName(saveKey)
     self:RefreshUi(true)
-    self:LoadSaveIntoEditor(saveName)
-    self:SetStatus("Save created: " .. saveName)
-    logger:InfoF("[Teleporter] Added Save: '%s'", saveName)
+    self:LoadSaveIntoEditor(saveKey)
+    self:SetStatus("Save created: " .. save.Name)
+    logger:InfoF("[Teleporter] Added Save: '%s'", saveKey)
     return true
 end
 
@@ -1417,6 +1558,7 @@ function Teleporter:AddSave()
     end
     return self:CreateSaveFromCurrentPosition()
 end
+registerLuaFunctionHighlight('AddSave')
 
 --
 --- ∑ Deletes an existing save by name and persists changes.
@@ -1432,21 +1574,23 @@ function Teleporter:DeleteSave(saveName)
     if not validateName(name, "Delete") then
         return false
     end
-    if not self.Saves or not self.Saves[name] then
-        logger:WarningF("[Teleporter] Save Not Found: '%s'.", name)
+    local saveKey, reason = self:ResolveSaveKey(name)
+    if not saveKey then
+        logger:WarningF("[Teleporter] Save Not Found: '%s' (%s).", tostring(name), tostring(reason))
         return false
     end
-    local confirmed = messageDialog("Delete save '" .. name .. "'?", mtConfirmation, mbYes, mbNo)
+    local displayName = self:GetSaveDisplayName(self.Saves[saveKey], saveKey)
+    local confirmed = messageDialog("Delete save '" .. saveKey .. "'?", mtConfirmation, mbYes, mbNo)
     if confirmed ~= mrYes then
         return false
     end
-    self.Saves[name] = nil
+    self.Saves[saveKey] = nil
     self:PersistSaves(true)
     self:SetSelectedSaveName(nil)
     self:RefreshUi(false)
     self:ClearEditor()
-    self:SetStatus("Save deleted: " .. name)
-    logger:InfoF("[Teleporter] Deleted Save: '%s'.", name)
+    self:SetStatus("Save deleted: " .. displayName)
+    logger:InfoF("[Teleporter] Deleted Save: '%s'.", saveKey)
     return true
 end
 
@@ -1461,32 +1605,42 @@ function Teleporter:RenameSave(oldName, newName)
         synchronize(function() self:RenameSave(oldName, newName) end)
         return
     end
-    local sourceName = oldName or self:GetSelectedSaveName()
-    if not validateName(sourceName, "Old") then
+    local sourceInput = oldName or self:GetSelectedSaveName()
+    if not validateName(sourceInput, "Old") then
         return false
     end
-    if not self.Saves or not self.Saves[sourceName] then
-        logger:ErrorF("[Teleporter] Save Not Found for rename: '%s'.", sourceName)
+    local sourceKey, reason = self:ResolveSaveKey(sourceInput)
+    if not sourceKey then
+        logger:ErrorF("[Teleporter] Save Not Found for rename: '%s' (%s).", tostring(sourceInput), tostring(reason))
         return false
     end
+    local save = self.Saves[sourceKey]
+    local sourceName = self:GetSaveDisplayName(save, sourceKey)
     local targetName = newName or inputQuery("Rename Save", "Enter a new name:", sourceName)
     if not validateName(targetName, "New") then
         return false
     end
-    if sourceName ~= targetName and self.Saves[targetName] then
-        logger:ErrorF("[Teleporter] Save Name Already Exists: '%s'.", targetName)
+    -- Renaming only touches the display name. The category half of the key stays put.
+    local targetKey = self:MakeSaveKey(self:GetSaveCategoryPath(save, true), targetName)
+    if not targetKey then
+        logger:Error("[Teleporter] Invalid new save name.")
         return false
     end
-    self.Saves[targetName] = self.Saves[sourceName]
-    if targetName ~= sourceName then
-        self.Saves[sourceName] = nil
+    if sourceKey ~= targetKey and self.Saves[targetKey] then
+        logger:ErrorF("[Teleporter] Save Name Already Exists In That Category: '%s'.", targetKey)
+        return false
+    end
+    save.Name = trimString(targetName)
+    self.Saves[targetKey] = save
+    if targetKey ~= sourceKey then
+        self.Saves[sourceKey] = nil
     end
     self:PersistSaves(true)
-    self:SetSelectedSaveName(targetName)
+    self:SetSelectedSaveName(targetKey)
     self:RefreshUi(true)
-    self:LoadSaveIntoEditor(targetName)
-    self:SetStatus(string.format("Renamed '%s' -> '%s'", sourceName, targetName))
-    logger:InfoF("[Teleporter] Renamed Save: '%s' to '%s'.", sourceName, targetName)
+    self:LoadSaveIntoEditor(targetKey)
+    self:SetStatus(string.format("Renamed '%s' -> '%s'", sourceName, save.Name))
+    logger:InfoF("[Teleporter] Renamed Save: '%s' to '%s'.", sourceKey, targetKey)
     return true
 end
 
@@ -1495,28 +1649,31 @@ end
 --- @returns # true if the save was successfully duplicated, false otherwise.
 --
 function Teleporter:DuplicateSelectedSave()
-    local sourceName = self:GetSelectedSaveName()
-    if not sourceName or not self.Saves or not self.Saves[sourceName] then
+    local sourceKey = self:GetSelectedSaveName()
+    if not sourceKey or not self.Saves or type(self.Saves[sourceKey]) ~= "table" then
         logger:Warning("[Teleporter] No valid save selected for duplication.")
         return false
     end
-    local newName = self:GenerateUniqueCopyName(sourceName)
-    local src = self.Saves[sourceName]
+    local src = self.Saves[sourceKey]
+    local categoryPath = self:GetSaveCategoryPath(src, false)
+    local newName = self:GenerateUniqueCopyName(self:GetSaveDisplayName(src, sourceKey), categoryPath)
     local copiedSave = {
+        Name = newName,
         X = src.X,
         Y = src.Y,
         Z = src.Z,
         Author = src.Author or self:GetCurrentAuthor(),
         Description = src.Description or "",
     }
-    self:SetSaveCategoryPath(copiedSave, self:GetSaveCategoryPath(src, false))
-    self.Saves[newName] = copiedSave
+    self:SetSaveCategoryPath(copiedSave, categoryPath)
+    local newKey = self:GetSaveKey(copiedSave)
+    self.Saves[newKey] = copiedSave
     self:PersistSaves(true)
-    self:SetSelectedSaveName(newName)
+    self:SetSelectedSaveName(newKey)
     self:RefreshUi(true)
-    self:LoadSaveIntoEditor(newName)
+    self:LoadSaveIntoEditor(newKey)
     self:SetStatus("Save duplicated: " .. newName)
-    logger:InfoF("[Teleporter] Duplicated save '%s' as '%s'.", sourceName, newName)
+    logger:InfoF("[Teleporter] Duplicated save '%s' as '%s'.", sourceKey, newKey)
     return true
 end
 
@@ -1526,7 +1683,7 @@ end
 --
 function Teleporter:UpdateSelectedSaveFromEditor()
     local ui = self:EnsureUiState()
-    local oldName = self:GetSelectedSaveName() or ui.NameEdit.Text
+    local oldKey = self:GetSelectedSaveName() or self:ResolveSaveKey(ui.NameEdit.Text)
     local newName = ui.NameEdit.Text
     local position = self:TryGetEditorPosition()
     if not validateName(newName, "Save") then
@@ -1536,31 +1693,38 @@ function Teleporter:UpdateSelectedSaveFromEditor()
         logger:Warning("[Teleporter] Invalid input for update.")
         return false
     end
-    if not self.Saves or not self.Saves[oldName] then
-        logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", tostring(oldName))
+    if not oldKey or type(self.Saves) ~= "table" or type(self.Saves[oldKey]) ~= "table" then
+        logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", tostring(oldKey))
         return false
     end
-    if oldName ~= newName and self.Saves[newName] then
-        logger:WarningF("[Teleporter] Update failed: Save '%s' already exists.", newName)
+    -- The key is derived from category path + name, so editing either one rekeys the save.
+    local newKey = self:MakeSaveKey(ui.CategoryEdit.Text or "", newName)
+    if not newKey then
+        logger:Error("[Teleporter] Update failed: Invalid save name.")
         return false
     end
-    if oldName ~= newName then
-        self.Saves[newName] = self.Saves[oldName]
-        self.Saves[oldName] = nil
+    if oldKey ~= newKey and self.Saves[newKey] then
+        logger:WarningF("[Teleporter] Update failed: '%s' already exists.", newKey)
+        return false
     end
-    local save = self.Saves[newName]
+    local save = self.Saves[oldKey]
+    save.Name = trimString(newName)
     save.X = position[1]
     save.Y = position[2]
     save.Z = position[3]
     save.Author = ui.AuthorEdit.Text ~= "" and ui.AuthorEdit.Text or self:GetCurrentAuthor()
     self:SetSaveCategoryPath(save, ui.CategoryEdit.Text or "")
     save.Description = ui.DescriptionEdit.Lines.Text or ""
+    if oldKey ~= newKey then
+        self.Saves[newKey] = save
+        self.Saves[oldKey] = nil
+    end
     self:PersistSaves(true)
-    self:SetSelectedSaveName(newName)
+    self:SetSelectedSaveName(newKey)
     self:RefreshUi(true)
-    self:LoadSaveIntoEditor(newName)
-    self:SetStatus("Save updated: " .. newName)
-    logger:InfoF("[Teleporter] Save '%s' updated.", newName)
+    self:LoadSaveIntoEditor(newKey)
+    self:SetStatus("Save updated: " .. save.Name)
+    logger:InfoF("[Teleporter] Save '%s' updated.", newKey)
     return true
 end
 
@@ -1848,20 +2012,18 @@ function Teleporter:CreateTreePanel(parent)
     ui.TreeView = tree
     ui.TreeStatsLabel = hint
     tree.OnClick = function()
-        local selected = tree.Selected
-        local saveName = self:GetSaveNameFromTreeNode(selected)
-        if saveName then
-            self:SetSelectedSaveName(saveName)
-            self:LoadSaveIntoEditor(saveName)
-            self:SetStatus("Selected: " .. saveName)
+        local saveKey = self:GetSaveKeyFromTreeNode(tree.Selected)
+        if saveKey then
+            self:SetSelectedSaveName(saveKey)
+            self:LoadSaveIntoEditor(saveKey)
+            self:SetStatus("Selected: " .. saveKey)
         end
     end
     tree.OnDblClick = function()
-        local selected = tree.Selected
-        local saveName = self:GetSaveNameFromTreeNode(selected)
-        if saveName then
-            self:SetSelectedSaveName(saveName)
-            self:TeleportToSave(saveName)
+        local saveKey = self:GetSaveKeyFromTreeNode(tree.Selected)
+        if saveKey then
+            self:SetSelectedSaveName(saveKey)
+            self:TeleportToSave(saveKey)
         end
     end
     return outer
@@ -2058,14 +2220,62 @@ end
 --- ∑ Ensures all saves have an Author field.
 --
 function Teleporter:EnsureAuthorsAndCategories()
-    for name, data in pairs(self.Saves or {}) do
+    if type(self.Saves) ~= "table" then
+        return 0
+    end
+    local entries, migrated, needsRekey = {}, 0, false
+    for key, data in pairs(self.Saves) do
+        local newKey = key
         if type(data) == "table" then
             data.Author = data.Author or self:GetCurrentAuthor()
             data.Category = data.Category or ""
             self:SetSaveCategoryPath(data, self:GetSaveCategoryPath(data, false))
             data.Description = data.Description or ""
+            if trimString(data.Name) == "" then
+                -- Legacy entry: the key doubled as the display name before path keys existed.
+                data.Name = trimString(key)
+                migrated = migrated + 1
+            end
+            newKey = self:GetSaveKey(data) or key
         end
+        if newKey ~= key then
+            needsRekey = true
+        end
+        entries[#entries + 1] = { OldKey = key, NewKey = newKey, Data = data }
     end
+    if not needsRekey then
+        return migrated
+    end
+    -- Rebuild under the new keys. Sorted so any collision suffix lands deterministically.
+    table.sort(entries, function(a, b)
+        return tostring(a.OldKey):lower() < tostring(b.OldKey):lower()
+    end)
+    local rebuilt, collisions = {}, 0
+    for _, entry in ipairs(entries) do
+        local key = entry.NewKey
+        if rebuilt[key] ~= nil and type(entry.Data) == "table" then
+            local baseName = self:GetSaveDisplayName(entry.Data, entry.OldKey)
+            local categoryPath = self:GetSaveCategoryPath(entry.Data, true)
+            local suffix, candidateName, candidateKey = 2, nil, nil
+            repeat
+                candidateName = string.format("%s (%d)", baseName, suffix)
+                candidateKey = self:MakeSaveKey(categoryPath, candidateName)
+                suffix = suffix + 1
+            until rebuilt[candidateKey] == nil or suffix > 999
+            entry.Data.Name = candidateName
+            key = candidateKey
+            collisions = collisions + 1
+        end
+        rebuilt[key] = entry.Data
+    end
+    self.Saves = rebuilt
+    if migrated > 0 then
+        logger:InfoF("[Teleporter] Migrated %d save(s) to category path keys.", migrated)
+    end
+    if collisions > 0 then
+        logger:WarningF("[Teleporter] Renamed %d save(s) that collided inside their own category.", collisions)
+    end
+    return migrated
 end
 
 --
