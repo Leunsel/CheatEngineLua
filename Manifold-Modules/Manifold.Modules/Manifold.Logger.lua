@@ -1,9 +1,14 @@
 local NAME = "Manifold.Logger.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.3"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework Logger"
 
 --[[
+    ∂ v1.1.0 (2026-08-26)
+        Added BuildBlock() and the <Level>Block() helpers, so a
+        multi-row report is one log entry with aligned labels
+        instead of one prefixed line per row.
+
     ∂ v1.0.3 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
@@ -322,6 +327,73 @@ end
 registerLuaFunctionHighlight('Stringify')
 
 --
+--- ∑ Renders a titled block of label/value rows into one string.
+---   A block written as N separate log calls repeats the timestamp and module
+---   prefix on every row, which is most of the line width and drowns the content.
+---   Building it here means one call, one prefix, and labels that line up on their
+---   own rather than by hand-counted padding in each format string.
+--- @param title string # First line of the block, prefix included by the caller.
+--- @param rows table # Array of {label, value} pairs or plain strings.
+---   Use `false` to skip a row - a bare `nil` would cut the list short,
+---   since the walk is an ipairs and stops at the first hole.
+--- @param options table|nil # { indent = "   ", separator = " : ", align = true }
+--- @return string # The block, newline separated.
+--
+function Logger:BuildBlock(title, rows, options)
+    options = options or {}
+    local indent = options.indent or "   "
+    local separator = options.separator or " : "
+    local align = options.align ~= false
+    local entries = {}
+    local labelWidth = 0
+    for _, row in ipairs(rows or {}) do
+        if row then
+            if type(row) == "table" then
+                local label = tostring(row[1] or "")
+                local value = row[2]
+                if value == nil then value = row.value end
+                entries[#entries + 1] = { Label = label, Value = self:Stringify(value) }
+                if align and #label > labelWidth then
+                    labelWidth = #label
+                end
+            else
+                entries[#entries + 1] = { Text = tostring(row) }
+            end
+        end
+    end
+    local lines = {}
+    if title ~= nil and tostring(title) ~= "" then
+        lines[#lines + 1] = tostring(title)
+    end
+    for _, entry in ipairs(entries) do
+        if entry.Text ~= nil then
+            lines[#lines + 1] = indent .. entry.Text
+        else
+            local label = entry.Label
+            if align and #label < labelWidth then
+                label = label .. string.rep(" ", labelWidth - #label)
+            end
+            local head = indent .. label .. separator
+            -- A multi-line value keeps its shape by hanging under its own label.
+            local first = true
+            for piece in (entry.Value:gsub("\r\n", "\n"):gsub("\r", "\n") .. "\n"):gmatch("(.-)\n") do
+                if first then
+                    lines[#lines + 1] = head .. piece
+                    first = false
+                else
+                    lines[#lines + 1] = string.rep(" ", #head) .. piece
+                end
+            end
+            if first then
+                lines[#lines + 1] = head
+            end
+        end
+    end
+    return table.concat(lines, "\n")
+end
+registerLuaFunctionHighlight('BuildBlock')
+
+--
 --- ∑ Logs a message at a specified log level.
 ---   The level is checked against the current logging level to decide if the message should be logged.
 --- @param levelName string # The log level (e.g., "DEBUG", "INFO").
@@ -364,6 +436,14 @@ local function _registerLogMethods(definition)
         self:ForceLog(level, string.format(message, ...))
     end
     registerLuaFunctionHighlight("Force" .. name .. "F")
+    Logger[name .. "Block"] = function(self, title, rows, options)
+        self:Log(level, self:BuildBlock(title, rows, options))
+    end
+    registerLuaFunctionHighlight(name .. "Block")
+    Logger["Force" .. name .. "Block"] = function(self, title, rows, options)
+        self:ForceLog(level, self:BuildBlock(title, rows, options))
+    end
+    registerLuaFunctionHighlight("Force" .. name .. "Block")
 end
 
 for _, definition in ipairs(LOG_METHODS) do
