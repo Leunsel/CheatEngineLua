@@ -183,7 +183,7 @@ registerLuaFunctionHighlight('CheckDependencies')
 function ProcessHandler:ResolveProcessName(processName)
     processName = processName or self.ProcessName or self.AttachedProcessName
     if not processName or processName == "" then
-        logger:Error("[ProcessHandler] No process name configured.")
+        logger:Error(MODULE_PREFIX .. " No process name configured.")
         return nil
     end
     self.ProcessName = processName
@@ -405,10 +405,10 @@ function ProcessHandler:StopProcessWatchTimer(timer)
     end
     if not activeTimer then
         if self.IsWatchingProcess then
-            logger:Warning("[ProcessHandler] Process watch state was active, but no timer existed. Resetting watch state.")
+            logger:Warning(MODULE_PREFIX .. " Process watch state was active, but no timer existed. Resetting watch state.")
             self.IsWatchingProcess = false
         else
-            logger:Debug("[ProcessHandler] No process watch timer to stop.")
+            logger:Debug(MODULE_PREFIX .. " No process watch timer to stop.")
         end
         return false
     end
@@ -416,9 +416,9 @@ function ProcessHandler:StopProcessWatchTimer(timer)
     if isCurrentTimer then
         self.ProcessWatchTimer = nil
         self.IsWatchingProcess = false
-        logger:Info("[ProcessHandler] Process watch timer stopped.")
+        logger:Info(MODULE_PREFIX .. " Process watch timer stopped.")
     else
-        logger:Debug("[ProcessHandler] Stale process watch timer destroyed.")
+        logger:Debug(MODULE_PREFIX .. " Stale process watch timer destroyed.")
     end
     return true
 end
@@ -432,7 +432,7 @@ registerLuaFunctionHighlight('StopProcessWatchTimer')
 --
 function ProcessHandler:StartProcessWatchFallback(processName, processID, epoch)
     if type(createThread) ~= "function" then
-        logger:Warning("[ProcessHandler] [Fallback] createThread is unavailable. Process watch fallback was not started.")
+        logger:Warning(MODULE_PREFIX .. " [Fallback] createThread is unavailable. Process watch fallback was not started.")
         return false
     end
     epoch = epoch or self.ProcessWatchGeneration
@@ -469,7 +469,7 @@ function ProcessHandler:StartProcessWatchFallback(processName, processID, epoch)
         end)
     end)
     if not ok then
-        logger:Error("[ProcessHandler] [Fallback] Failed to start process watch fallback: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " [Fallback] Failed to start process watch fallback: " .. tostring(err))
         return false
     end
     return true
@@ -505,7 +505,7 @@ function ProcessHandler:AutoAttach(processName, options, internalRestart)
     self.AutoAttachTimer.OnTimer = function(timer)
         if maxSecs > 0 and self.AutoAttachTimerTicks >= maxSecs then
             self:StopAutoAttachTimer(timer)
-            logger:ForceInfo("[ProcessHandler] Auto-Attach timed out. You may attach manually from now.")
+            logger:ForceInfo(MODULE_PREFIX .. " Auto-Attach timed out. You may attach manually from now.")
             return
         end
         local processID = getProcessIDFromProcessName(processName)
@@ -513,7 +513,7 @@ function ProcessHandler:AutoAttach(processName, options, internalRestart)
             self:StopAutoAttachTimer(timer)
             local opened, openResultOrErr = pcall(openProcess, processID)
             if not opened or openResultOrErr == false then
-                logger:Error("[ProcessHandler] Failed to open process '" .. tostring(processName) .. "': " .. tostring(openResultOrErr))
+                logger:Error(MODULE_PREFIX .. " Failed to open process '" .. tostring(processName) .. "': " .. tostring(openResultOrErr))
                 self:AutoAttach(processName, options)
                 return
             end
@@ -527,7 +527,7 @@ function ProcessHandler:AutoAttach(processName, options, internalRestart)
     end
     self.AutoAttachTimer.Enabled = true
     self.IsAutoAttaching = true
-    logger:Info("[ProcessHandler] AutoAttach started for process: " .. tostring(processName))
+    logger:Info(MODULE_PREFIX .. " AutoAttach started for process: " .. tostring(processName))
     return true
 end
 registerLuaFunctionHighlight('AutoAttach')
@@ -544,22 +544,22 @@ function ProcessHandler:AttachToProcess(processName, processID, options)
     local previousProcessID = self.AttachedProcessID
     processID = processID or getProcessIDFromProcessName(processName)
     if not processID then
-        logger:Error("[ProcessHandler] Process '" .. tostring(processName) .. "' not found.")
+        logger:Error(MODULE_PREFIX .. " Process '" .. tostring(processName) .. "' not found.")
         return false
     end
     if getOpenedProcessID() ~= processID then
         local ok, err = pcall(openProcess, processID)
         if not ok then
-            logger:Error("[ProcessHandler] Failed to open process '" .. tostring(processName) .. "': " .. tostring(err))
+            logger:Error(MODULE_PREFIX .. " Failed to open process '" .. tostring(processName) .. "': " .. tostring(err))
             return false
         end
     end
     if not self:IsAttachedToTarget(processName, processID) then
-        logger:Error("[ProcessHandler] Attach validation failed. Expected PID " .. tostring(processID) .. ", found PID " .. tostring(getOpenedProcessID()) .. ".")
+        logger:Error(MODULE_PREFIX .. " Attach validation failed. Expected PID " .. tostring(processID) .. ", found PID " .. tostring(getOpenedProcessID()) .. ".")
         return false
     end
     if not self:IsAttachedProcessAvailable() then
-        logger:Debug("[ProcessHandler] PID " .. tostring(processID) .. " is open, but CE has not finished resolving 'process' for readInteger(process) yet.")
+        logger:Debug(MODULE_PREFIX .. " PID " .. tostring(processID) .. " is open, but CE has not finished resolving 'process' for readInteger(process) yet.")
         return false
     end
     if previousProcessID ~= nil and previousProcessID ~= processID then
@@ -582,7 +582,7 @@ function ProcessHandler:AttachToProcessByName(processName)
     if not processName then return false end
     local processID = getProcessIDFromProcessName(processName)
     if not processID then
-        logger:Error("[ProcessHandler] Process '" .. tostring(processName) .. "' not found.")
+        logger:Error(MODULE_PREFIX .. " Process '" .. tostring(processName) .. "' not found.")
         return false
     end
     return self:AttachToProcess(processName, processID, self.AutoAttachOptions)
@@ -600,17 +600,17 @@ function ProcessHandler:OnProcessAttached(processName, processID, options)
     if options.runPostAttachTasks ~= false then
         local ok, err = pcall(function() self:PerformPostAttachTasks() end)
         if not ok then
-            logger:Error("[ProcessHandler] Post-attach tasks failed: " .. tostring(err))
+            logger:Error(MODULE_PREFIX .. " Post-attach tasks failed: " .. tostring(err))
         end
     end
     if type(options.onAttached) == "function" then
         local ok, err = pcall(options.onAttached, self, processName, processID)
         if not ok then
-            logger:Error("[ProcessHandler] Post-attach callback failed: " .. tostring(err))
+            logger:Error(MODULE_PREFIX .. " Post-attach callback failed: " .. tostring(err))
         end
     end
     self:StartProcessWatchTimer(processName)
-    logger:Info("[ProcessHandler] Attached to '" .. tostring(processName) .. "' (PID: " .. tostring(processID) .. ").")
+    logger:Info(MODULE_PREFIX .. " Attached to '" .. tostring(processName) .. "' (PID: " .. tostring(processID) .. ").")
 end
 registerLuaFunctionHighlight('OnProcessAttached')
 
@@ -643,13 +643,13 @@ function ProcessHandler:StartProcessWatchTimer(processName)
             self:EvaluateTarget("watch timer", epoch, timer)
         end)
         if not ok then
-            logger:Error("[ProcessHandler] Process watch timer callback failed: " .. tostring(err))
+            logger:Error(MODULE_PREFIX .. " Process watch timer callback failed: " .. tostring(err))
         end
     end
     self.ProcessWatchTimer.Enabled = true
     self.IsWatchingProcess = true
     self:StartProcessWatchFallback(processName, self.AttachedProcessID, epoch)
-    logger:Info("[ProcessHandler] Process watch timer started for '" .. tostring(processName) .. "'.")
+    logger:Info(MODULE_PREFIX .. " Process watch timer started for '" .. tostring(processName) .. "'.")
     return true
 end
 registerLuaFunctionHighlight('StartProcessWatchTimer')
@@ -713,7 +713,7 @@ function ProcessHandler:EvaluateTarget(source, epoch, timer)
         return false
     end
     if _WatchRegistry().Busy then
-        logger:Debug("[ProcessHandler] " .. tostring(source) .. ": cleanup already in progress, standing down.")
+        logger:Debug(MODULE_PREFIX .. " " .. tostring(source) .. ": cleanup already in progress, standing down.")
         return false
     end
     local processName = self.AttachedProcessName or self.ProcessName
@@ -729,7 +729,7 @@ function ProcessHandler:EvaluateTarget(source, epoch, timer)
     local threshold = math.max(1, tonumber(self.LivenessFailureThreshold) or 2)
     self.ProcessWatchFailureStreak = (self.ProcessWatchFailureStreak or 0) + 1
     if self.ProcessWatchFailureStreak < threshold then
-        logger:DebugF("[ProcessHandler] %s: '%s' probed '%s' (%d/%d). Waiting for confirmation.",
+        logger:DebugF(MODULE_PREFIX .. " %s: '%s' probed '%s' (%d/%d). Waiting for confirmation.",
             tostring(source), tostring(processName), verdict,
             self.ProcessWatchFailureStreak, threshold)
         return true
@@ -762,7 +762,7 @@ registerLuaFunctionHighlight('CheckWatchedProcess')
 function ProcessHandler:DisableAllWithoutExecute()
     local addressList = AddressList or (type(getAddressList) == "function" and getAddressList() or nil)
     if not addressList or not addressList.disableAllWithoutExecute then
-        logger:Warning("[ProcessHandler] AddressList.disableAllWithoutExecute is not available.")
+        logger:Warning(MODULE_PREFIX .. " AddressList.disableAllWithoutExecute is not available.")
         return false
     end
     local ok, err = pcall(function()
@@ -772,10 +772,10 @@ function ProcessHandler:DisableAllWithoutExecute()
         end
     end)
     if not ok then
-        logger:Error("[ProcessHandler] Cleanup failed: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " Cleanup failed: " .. tostring(err))
         return false
     end
-    logger:Info("[ProcessHandler] Cleanup complete. Records disabled without executing disable scripts.")
+    logger:Info(MODULE_PREFIX .. " Cleanup complete. Records disabled without executing disable scripts.")
     return true
 end
 registerLuaFunctionHighlight('DisableAllWithoutExecute')
@@ -811,13 +811,13 @@ registerLuaFunctionHighlight('ResetProcessBoundState')
 function ProcessHandler:CleanupAndReattach(reason, timer)
     local registry = _WatchRegistry()
     if registry.Busy then
-        logger:Debug("[ProcessHandler] Cleanup already in progress. Ignoring: " .. tostring(reason))
+        logger:Debug(MODULE_PREFIX .. " Cleanup already in progress. Ignoring: " .. tostring(reason))
         return false
     end
     if self.RestartStormTripped then
         -- Already reported once. Repeating the teardown would only add noise to
         -- a situation that has stopped being automatic.
-        logger:Debug("[ProcessHandler] Auto-Attach is disarmed after a restart storm. Ignoring: " .. tostring(reason))
+        logger:Debug(MODULE_PREFIX .. " Auto-Attach is disarmed after a restart storm. Ignoring: " .. tostring(reason))
         return false
     end
     registry.Busy = true
@@ -826,12 +826,12 @@ function ProcessHandler:CleanupAndReattach(reason, timer)
     local ok, err = pcall(function()
         self:StopAutoAttachTimer()
         self:StopProcessWatchTimer(timer)
-        logger:Warning("[ProcessHandler] " .. tostring(reason or "Process unavailable") .. " Cleaning up and restarting AutoAttach.")
+        logger:Warning(MODULE_PREFIX .. " " .. tostring(reason or "Process unavailable") .. " Cleaning up and restarting AutoAttach.")
         if wasAttached then
             self:DisableAllWithoutExecute()
             self:ResetProcessBoundState(reason or "Process unavailable")
         else
-            logger:Debug("[ProcessHandler] Nothing was attached; skipping record and patch cleanup.")
+            logger:Debug(MODULE_PREFIX .. " Nothing was attached; skipping record and patch cleanup.")
         end
         self.AttachedProcessName = nil
         self.AttachedProcessID = nil
@@ -839,13 +839,13 @@ function ProcessHandler:CleanupAndReattach(reason, timer)
     end)
     registry.Busy = false
     if not ok then
-        logger:Error("[ProcessHandler] Cleanup failed: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " Cleanup failed: " .. tostring(err))
     end
     local allowed, attempts = self:RegisterRestartAttempt()
     if not allowed then
         self.RestartStormTripped = true
         logger:ForceErrorF(
-            "[ProcessHandler] %d cleanup cycles within %ds - this is thrashing, not recovery. " ..
+            MODULE_PREFIX .. " %d cleanup cycles within %ds - this is thrashing, not recovery. " ..
             "Auto-Attach stopped. Call processHandler:AutoAttach(\"%s\") to resume once the cause is known.",
             attempts, tonumber(self.RestartStormWindowSeconds) or 10, tostring(processName))
         return false
