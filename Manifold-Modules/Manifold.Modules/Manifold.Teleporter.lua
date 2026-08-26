@@ -143,7 +143,7 @@ registerLuaFunctionHighlight('GetModuleInfo')
 function Teleporter:PrintModuleInfo()
     local info = self:GetModuleInfo()
     if not info then
-        logger:Info("[Teleporter] Failed to retrieve module info.")
+        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
         return
     end
     logger:Info("Module Info : "  .. tostring(info.name))
@@ -294,10 +294,10 @@ end
 --
 function Teleporter:PauseGame()
     if not self.Settings.PauseWhileTeleporting then
-        logger:Debug("[Teleporter] PauseWhileTeleporting is disabled; skipping pause.")
+        logger:Debug(MODULE_PREFIX .. " PauseWhileTeleporting is disabled; skipping pause.")
         return
     end
-    logger:Debug("[Teleporter] Pausing game for teleportation...")
+    logger:Debug(MODULE_PREFIX .. " Pausing game for teleportation...")
     pause()
 end
 
@@ -306,10 +306,10 @@ end
 --
 function Teleporter:ResumeGame()
     if not self.Settings.PauseWhileTeleporting then
-        logger:Debug("[Teleporter] PauseWhileTeleporting is disabled; skipping resume.")
+        logger:Debug(MODULE_PREFIX .. " PauseWhileTeleporting is disabled; skipping resume.")
         return
     end
-    logger:Debug("[Teleporter] Resuming game after teleportation...")
+    logger:Debug(MODULE_PREFIX .. " Resuming game after teleportation...")
     unpause()
 end
 
@@ -321,15 +321,15 @@ end
 --
 function Teleporter:ResolveAddress(addressStr, isPointer)
     if type(addressStr) ~= "string" or addressStr == "" then
-        logger:Error("[Teleporter] Invalid address string provided for resolution.")
+        logger:Error(MODULE_PREFIX .. " Invalid address string provided for resolution.")
         return nil
     end
     local resolvedAddress = memory:SafeGetAddress(isPointer and ("[" .. addressStr .. "]+0") or addressStr)
     if not resolvedAddress then
-        logger:ForceWarningF("[Teleporter] Failed to resolve address '%s' (Pointer: %s)", addressStr, tostring(isPointer))
+        logger:ForceWarningF(MODULE_PREFIX .. " Failed to resolve address '%s' (Pointer: %s)", addressStr, tostring(isPointer))
         return nil
     end
-    logger:DebugF("[Teleporter] Resolved address '%s' (Pointer: %s) -> 0x%X", addressStr, tostring(isPointer), resolvedAddress)
+    logger:DebugF(MODULE_PREFIX .. " Resolved address '%s' (Pointer: %s) -> 0x%X", addressStr, tostring(isPointer), resolvedAddress)
     return resolvedAddress
 end
 
@@ -338,13 +338,13 @@ end
 --
 function Teleporter:SetValueType(valueType)
     local typeName = valueTypeMap[valueType] or "Unknown"
-    logger:DebugF("[Teleporter] Attempting to set ValueType: %s (ID: %d)", typeName, valueType)
+    logger:DebugF(MODULE_PREFIX .. " Attempting to set ValueType: %s (ID: %d)", typeName, valueType)
     if readFunctions[valueType] and writeFunctions[valueType] then
         self.Settings.ValueType = valueType
-        logger:InfoF("[Teleporter] Set Teleporter Value Type To %s (ID: %d)", typeName, valueType)
+        logger:InfoF(MODULE_PREFIX .. " Set Teleporter Value Type To %s (ID: %d)", typeName, valueType)
     else
-        logger:ErrorF("[Teleporter] Invalid Value Type for Teleporter: %s (ID: %d)", typeName, valueType)
-        logger:Debug("[Teleporter] Available Value Types: " .. table.concat(valueTypeMap, ", "))
+        logger:ErrorF(MODULE_PREFIX .. " Invalid Value Type for Teleporter: %s (ID: %d)", typeName, valueType)
+        logger:Debug(MODULE_PREFIX .. " Available Value Types: " .. table.concat(valueTypeMap, ", "))
     end
 end
 registerLuaFunctionHighlight('SetValueType')
@@ -358,21 +358,21 @@ registerLuaFunctionHighlight('SetValueType')
 --
 function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead, valueType)
     if type(symbol) ~= "string" or symbol == "" then
-        logger:Error("[Teleporter] Invalid symbol for position read.")
+        logger:Error(MODULE_PREFIX .. " Invalid symbol for position read.")
         return nil
     end
     if type(offsets) ~= "table" or #offsets == 0 then
-        logger:Error("[Teleporter] Invalid or empty offsets for position read.")
+        logger:Error(MODULE_PREFIX .. " Invalid or empty offsets for position read.")
         return nil
     end
     local baseAddress = self:ResolveAddress(symbol, isPointerRead)
     if not baseAddress then
-        logger:Warning(string.format("[Teleporter] Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerRead)))
+        logger:Warning(string.format(MODULE_PREFIX .. " Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerRead)))
         return nil
     end
     local readFunc = readFunctions[valueType]
     if not readFunc then
-        logger:Error(string.format("[Teleporter] Unsupported value type '%s'", tostring(valueType)))
+        logger:Error(string.format(MODULE_PREFIX .. " Unsupported value type '%s'", tostring(valueType)))
         return nil
     end
     local position = {}
@@ -383,7 +383,7 @@ function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead, value
             return nil
         end
     end
-    logger:Debug(string.format("[Teleporter] Read position from '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3]))
+    logger:Debug(string.format(MODULE_PREFIX .. " Read position from '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3]))
     return position
 end
 registerLuaFunctionHighlight('ReadPositionFromMemory')
@@ -398,34 +398,34 @@ registerLuaFunctionHighlight('ReadPositionFromMemory')
 --
 function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWrite, valueType)
     if type(symbol) ~= "string" or symbol == "" then
-        logger:Error("[Teleporter] Invalid symbol for position write.")
+        logger:Error(MODULE_PREFIX .. " Invalid symbol for position write.")
         return false
     end
     if type(offsets) ~= "table" or #offsets == 0 then
-        logger:Error("[Teleporter] Invalid or empty offsets for position write.")
+        logger:Error(MODULE_PREFIX .. " Invalid or empty offsets for position write.")
         return false
     end
     if type(position) ~= "table" or #position ~= #offsets then
-        logger:Error("[Teleporter] Mismatched offsets and position values.")
+        logger:Error(MODULE_PREFIX .. " Mismatched offsets and position values.")
         return false
     end
     local baseAddress = self:ResolveAddress(symbol, isPointerWrite)
     if not baseAddress then
-        logger:WarningF("[Teleporter] Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerWrite))
+        logger:WarningF(MODULE_PREFIX .. " Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerWrite))
         return false
     end
     local writeFunc = writeFunctions[valueType]
     if not writeFunc then
-        logger:ErrorF("[Teleporter] Unsupported value type '%s'", tostring(valueType))
+        logger:ErrorF(MODULE_PREFIX .. " Unsupported value type '%s'", tostring(valueType))
         return false
     end
     for i, offset in ipairs(offsets) do
         if not writeFunc(baseAddress + offset, position[i]) then
-            logger:Error(string.format("[Teleporter] Failed to write value at offset '0x%08X'", offset))
+            logger:Error(string.format(MODULE_PREFIX .. " Failed to write value at offset '0x%08X'", offset))
             return false
         end
     end
-    logger:InfoF("[Teleporter] Wrote position to '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
+    logger:InfoF(MODULE_PREFIX .. " Wrote position to '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
     return true
 end
 registerLuaFunctionHighlight('WritePositionToMemory')
@@ -464,7 +464,7 @@ registerLuaFunctionHighlight('GetBackupPosition')
 --
 function Teleporter:LogDistanceTraveled(oldPosition, newPosition)
     if not oldPosition or not newPosition then
-        logger:Warning("[Teleporter] Cannot log distance traveled: missing position data.")
+        logger:Warning(MODULE_PREFIX .. " Cannot log distance traveled: missing position data.")
         return
     end
     local function calculateDistance(pos1, pos2)
@@ -472,7 +472,7 @@ function Teleporter:LogDistanceTraveled(oldPosition, newPosition)
         return math.sqrt(dx * dx + dy * dy + dz * dz)
     end
     local distance = calculateDistance(oldPosition, newPosition)
-    logger:InfoF("[Teleporter] Distance traveled: %.3f Units", distance)
+    logger:InfoF(MODULE_PREFIX .. " Distance traveled: %.3f Units", distance)
 end
 
 --
@@ -482,12 +482,12 @@ end
 function Teleporter:SaveCurrentPosition()
     local currentPosition = self:GetCurrentPosition()
     if not currentPosition then
-        logger:Error("[Teleporter] Failed to read current position for saving. Is it populated?")
+        logger:Error(MODULE_PREFIX .. " Failed to read current position for saving. Is it populated?")
         return false
     end
     local success = self:WritePositionToMemory(self.Symbols.Saved, self:CalculateSymbolOffsets(), currentPosition, false, self.Transform.ValueType)
     if success then
-        logger:InfoF("[Teleporter] Saved position -> {%.3f, %.3f, %.3f}", currentPosition[1], currentPosition[2], currentPosition[3])
+        logger:InfoF(MODULE_PREFIX .. " Saved position -> {%.3f, %.3f, %.3f}", currentPosition[1], currentPosition[2], currentPosition[3])
     end
     return success
 end
@@ -500,7 +500,7 @@ registerLuaFunctionHighlight('SaveCurrentPosition')
 --
 function Teleporter:GetAdjustedTargetPosition(position)
     if type(position) ~= "table" or #position ~= 3 then
-        logger:Error("[Teleporter] Invalid target position for adjustment.")
+        logger:Error(MODULE_PREFIX .. " Invalid target position for adjustment.")
         return nil
     end
     local adjusted = { position[1], position[2], position[3] }
@@ -510,11 +510,11 @@ function Teleporter:GetAdjustedTargetPosition(position)
     local coordinateIndex = tonumber(self.Settings.YCoordinateIndex) or 1
     local adjustmentAmount = tonumber(self.Settings.AdjustmentAmount) or 0
     if coordinateIndex < 1 or coordinateIndex > #adjusted then
-        logger:WarningF("[Teleporter] Invalid YCoordinateIndex '%s'. Skipping adjustment.", tostring(self.Settings.YCoordinateIndex))
+        logger:WarningF(MODULE_PREFIX .. " Invalid YCoordinateIndex '%s'. Skipping adjustment.", tostring(self.Settings.YCoordinateIndex))
         return adjusted
     end
     adjusted[coordinateIndex] = adjusted[coordinateIndex] + adjustmentAmount
-    logger:DebugF("[Teleporter] Adjusted coordinate index %d by %.3f -> {%.3f, %.3f, %.3f}",
+    logger:DebugF(MODULE_PREFIX .. " Adjusted coordinate index %d by %.3f -> {%.3f, %.3f, %.3f}",
         coordinateIndex, adjustmentAmount, adjusted[1], adjusted[2], adjusted[3])
     return adjusted
 end
@@ -528,7 +528,7 @@ function Teleporter:LoadSavedPosition()
     local currentPosition = self:GetCurrentPosition()
     local savedPosition = self:GetSavedPosition()
     if not savedPosition then
-        logger:Error("[Teleporter] No saved position found. Is it populated?")
+        logger:Error(MODULE_PREFIX .. " No saved position found. Is it populated?")
         return false
     end
     local targetPosition = self:GetAdjustedTargetPosition(savedPosition)
@@ -542,15 +542,15 @@ function Teleporter:LoadSavedPosition()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Loaded saved position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        logger:InfoF(MODULE_PREFIX .. " Loaded saved position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
         self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
-            logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
+            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
         end
     else
-        logger:Error("[Teleporter] Something went wrong when loading the saved position.")
+        logger:Error(MODULE_PREFIX .. " Something went wrong when loading the saved position.")
     end
     return success
 end
@@ -564,7 +564,7 @@ function Teleporter:LoadBackupPosition()
     local currentPosition = self:GetCurrentPosition()
     local backupPosition = self:GetBackupPosition()
     if not backupPosition then
-        logger:Error("[Teleporter] No backup position found. Is it populated?")
+        logger:Error(MODULE_PREFIX .. " No backup position found. Is it populated?")
         return false
     end
     local targetPosition = self:GetAdjustedTargetPosition(backupPosition)
@@ -578,15 +578,15 @@ function Teleporter:LoadBackupPosition()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Loaded backup position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        logger:InfoF(MODULE_PREFIX .. " Loaded backup position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
         self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
-            logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
+            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
         end
     else
-        logger:Error("[Teleporter] Something went wrong when loading the backup position.")
+        logger:Error(MODULE_PREFIX .. " Something went wrong when loading the backup position.")
     end
     return success
 end
@@ -599,12 +599,12 @@ registerLuaFunctionHighlight('LoadBackupPosition')
 --
 function Teleporter:TeleportToCoordinates(position)
     if type(position) ~= "table" or #position ~= 3 then
-        logger:Error("[Teleporter] Invalid position format. Expected {x, y, z}.")
+        logger:Error(MODULE_PREFIX .. " Invalid position format. Expected {x, y, z}.")
         return false
     end
     local currentPosition = self:GetCurrentPosition()
     if not currentPosition then
-        logger:Error("[Teleporter] Unable to retrieve current position.")
+        logger:Error(MODULE_PREFIX .. " Unable to retrieve current position.")
         return false
     end
     local targetPosition = self:GetAdjustedTargetPosition(position)
@@ -618,15 +618,15 @@ function Teleporter:TeleportToCoordinates(position)
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Teleported to coordinates -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        logger:InfoF(MODULE_PREFIX .. " Teleported to coordinates -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
         self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
-            logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
+            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
         end
     else
-        logger:Error("[Teleporter] Teleportation failed.")
+        logger:Error(MODULE_PREFIX .. " Teleportation failed.")
     end
     return success
 end
@@ -640,7 +640,7 @@ function Teleporter:TeleportToWaypoint()
     local currentPosition = self:GetCurrentPosition()
     local waypointPosition = self:ReadPositionFromMemory(self.Waypoint.Symbol, self.Waypoint.Offsets, true, self.Waypoint.ValueType)
     if not waypointPosition then
-        logger:Error("[Teleporter] No waypoint position found.")
+        logger:Error(MODULE_PREFIX .. " No waypoint position found.")
         return false
     end
     local targetPosition = self:GetAdjustedTargetPosition(waypointPosition)
@@ -654,12 +654,12 @@ function Teleporter:TeleportToWaypoint()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF("[Teleporter] Teleported to waypoint -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
+        logger:InfoF(MODULE_PREFIX .. " Teleported to waypoint -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
         self:LogDistanceTraveled(currentPosition, targetPosition)
         if self.Symbols and self.Symbols.Backup then
             self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
         else
-            logger:Warning("[Teleporter] Backup symbol not found. Unable to store previous position.")
+            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
         end
     end
     return success
@@ -1047,7 +1047,7 @@ registerLuaFunctionHighlight('FormatSaveTree')
 --
 function Teleporter:PrintSaves(options)
     if not self.Saves or next(self.Saves) == nil then
-        logger:ForceError("[Teleporter] No saves found.")
+        logger:ForceError(MODULE_PREFIX .. " No saves found.")
         return false
     end
     local rendered = self:FormatSaveTree(options)
@@ -1067,7 +1067,7 @@ registerLuaFunctionHighlight('PrintSaves')
 --
 local function validateName(name, action)
     if not name or type(name) ~= "string" then
-        logger:ErrorF("[Teleporter] Invalid %s Name: '%s'.", action, tostring(name))
+        logger:ErrorF(MODULE_PREFIX .. " Invalid %s Name: '%s'.", action, tostring(name))
         return false
     end
     return true
@@ -1080,18 +1080,18 @@ end
 --
 function Teleporter:TeleportToSave(name)
     if not validateName(name, "Save") then
-        logger:Error("[Teleporter] Invalid save name.")
+        logger:Error(MODULE_PREFIX .. " Invalid save name.")
         return false
     end
     local saveKey, reason = self:ResolveSaveKey(name)
     local savePosition = saveKey and self.Saves and self.Saves[saveKey]
     if not savePosition or type(savePosition) ~= "table" or not savePosition.X or not savePosition.Y or not savePosition.Z then
-        logger:ErrorF("[Teleporter] Save Not Found or invalid format: '%s' (%s)", tostring(name), tostring(reason or "invalid entry"))
+        logger:ErrorF(MODULE_PREFIX .. " Save Not Found or invalid format: '%s' (%s)", tostring(name), tostring(reason or "invalid entry"))
         return false
     end
     local success = self:TeleportToCoordinates({ savePosition.X, savePosition.Y, savePosition.Z --[[+ 10.000 ]] })
     if success then
-        logger:InfoF("[Teleporter] Teleported to Save: '%s'", saveKey)
+        logger:InfoF(MODULE_PREFIX .. " Teleported to Save: '%s'", saveKey)
     end
     return success
 end
@@ -1115,22 +1115,22 @@ registerLuaFunctionHighlight('ClearSubrecords')
 function Teleporter:EnsureTeleporterDir()
     local teleporterDir = customIO.DataDir .. "\\Teleporter"
     if not customIO:EnsureDataDirectory() then
-        logger:Warning("[Teleporter] Data Directory missing; cannot ensure Teleporter Directory.")
+        logger:Warning(MODULE_PREFIX .. " Data Directory missing; cannot ensure Teleporter Directory.")
         return nil
     end
     local exists, err = customIO:DirectoryExists(teleporterDir)
     if not exists and err then
-        logger:Error("[Teleporter] Failed to check Teleporter Dir: " .. err)
+        logger:Error(MODULE_PREFIX .. " Failed to check Teleporter Dir: " .. err)
         return nil
     end
     if not exists then
-        logger:Warning("[Teleporter] Teleporter Dir missing; creating it...")
+        logger:Warning(MODULE_PREFIX .. " Teleporter Dir missing; creating it...")
         local ok, err = customIO:CreateDirectory(teleporterDir)
         if not ok then
-            logger:Error("[Teleporter] Create Teleporter Dir failed: " .. (err or "Unknown error"))
+            logger:Error(MODULE_PREFIX .. " Create Teleporter Dir failed: " .. (err or "Unknown error"))
             return nil
         end
-        logger:Info("[Teleporter] Teleporter Dir created.")
+        logger:Info(MODULE_PREFIX .. " Teleporter Dir created.")
     end
     return teleporterDir
 end
@@ -1144,11 +1144,11 @@ registerLuaFunctionHighlight('EnsureTeleporterDir')
 function Teleporter:GetSaveFilePath()
     local teleporterDir = self:EnsureTeleporterDir()
     if not teleporterDir then
-        logger:Error("[Teleporter] Cannot determine save file path; Teleporter directory is missing.")
+        logger:Error(MODULE_PREFIX .. " Cannot determine save file path; Teleporter directory is missing.")
         return nil, nil
     end
     local saveFilePath = string.format(self.SaveFileName, utils:GetTargetNoExt())
-    logger:Info("[Teleporter] Save file path: " .. saveFilePath)
+    logger:Info(MODULE_PREFIX .. " Save file path: " .. saveFilePath)
     return teleporterDir .. "\\" .. saveFilePath, saveFilePath
 end
 registerLuaFunctionHighlight('GetSaveFilePath')
@@ -1162,7 +1162,7 @@ registerLuaFunctionHighlight('GetSaveFilePath')
 function Teleporter:SaveLookup()
     local saveFilePath, saveFileName = self:GetSaveFilePath()
     if saveFilePath then
-        logger:Info("[Teleporter] Attempting to load Teleporter save file from '" .. saveFilePath .. "'")
+        logger:Info(MODULE_PREFIX .. " Attempting to load Teleporter save file from '" .. saveFilePath .. "'")
         local data, err = customIO:ReadFromFileAsJson(saveFilePath)
         if data then
             self.Saves = data
@@ -1173,13 +1173,13 @@ function Teleporter:SaveLookup()
             for _, _ in pairs(self.Saves) do
                 saveCount = saveCount + 1
             end
-            logger:Info("[Teleporter] Successfully loaded save data with " .. tostring(saveCount) .. " saves.")
+            logger:Info(MODULE_PREFIX .. " Successfully loaded save data with " .. tostring(saveCount) .. " saves.")
             return self.Saves
         elseif err then
-            logger:Warning("[Teleporter] Error loading save file: " .. err)
+            logger:Warning(MODULE_PREFIX .. " Error loading save file: " .. err)
         end
     end
-    logger:Info("[Teleporter] Attempting to load Teleporter data from TableFiles ('" .. saveFileName .. "')")
+    logger:Info(MODULE_PREFIX .. " Attempting to load Teleporter data from TableFiles ('" .. saveFileName .. "')")
     local tableData, tableErr = customIO:ReadFromTableFileAsJson(saveFileName)
     if tableData then
         self.Saves = tableData
@@ -1190,12 +1190,12 @@ function Teleporter:SaveLookup()
         for _, _ in pairs(self.Saves) do
             saveCount = saveCount + 1
         end
-        logger:Info("[Teleporter] Successfully loaded table data with " .. tostring(saveCount) .. " saves.")
+        logger:Info(MODULE_PREFIX .. " Successfully loaded table data with " .. tostring(saveCount) .. " saves.")
         return self.Saves
     elseif tableErr then
-        logger:Warning("[Teleporter] Error loading from TableFiles: " .. tableErr)
+        logger:Warning(MODULE_PREFIX .. " Error loading from TableFiles: " .. tableErr)
     end
-    logger:Warning("[Teleporter] No valid Teleporter save data found.")
+    logger:Warning(MODULE_PREFIX .. " No valid Teleporter save data found.")
     return nil
 end
 registerLuaFunctionHighlight('SaveLookup')
@@ -1207,15 +1207,15 @@ registerLuaFunctionHighlight('SaveLookup')
 function Teleporter:WriteSavesToTableFile()
     local _, saveFileName = self:GetSaveFilePath()
     if not self.Saves or not next(self.Saves) then
-        logger:Warning("[Teleporter] No data available to save to TableFiles.")
+        logger:Warning(MODULE_PREFIX .. " No data available to save to TableFiles.")
         return false
     end
     local success, err = customIO:WriteToTableFileAsJson(saveFileName, self.Saves)
     if success then
-        logger:Info("[Teleporter] Successfully saved Teleporter data to TableFiles.")
+        logger:Info(MODULE_PREFIX .. " Successfully saved Teleporter data to TableFiles.")
         return true
     else
-        logger:Error("[Teleporter] Failed to save Teleporter data to TableFiles: " .. (err or "Unknown error"))
+        logger:Error(MODULE_PREFIX .. " Failed to save Teleporter data to TableFiles: " .. (err or "Unknown error"))
         return false
     end
 end
@@ -1228,15 +1228,15 @@ registerLuaFunctionHighlight('WriteSavesToTableFile')
 function Teleporter:WriteSavesToDataDir()
     local saveFilePath = select(1, self:GetSaveFilePath())
     if not self.Saves or not next(self.Saves) then
-        logger:Warning("[Teleporter] No data available to save to DataDir.")
+        logger:Warning(MODULE_PREFIX .. " No data available to save to DataDir.")
         return false
     end
     local success, err = customIO:WriteToFileAsJson(saveFilePath, self.Saves)
     if success then
-        logger:Info("[Teleporter] Successfully saved Teleporter data to DataDir.")
+        logger:Info(MODULE_PREFIX .. " Successfully saved Teleporter data to DataDir.")
         return true
     else
-        logger:Error("[Teleporter] Failed to save Teleporter data to DataDir: " .. (err or "Unknown error"))
+        logger:Error(MODULE_PREFIX .. " Failed to save Teleporter data to DataDir: " .. (err or "Unknown error"))
         return false
     end
 end
@@ -1250,15 +1250,15 @@ function Teleporter:CreateTeleporterSaves()
         synchronize(function() self:CreateTeleporterSaves() end)
         return
     end
-    logger:Info("[Teleporter] Starting creation of Teleporter Saves...")
+    logger:Info(MODULE_PREFIX .. " Starting creation of Teleporter Saves...")
     local addressList = getAddressList()
     if not addressList then
-        logger:Error("[Teleporter] AddressList not available.")
+        logger:Error(MODULE_PREFIX .. " AddressList not available.")
         return
     end
     local root = addressList.getMemoryRecordByDescription(self.SaveMemoryRecordName)
     if not root then
-        logger:ErrorF("[Teleporter] Failed to find root memory record: '%s'.", self.SaveMemoryRecordName)
+        logger:ErrorF(MODULE_PREFIX .. " Failed to find root memory record: '%s'.", self.SaveMemoryRecordName)
         return
     end
     local didBeginUpdate = false
@@ -1333,7 +1333,7 @@ utils:AutoDisable(memrec.ID)
             authorHeader.IsAddressGroupHeader = false
             createCategoryRecords(authorHeader, grouped[author], author)
         end
-        logger:InfoF("[Teleporter] Successfully created %d Teleporter Saves (grouped by Author and Category Path).", totalSaves)
+        logger:InfoF(MODULE_PREFIX .. " Successfully created %d Teleporter Saves (grouped by Author and Category Path).", totalSaves)
     end)
     if didBeginUpdate then
         if addressList.endUpdate then
@@ -1343,7 +1343,7 @@ utils:AutoDisable(memrec.ID)
         end
     end
     if not ok then
-        logger:ErrorF("[Teleporter] Failed to create Teleporter saves: %s", tostring(err))
+        logger:ErrorF(MODULE_PREFIX .. " Failed to create Teleporter saves: %s", tostring(err))
     end
 end
 registerLuaFunctionHighlight('CreateTeleporterSaves')
@@ -1357,10 +1357,10 @@ registerLuaFunctionHighlight('CreateTeleporterSaves')
 local function logSavePositionError(name, position)
     if not position or not position[1] or not position[2] or not position[3] then
         if type(position) == "table" then
-            logger:ErrorF("[Teleporter] Invalid position for save '%s'. Position is a table, contents: X=%s, Y=%s, Z=%s", 
+            logger:ErrorF(MODULE_PREFIX .. " Invalid position for save '%s'. Position is a table, contents: X=%s, Y=%s, Z=%s", 
                            name, tostring(position[1]), tostring(position[2]), tostring(position[3]))
         else
-            logger:ErrorF("[Teleporter] Invalid position for save '%s'. Position is not a table: %s", name, tostring(position))
+            logger:ErrorF(MODULE_PREFIX .. " Invalid position for save '%s'. Position is not a table: %s", name, tostring(position))
         end
         return false
     end
@@ -1493,14 +1493,14 @@ function Teleporter:PersistSaves(preferDataDir)
     if preferDataDir ~= false then
         ok = self:WriteSavesToDataDir()
         if not ok then
-            logger:Warning("[Teleporter] Failed to persist saves to DataDir. Falling back to TableFile...")
+            logger:Warning(MODULE_PREFIX .. " Failed to persist saves to DataDir. Falling back to TableFile...")
         end
     end
     if not ok then
         ok = self:WriteSavesToTableFile()
     end
     if not ok then
-        logger:Error("[Teleporter] Failed to persist Teleporter saves.")
+        logger:Error(MODULE_PREFIX .. " Failed to persist Teleporter saves.")
     end
     return ok
 end
@@ -1686,11 +1686,11 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
     self:SetSaveCategoryPath(save, category)
     local saveKey = self:GetSaveKey(save)
     if not saveKey then
-        logger:Error("[Teleporter] Cannot create a save without a name.")
+        logger:Error(MODULE_PREFIX .. " Cannot create a save without a name.")
         return false
     end
     if self.Saves[saveKey] then
-        logger:ErrorF("[Teleporter] Save Already Exists In That Category: '%s'.", saveKey)
+        logger:ErrorF(MODULE_PREFIX .. " Save Already Exists In That Category: '%s'.", saveKey)
         return false
     end
     self.Saves[saveKey] = save
@@ -1699,7 +1699,7 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
     self:RefreshUi(true)
     self:LoadSaveIntoEditor(saveKey)
     self:SetStatus("Save created: " .. save.Name)
-    logger:InfoF("[Teleporter] Added Save: '%s'", saveKey)
+    logger:InfoF(MODULE_PREFIX .. " Added Save: '%s'", saveKey)
     return true
 end
 
@@ -1732,7 +1732,7 @@ function Teleporter:DeleteSave(saveName)
     end
     local saveKey, reason = self:ResolveSaveKey(name)
     if not saveKey then
-        logger:WarningF("[Teleporter] Save Not Found: '%s' (%s).", tostring(name), tostring(reason))
+        logger:WarningF(MODULE_PREFIX .. " Save Not Found: '%s' (%s).", tostring(name), tostring(reason))
         return false
     end
     local displayName = self:GetSaveDisplayName(self.Saves[saveKey], saveKey)
@@ -1746,7 +1746,7 @@ function Teleporter:DeleteSave(saveName)
     self:RefreshUi(false)
     self:ClearEditor()
     self:SetStatus("Save deleted: " .. displayName)
-    logger:InfoF("[Teleporter] Deleted Save: '%s'.", saveKey)
+    logger:InfoF(MODULE_PREFIX .. " Deleted Save: '%s'.", saveKey)
     return true
 end
 
@@ -1767,7 +1767,7 @@ function Teleporter:RenameSave(oldName, newName)
     end
     local sourceKey, reason = self:ResolveSaveKey(sourceInput)
     if not sourceKey then
-        logger:ErrorF("[Teleporter] Save Not Found for rename: '%s' (%s).", tostring(sourceInput), tostring(reason))
+        logger:ErrorF(MODULE_PREFIX .. " Save Not Found for rename: '%s' (%s).", tostring(sourceInput), tostring(reason))
         return false
     end
     local save = self.Saves[sourceKey]
@@ -1779,11 +1779,11 @@ function Teleporter:RenameSave(oldName, newName)
     -- Renaming only touches the display name. The category half of the key stays put.
     local targetKey = self:MakeSaveKey(self:GetSaveCategoryPath(save, true), targetName)
     if not targetKey then
-        logger:Error("[Teleporter] Invalid new save name.")
+        logger:Error(MODULE_PREFIX .. " Invalid new save name.")
         return false
     end
     if sourceKey ~= targetKey and self.Saves[targetKey] then
-        logger:ErrorF("[Teleporter] Save Name Already Exists In That Category: '%s'.", targetKey)
+        logger:ErrorF(MODULE_PREFIX .. " Save Name Already Exists In That Category: '%s'.", targetKey)
         return false
     end
     save.Name = trimString(targetName)
@@ -1796,7 +1796,7 @@ function Teleporter:RenameSave(oldName, newName)
     self:RefreshUi(true)
     self:LoadSaveIntoEditor(targetKey)
     self:SetStatus(string.format("Renamed '%s' -> '%s'", sourceName, save.Name))
-    logger:InfoF("[Teleporter] Renamed Save: '%s' to '%s'.", sourceKey, targetKey)
+    logger:InfoF(MODULE_PREFIX .. " Renamed Save: '%s' to '%s'.", sourceKey, targetKey)
     return true
 end
 
@@ -1807,7 +1807,7 @@ end
 function Teleporter:DuplicateSelectedSave()
     local sourceKey = self:GetSelectedSaveName()
     if not sourceKey or not self.Saves or type(self.Saves[sourceKey]) ~= "table" then
-        logger:Warning("[Teleporter] No valid save selected for duplication.")
+        logger:Warning(MODULE_PREFIX .. " No valid save selected for duplication.")
         return false
     end
     local src = self.Saves[sourceKey]
@@ -1829,7 +1829,7 @@ function Teleporter:DuplicateSelectedSave()
     self:RefreshUi(true)
     self:LoadSaveIntoEditor(newKey)
     self:SetStatus("Save duplicated: " .. newName)
-    logger:InfoF("[Teleporter] Duplicated save '%s' as '%s'.", sourceKey, newKey)
+    logger:InfoF(MODULE_PREFIX .. " Duplicated save '%s' as '%s'.", sourceKey, newKey)
     return true
 end
 
@@ -1846,21 +1846,21 @@ function Teleporter:UpdateSelectedSaveFromEditor()
         return false
     end
     if not position then
-        logger:Warning("[Teleporter] Invalid input for update.")
+        logger:Warning(MODULE_PREFIX .. " Invalid input for update.")
         return false
     end
     if not oldKey or type(self.Saves) ~= "table" or type(self.Saves[oldKey]) ~= "table" then
-        logger:WarningF("[Teleporter] Update failed: Save '%s' does not exist.", tostring(oldKey))
+        logger:WarningF(MODULE_PREFIX .. " Update failed: Save '%s' does not exist.", tostring(oldKey))
         return false
     end
     -- The key is derived from category path + name, so editing either one rekeys the save.
     local newKey = self:MakeSaveKey(ui.CategoryEdit.Text or "", newName)
     if not newKey then
-        logger:Error("[Teleporter] Update failed: Invalid save name.")
+        logger:Error(MODULE_PREFIX .. " Update failed: Invalid save name.")
         return false
     end
     if oldKey ~= newKey and self.Saves[newKey] then
-        logger:WarningF("[Teleporter] Update failed: '%s' already exists.", newKey)
+        logger:WarningF(MODULE_PREFIX .. " Update failed: '%s' already exists.", newKey)
         return false
     end
     local save = self.Saves[oldKey]
@@ -1880,7 +1880,7 @@ function Teleporter:UpdateSelectedSaveFromEditor()
     self:RefreshUi(true)
     self:LoadSaveIntoEditor(newKey)
     self:SetStatus("Save updated: " .. save.Name)
-    logger:InfoF("[Teleporter] Save '%s' updated.", newKey)
+    logger:InfoF(MODULE_PREFIX .. " Save '%s' updated.", newKey)
     return true
 end
 
@@ -2426,10 +2426,10 @@ function Teleporter:EnsureAuthorsAndCategories()
     end
     self.Saves = rebuilt
     if migrated > 0 then
-        logger:InfoF("[Teleporter] Migrated %d save(s) to category path keys.", migrated)
+        logger:InfoF(MODULE_PREFIX .. " Migrated %d save(s) to category path keys.", migrated)
     end
     if collisions > 0 then
-        logger:WarningF("[Teleporter] Renamed %d save(s) that collided inside their own category.", collisions)
+        logger:WarningF(MODULE_PREFIX .. " Renamed %d save(s) that collided inside their own category.", collisions)
     end
     return migrated
 end
