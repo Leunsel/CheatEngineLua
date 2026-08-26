@@ -1098,21 +1098,23 @@ function Trampolines:_buildDestroyScript(entry)
 end
 
 function Trampolines:_logInstall(entry)
-    logger:Info(MODULE_PREFIX .. " InstallDetour OK")
-    logger:InfoF("   Name        : %s", entry.Name)
-    logger:InfoF("   Inject      : %s", getNameFromAddress(entry.InjectAddress))
-    logger:InfoF("   Destination : %s", entry.DestinationExpression)
-    if entry.DestinationAddress then logger:InfoF("   Dest Address: %s", getNameFromAddress(entry.DestinationAddress)) end
-    logger:InfoF("   Relay       : %s", getNameFromAddress(entry.RelayAddress))
-    logger:InfoF("   Relay Offset: %s+%X", tostring(entry.RelayModuleName), entry.RelayOffset or 0)
-    logger:InfoF("   Relay Size  : %d bytes", entry.RelaySize or 0)
-    logger:InfoF("   Overwrite   : %d bytes", entry.OverwriteSize)
-    logger:InfoF("   Return      : %s", getNameFromAddress(entry.ReturnAddress))
-    logger:InfoF("   Instructions: %d", entry.InstructionCount)
-    logger:InfoF("   Offsets     : %s", self:_fmtNumberArray(entry.InstructionOffsets))
-    logger:InfoF("   Sizes       : %s", self:_fmtNumberArray(entry.InstructionSizes))
-    logger:InfoF("   Original    : %s", self:_fmtBytes(entry.OriginalBytes))
-    logger:InfoF("   Relay Backup: %s", self:_fmtBytes(entry.RelayOriginalBytes))
+    logger:InfoBlock(MODULE_PREFIX .. " InstallDetour OK", {
+        { "Name",         entry.Name },
+        { "Inject",       getNameFromAddress(entry.InjectAddress) },
+        { "Destination",  entry.DestinationExpression },
+        -- `or false`, never a bare nil: a nil hole would end the ipairs walk early.
+        entry.DestinationAddress and { "Dest Address", getNameFromAddress(entry.DestinationAddress) } or false,
+        { "Relay",        getNameFromAddress(entry.RelayAddress) },
+        { "Relay Offset", string.format("%s+%X", tostring(entry.RelayModuleName), entry.RelayOffset or 0) },
+        { "Relay Size",   string.format("%d bytes", entry.RelaySize or 0) },
+        { "Overwrite",    string.format("%d bytes", entry.OverwriteSize) },
+        { "Return",       getNameFromAddress(entry.ReturnAddress) },
+        { "Instructions", entry.InstructionCount },
+        { "Offsets",      self:_fmtNumberArray(entry.InstructionOffsets) },
+        { "Sizes",        self:_fmtNumberArray(entry.InstructionSizes) },
+        { "Original",     self:_fmtBytes(entry.OriginalBytes) },
+        { "Relay Backup", self:_fmtBytes(entry.RelayOriginalBytes) },
+    })
 end
 
 function Trampolines:InstallDetour(name, injectExpr, destinationExpr, minOverwriteSize)
@@ -1156,7 +1158,7 @@ function Trampolines:InstallDetour(name, injectExpr, destinationExpr, minOverwri
     local stored, storeErr = self:_storeDetour(entry, self:_isTransactionActive())
     if not stored then return nil, nil, storeErr end
     self:_logInstall(entry)
-    logger:Debug("   Generated AA:\n" .. entry.InstallScript)
+    logger:DebugBlock(MODULE_PREFIX .. " InstallDetour script", { { "Generated AA", entry.InstallScript } })
     return entry, entry.InstallScript, nil
 end
 registerLuaFunctionHighlight('InstallDetour')
@@ -1166,11 +1168,12 @@ function Trampolines:EmitOriginal(name)
     if not entry then return nil, nil, "no active detour found for '" .. tostring(name) .. "'" end
     entry.OriginalEmitted = true
     local script = self:_buildOriginalScript(entry, true)
-    logger:Info(MODULE_PREFIX .. " EmitOriginal OK")
-    logger:InfoF("   Name    : %s", entry.Name)
-    logger:Info("   Mode    : relocated")
-    logger:InfoF("   Original: %s", self:_fmtBytes(entry.OriginalBytes))
-    logger:Debug("   Generated AA:\n" .. script)
+    logger:InfoBlock(MODULE_PREFIX .. " EmitOriginal OK", {
+        { "Name",     entry.Name },
+        { "Mode",     "relocated" },
+        { "Original", self:_fmtBytes(entry.OriginalBytes) },
+    })
+    logger:DebugBlock(MODULE_PREFIX .. " EmitOriginal script", { { "Generated AA", script } })
     return entry, script, nil
 end
 registerLuaFunctionHighlight('EmitOriginal')
@@ -1180,11 +1183,12 @@ function Trampolines:EmitOriginalNoReturn(name)
     if not entry then return nil, nil, "no active detour found for '" .. tostring(name) .. "'" end
     entry.OriginalEmitted = true
     local script = self:_buildOriginalScript(entry, false)
-    logger:Info(MODULE_PREFIX .. " EmitOriginalNoReturn OK")
-    logger:InfoF("   Name    : %s", entry.Name)
-    logger:Info("   Mode    : relocated without automatic return")
-    logger:InfoF("   Original: %s", self:_fmtBytes(entry.OriginalBytes))
-    logger:Debug("   Generated AA:\n" .. script)
+    logger:InfoBlock(MODULE_PREFIX .. " EmitOriginalNoReturn OK", {
+        { "Name",     entry.Name },
+        { "Mode",     "relocated without automatic return" },
+        { "Original", self:_fmtBytes(entry.OriginalBytes) },
+    })
+    logger:DebugBlock(MODULE_PREFIX .. " EmitOriginalNoReturn script", { { "Generated AA", script } })
     return entry, script, nil
 end
 registerLuaFunctionHighlight('EmitOriginalNoReturn')
@@ -1193,9 +1197,8 @@ function Trampolines:EmitReturn(name)
     local entry = self:_getDetour(name)
     if not entry then return nil, nil, "no active detour found for '" .. tostring(name) .. "'" end
     local script = self:_buildReturnScript(entry)
-    logger:Info(MODULE_PREFIX .. " EmitReturn OK")
-    logger:InfoF("   Name  : %s", entry.Name)
-    logger:Debug("   Generated AA:\n" .. script)
+    logger:InfoBlock(MODULE_PREFIX .. " EmitReturn OK", { { "Name", entry.Name } })
+    logger:DebugBlock(MODULE_PREFIX .. " EmitReturn script", { { "Generated AA", script } })
     return entry, script, nil
 end
 registerLuaFunctionHighlight('EmitReturn')
@@ -1209,11 +1212,12 @@ function Trampolines:DestroyDetour(name)
     else
         self:_removeDetour(name)
     end
-    logger:Info(MODULE_PREFIX .. " DestroyDetour OK")
-    logger:InfoF("   Name    : %s", entry.Name)
-    logger:InfoF("   Inject  : %s", getNameFromAddress(entry.InjectAddress))
-    logger:InfoF("   Relay   : %s", getNameFromAddress(entry.RelayAddress))
-    logger:Debug("   Generated AA:\n" .. script)
+    logger:InfoBlock(MODULE_PREFIX .. " DestroyDetour OK", {
+        { "Name",   entry.Name },
+        { "Inject", getNameFromAddress(entry.InjectAddress) },
+        { "Relay",  getNameFromAddress(entry.RelayAddress) },
+    })
+    logger:DebugBlock(MODULE_PREFIX .. " DestroyDetour script", { { "Generated AA", script } })
     return entry, script, nil
 end
 registerLuaFunctionHighlight('DestroyDetour')
