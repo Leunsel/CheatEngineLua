@@ -145,6 +145,7 @@ function AutoAssembler:SetProcessName(processName)
     self.RequiredProcess = processName
     logger:Info("[Auto-Assembler] This table is configured for: " .. processName)
 end
+registerLuaFunctionHighlight("SetProcessName")
 
 --
 --- ∑ Retrieves the currently opened process id from Cheat Engine.
