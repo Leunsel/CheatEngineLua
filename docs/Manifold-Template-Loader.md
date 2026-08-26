@@ -128,6 +128,37 @@ in one `<% %>` block is visible to later blocks and expressions.
 <% end %>
 ```
 
+A `<% %>` tag that stands alone on its line takes that line with it, so `<% if %>` / `<% else %>` /
+`<% end %>` do not leave blank lines in the generated script. Only the tag's own line is affected: a
+blank line you actually typed stays a blank line. Leading indentation on the tag line goes with the
+tag. A tag that shares its line with text is left alone, and this never applies to `<< >>`, whose
+value is content.
+
+Template:
+
+```
+[DISABLE]
+
+<% if HasManifoldCommands then %>
+ManifoldNop(Hook)
+<% end %>
+
+unregisterSymbol(*)
+```
+
+Generated:
+
+```
+[DISABLE]
+
+ManifoldNop(Hook)
+
+unregisterSymbol(*)
+```
+
+Before 3.1 the two tag lines each left a blank line behind, so the same template produced a double
+gap after `[DISABLE]` and another before `unregisterSymbol(*)`.
+
 New in 3.0:
 
 Errors carry template line numbers. Both syntax errors such as `Unclosed << block` and runtime
