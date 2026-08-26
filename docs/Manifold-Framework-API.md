@@ -1272,7 +1272,8 @@ categories.
 | `teleporter:GetAuthors()` | `table` | Maps a name to an author |
 | `teleporter:CountSaves()` | `number` | |
 | `teleporter:GetCurrentAuthor()` | `string` | `USERNAME`, then `USER`, then `"Unknown"` |
-| `teleporter:PrintSaves()` | | Tree output to the log |
+| `teleporter:FormatSaveTree([options])` | `table` | `{ Lines, Summary, Totals }`. Options: `coordinates`, `descriptions`, `width` (default 92) |
+| `teleporter:PrintSaves([options])` | `boolean` | Logs the tree as one forced entry. Options are passed to `FormatSaveTree` |
 
 ### Management
 
