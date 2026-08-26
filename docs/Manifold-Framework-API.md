@@ -1230,7 +1230,7 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `teleporter:LoadBackupPosition()` | `boolean` |
 | `teleporter:TeleportToCoordinates({x, y, z})` | `boolean` |
 | `teleporter:TeleportToWaypoint()` | `boolean` |
-| `teleporter:TeleportToSave(name)` | `boolean` |
+| `teleporter:TeleportToSave(keyOrName)` | `boolean` | Full key, or a display name while unambiguous |
 | `teleporter:GetAdjustedTargetPosition(pos)` | `table\|nil` |
 | `teleporter:LogDistanceTraveled(old, new)` | |
 | `teleporter:PauseGame()` / `ResumeGame()` | |
@@ -1243,8 +1243,20 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `teleporter:CategoryPathToText(path, includeDefault)` | `string` | Joins with `" / "`. An empty path gives `"Default"` |
 | `teleporter:GetSaveCategoryPath(save, includeDefault)` | `table` | Prefers `Categories` and falls back to `Category` |
 | `teleporter:SetSaveCategoryPath(save, input)` | | Writes both fields |
-| `teleporter:AddSaveToCategoryTree(root, path, name)` | | |
-| `teleporter:BuildSaveHierarchy([filterFn])` | `table` | Author, then category path, then saves |
+| `teleporter:AddSaveToCategoryTree(root, path, key)` | | |
+| `teleporter:BuildSaveHierarchy([filterFn])` | `table` | Author, then category path, then save keys |
+
+### Save identity
+
+Saves are keyed by their full category path plus their name, so the same name may exist in several
+categories.
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporter:MakeSaveKey(categoryInput, name)` | `string\|nil` | Joins path and name with `" / "`. An empty path becomes `"Default"` |
+| `teleporter:GetSaveKey(save)` | `string\|nil` | The key a save's own fields imply |
+| `teleporter:GetSaveDisplayName(save, fallbackKey)` | `string` | `save.Name`, falling back to the key |
+| `teleporter:ResolveSaveKey(input)` | `string\|nil, string\|nil` | Exact key, else a unique display name; otherwise `nil` plus the reason |
 
 ### Persistence
 
@@ -1256,7 +1268,7 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `teleporter:WriteSavesToDataDir()` | `boolean` | |
 | `teleporter:WriteSavesToTableFile()` | `boolean` | |
 | `teleporter:PersistSaves(preferDataDir)` | | |
-| `teleporter:EnsureAuthorsAndCategories()` | | Fills in missing fields and normalizes categories |
+| `teleporter:EnsureAuthorsAndCategories()` | `number` | Fills in missing fields, normalizes categories, rekeys legacy entries and returns how many were migrated |
 | `teleporter:GetAuthors()` | `table` | Maps a name to an author |
 | `teleporter:CountSaves()` | `number` | |
 | `teleporter:GetCurrentAuthor()` | `string` | `USERNAME`, then `USER`, then `"Unknown"` |
@@ -1272,7 +1284,7 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `teleporter:RenameSave(oldName, newName)` | `boolean` |
 | `teleporter:DuplicateSelectedSave()` | `boolean` |
 | `teleporter:UpdateSelectedSaveFromEditor()` | `boolean` |
-| `teleporter:GenerateUniqueCopyName(base)` | `string` |
+| `teleporter:GenerateUniqueCopyName(base, categoryInput)` | `string` |
 | `teleporter:CreateTeleporterSaves()` | |
 | `teleporter:ClearSubrecords(record)` | |
 
@@ -1285,10 +1297,11 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `teleporter:RefreshUi([preserveSelection])` | Rebuilds the tree view |
 | `teleporter:SetStatus(text)` | Status bar |
 | `teleporter:ClearEditor()` | |
-| `teleporter:LoadSaveIntoEditor(name)` | |
-| `teleporter:GetSelectedSaveName()` / `SetSelectedSaveName(name)` | |
+| `teleporter:LoadSaveIntoEditor(keyOrName)` | |
+| `teleporter:GetSelectedSaveName()` / `SetSelectedSaveName(key)` | Holds the save key, not the display name |
 | `teleporter:TryGetEditorPosition()` | Reads X, Y and Z from the editor fields |
-| `teleporter:GetSaveNameFromTreeNode(node)` | |
+| `teleporter:GetSaveKeyFromTreeNode(node)` | Walks back up to the author node to rebuild the key |
+| `teleporter:GetSaveNameFromTreeNode(node)` | Deprecated alias for `GetSaveKeyFromTreeNode` |
 | `teleporter:OnThemeApplied(themeData)` | Reaction to a theme change |
 | `teleporter:CreateMenuStrip/Header/StatusBar/TreePanel/EditorPanel/TreeContextMenu(...)` | UI construction |
 

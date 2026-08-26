@@ -965,7 +965,8 @@ teleporter:LoadSavedPosition()     -- Saved → Transform (+ Backup = previous p
 teleporter:LoadBackupPosition()    -- Backup → Transform
 teleporter:TeleportToWaypoint()    -- Waypoint → Transform
 teleporter:TeleportToCoordinates({ x, y, z })
-teleporter:TeleportToSave("Boss Arena")
+teleporter:TeleportToSave("World / Region / Boss Arena")
+teleporter:TeleportToSave("Boss Arena")   -- also fine while the name is unambiguous
 ```
 
 Every jump runs the same chain: `PauseGame()` → `GetAdjustedTargetPosition()` →
@@ -974,13 +975,14 @@ Every jump runs the same chain: `PauseGame()` → `GetAdjustedTargetPosition()` 
 
 ### 8.3 Persistent saves
 
-`teleporter.Saves` is a map of `name → entry`:
+`teleporter.Saves` is a map of `category path + name → entry`:
 
 ```json
 {
-  "Boss Arena": {
+  "World / Region / Room / Boss Arena": {
     "X": 1024.5, "Y": 64.0, "Z": -320.25,
     "Author": "Leunsel",
+    "Name": "Boss Arena",
     "Category": "World / Region / Room",
     "Categories": ["World", "Region", "Room"],
     "Description": "In front of the fog room"
@@ -988,6 +990,13 @@ Every jump runs the same chain: `PauseGame()` → `GetAdjustedTargetPosition()` 
 }
 ```
 
+- The key is the full path, not the name alone (since 1.2.0). Identity therefore includes the
+  category, so `"Old Town / Safe House / North West"` and `"Slums / Safe House / North West"` are
+  two separate saves. `Name` carries the display name and is what the tree and the memory records
+  show; `MakeSaveKey()` and `GetSaveKey()` build the key, `ResolveSaveKey()` reads one back.
+- Files written before 1.2.0 used the name as the key and had no `Name` field. They are migrated on
+  load: the old key becomes `Name`, the entry is rekeyed to `<path> / <name>`, and the file is
+  rewritten once. Rename the entries afterwards to drop the redundancy their old names carry.
 - `Categories` (array) is the authoritative form since 1.1.5. `Category` (string) is kept in sync
   for backward compatibility, and older files that only carry `Category` are normalized on load
   through `GetSaveCategoryPath()`.
