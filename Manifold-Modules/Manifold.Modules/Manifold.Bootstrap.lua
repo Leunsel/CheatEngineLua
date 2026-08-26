@@ -1,9 +1,13 @@
 local NAME        = "Manifold.Bootstrap.lua"
 local AUTHOR      = {"Leunsel", "LeFiXER"}
-local VERSION     = "1.0.0"
+local VERSION     = "1.0.1"
 local DESCRIPTION = "Manifold Framework Bootstrap - dependency lookup, module registry, collision detection"
 
 --[[
+    ∂ v1.0.1 (2026-08-26)
+        PrintReport and PrintModuleInfo emit one entry per block through
+        Logger:BuildBlock, with a local fallback for the pre-logger case.
+
     ∂ v1.0.0 (2026-08-23)
         Initial release. One dependency lookup for every production module.
         Replaces the six divergent CheckDependencies variants (TODO R-B) and
@@ -283,6 +287,47 @@ local function _log(level, message)
         pending[count + 1] = { "Warning", MODULE_PREFIX .. " deferred log buffer full; later pre-logger lines dropped." }
     end
     Bootstrap.Flush()
+end
+
+--
+--- ∑ Renders a titled block of label/value rows into one string, so a report
+---   becomes one log entry instead of one prefixed line per field.
+---
+---   Delegates to Logger:BuildBlock whenever a logger exists, so the shape stays
+---   identical to every other module's blocks and only has to be maintained in
+---   one place. The fallback is not optional: this file runs before
+---   Manifold.Logger is constructed, and PrintModuleInfo is callable at any
+---   point, that one included.
+--- @param title string|nil # First line, module prefix included by the caller.
+--- @param rows table # {label, value} pairs. Use `false` to skip a row, never nil.
+--- @param options table|nil # { indent, separator, align }, as Logger:BuildBlock.
+--- @return string
+--
+local function _block(title, rows, options)
+    local lg = _logger()
+    if lg ~= nil and type(lg.BuildBlock) == "function" then
+        return lg:BuildBlock(title, rows, options)
+    end
+    options = options or {}
+    local indent = options.indent or "   "
+    local separator = options.separator or " : "
+    local align = options.align ~= false
+    local labelWidth = 0
+    if align then
+        for _, row in ipairs(rows or {}) do
+            if row and #tostring(row[1]) > labelWidth then labelWidth = #tostring(row[1]) end
+        end
+    end
+    local lines = {}
+    if title ~= nil and tostring(title) ~= "" then lines[#lines + 1] = tostring(title) end
+    for _, row in ipairs(rows or {}) do
+        if row then
+            local label = tostring(row[1])
+            if #label < labelWidth then label = label .. string.rep(" ", labelWidth - #label) end
+            lines[#lines + 1] = indent .. label .. separator .. tostring(row[2])
+        end
+    end
+    return table.concat(lines, "\n")
 end
 
 --
@@ -1270,17 +1315,21 @@ registerLuaFunctionHighlight('Report')
 ---   then re-stated the module prefix and the field order. Vertical fields
 ---   need no alignment at all and stay readable however long a value gets -
 ---   a degraded status naming four missing dependencies included.
+---
+---   Each module is one log entry rather than five, so the timestamp and the
+---   module prefix appear once per module instead of once per field.
 --
 function Bootstrap.PrintReport()
     local rows = Bootstrap.Report()
     _log("Info", string.format("%s registry: %d module(s), core load #%d, src %s",
                                MODULE_PREFIX, #rows, REG.CoreLoads, Bootstrap.SOURCE))
     for _, row in ipairs(rows) do
-        _log("Info", MODULE_PREFIX .. " " .. tostring(row.name))
-        _log("Info", "\tVersion:    " .. tostring(row.version))
-        _log("Info", "\tGeneration: " .. tostring(row.generation))
-        _log("Info", "\tStatus:     " .. tostring(row.status))
-        _log("Info", "\tSource:     " .. tostring(row.source))
+        _log("Info", _block(MODULE_PREFIX .. " " .. tostring(row.name), {
+            { "Version",    row.version },
+            { "Generation", row.generation },
+            { "Status",     row.status },
+            { "Source",     row.source },
+        }, { indent = "\t" }))
     end
     Bootstrap.Flush()
 end
@@ -1304,10 +1353,11 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Bootstrap.PrintModuleInfo()
     local info = Bootstrap.GetModuleInfo()
-    _log("Info", "Module Info : "  .. tostring(info.name))
-    _log("Info", "\tVersion:     " .. tostring(info.version))
-    _log("Info", "\tAuthor:      " .. table.concat(info.author, ", "))
-    _log("Info", "\tDescription: " .. tostring(info.description) .. "\n")
+    _log("Info", _block("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      table.concat(info.author, ", ") },
+        { "Description", info.description },
+    }, { indent = "\t" }))
     Bootstrap.Flush()
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
