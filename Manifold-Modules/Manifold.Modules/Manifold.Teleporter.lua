@@ -1,9 +1,14 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
+    ∂ v1.2.1 (2026-08-26)
+        PrintSaves() renders one tree in a single log entry instead of
+        a line per save. Descriptions are wrapped and indented inside
+        the tree rather than dumped raw. Layout moved to FormatSaveTree().
+
     ∂ v1.2.0 (2026-08-26)
         Saves are keyed by their full category path plus name
         instead of the name alone, so the same name may exist
@@ -182,9 +187,71 @@ local valueTypeMap = { [0]="Byte", [1]="Word", [2]="Dword", [3]="Qword", [4]="Si
 local typeSizeMap = { [vtByte]=1, [vtWord]=2, [vtDword]=4, [vtQword]=8, [vtSingle]=4, [vtDouble]=8 }
 local DEFAULT_CATEGORY = "Default"
 local CATEGORY_PATH_SEPARATOR = " / "
+local TREE_BRANCH = "├─ "
+local TREE_LAST   = "└─ "
+local TREE_TRUNK  = "│  "
+local TREE_BLANK  = "   "
+local DESCRIPTION_INDENT = "   "
+local DEFAULT_DESCRIPTION_WIDTH = 92
 
 local function trimString(value)
     return tostring(value or ""):match("^%s*(.-)%s*$") or ""
+end
+
+--
+--- ∑ Character count of a string, so padding stays aligned when names carry
+---   multi-byte characters such as the em dash left over from legacy save names.
+--
+local function displayWidth(value)
+    local text = tostring(value or "")
+    local ok, count = pcall(function() return utf8.len(text) end)
+    return (ok and count) or #text
+end
+
+--
+--- ∑ Wraps text to a column width while keeping the breaks the author typed.
+---   Blank lines survive as paragraph separators; a word longer than the width
+---   gets its own line rather than being cut.
+--- @param text string # Raw text.
+--- @param width number # Maximum characters per line.
+--- @return table # Wrapped lines.
+--
+local function wrapText(text, width)
+    local lines = {}
+    local normalized = tostring(text or ""):gsub("\r\n", "\n"):gsub("\r", "\n")
+    for paragraph in (normalized .. "\n"):gmatch("(.-)\n") do
+        if paragraph:match("^%s*$") then
+            if #lines > 0 then
+                lines[#lines + 1] = ""
+            end
+        else
+            local current = ""
+            for word in paragraph:gmatch("%S+") do
+                if current == "" then
+                    current = word
+                elseif displayWidth(current) + 1 + displayWidth(word) <= width then
+                    current = current .. " " .. word
+                else
+                    lines[#lines + 1] = current
+                    current = word
+                end
+            end
+            if current ~= "" then
+                lines[#lines + 1] = current
+            end
+        end
+    end
+    while #lines > 0 and lines[#lines] == "" do
+        lines[#lines] = nil
+    end
+    return lines
+end
+
+--
+--- ∑ "1 save" / "3 saves", so summary lines read like prose.
+--
+local function pluralize(count, singular, plural)
+    return string.format("%d %s", count, count == 1 and singular or plural)
 end
 
 local function sortCaseInsensitive(values)
@@ -860,44 +927,133 @@ end
 registerLuaFunctionHighlight('GetSaveNameFromTreeNode')
 
 --
---- ∑ Prints all saved locations grouped by author and category in a structured and readable format.
+--- ∑ Renders the save hierarchy as a tree, ready to be logged or shown elsewhere.
+---   Kept separate from PrintSaves so the layout can be tested and reused without
+---   going through the logger.
+--- @param options table|nil # { coordinates = true, descriptions = true, width = 92 }
+--- @return table # { Lines, Summary, Totals = { Saves, Categories, Authors, Invalid } }
 --
-function Teleporter:PrintSaves()
-    if not self.Saves or next(self.Saves) == nil then
-        logger:ForceError("[Teleporter] No saves found.")
-        return
+function Teleporter:FormatSaveTree(options)
+    options = options or {}
+    local showCoordinates = options.coordinates ~= false
+    local showDescriptions = options.descriptions ~= false
+    local wrapWidth = tonumber(options.width) or DEFAULT_DESCRIPTION_WIDTH
+    local totals = { Saves = 0, Categories = 0, Authors = 0, Invalid = 0 }
+    local invalidKeys = {}
+    for key, save in pairs(self.Saves or {}) do
+        if type(save) ~= "table" or not save.X or not save.Y or not save.Z then
+            totals.Invalid = totals.Invalid + 1
+            invalidKeys[#invalidKeys + 1] = tostring(key)
+        end
     end
-    local totalCount = 0
-    for name, save in pairs(self.Saves) do
-        if type(save) == "table" and save.X and save.Y and save.Z then
-            totalCount = totalCount + 1
-        else
-            logger:ForceErrorF("[Teleporter] Invalid save entry: '%s'", tostring(name))
+    sortCaseInsensitive(invalidKeys)
+    -- Flatten first so column widths can be measured before anything is rendered.
+    local items = {}
+    local function collect(node, prefix)
+        local categories = sortedKeys(node.Categories)
+        sortCaseInsensitive(node.Saves)
+        local remaining = #categories + #node.Saves
+        for _, category in ipairs(categories) do
+            remaining = remaining - 1
+            local isLast = remaining == 0
+            totals.Categories = totals.Categories + 1
+            items[#items + 1] = {
+                Kind = "category",
+                Prefix = prefix .. (isLast and TREE_LAST or TREE_BRANCH),
+                Text = category,
+            }
+            collect(node.Categories[category], prefix .. (isLast and TREE_BLANK or TREE_TRUNK))
+        end
+        for _, saveKey in ipairs(node.Saves) do
+            remaining = remaining - 1
+            local isLast = remaining == 0
+            local save = self.Saves[saveKey]
+            totals.Saves = totals.Saves + 1
+            items[#items + 1] = {
+                Kind = "save",
+                Prefix = prefix .. (isLast and TREE_LAST or TREE_BRANCH),
+                Continuation = prefix .. (isLast and TREE_BLANK or TREE_TRUNK),
+                Text = self:GetSaveDisplayName(save, saveKey),
+                Save = save,
+            }
         end
     end
     local grouped = self:BuildSaveHierarchy()
-    local function printCategoryNode(node, indentLevel)
-        for _, category in ipairs(sortedKeys(node.Categories)) do
-            logger:ForceInfoF("[Teleporter] %sCategory: %s", string.rep("  ", indentLevel), category)
-            printCategoryNode(node.Categories[category], indentLevel + 1)
-        end
-        sortCaseInsensitive(node.Saves)
-        for _, saveKey in ipairs(node.Saves) do
-            local save = self.Saves[saveKey]
-            if type(save) == "table" then
-                logger:ForceInfoF("[Teleporter] %s- %s | (%.3f, %.3f, %.3f)",
-                    string.rep("  ", indentLevel), self:GetSaveDisplayName(save, saveKey), save.X, save.Y, save.Z)
-                if save.Description and tostring(save.Description) ~= "" then
-                    logger:ForceInfoF("[Teleporter] %s  Description: %s", string.rep("  ", indentLevel), save.Description)
+    for _, author in ipairs(sortedKeys(grouped)) do
+        totals.Authors = totals.Authors + 1
+        items[#items + 1] = { Kind = "author", Prefix = "", Text = author }
+        collect(grouped[author], "")
+    end
+    local nameWidth, coordWidth = 0, 0
+    for _, item in ipairs(items) do
+        if item.Kind == "save" then
+            local width = displayWidth(item.Prefix) + displayWidth(item.Text)
+            if width > nameWidth then
+                nameWidth = width
+            end
+            for _, axis in ipairs({ "X", "Y", "Z" }) do
+                local width = #string.format("%.3f", tonumber(item.Save[axis]) or 0)
+                if width > coordWidth then
+                    coordWidth = width
                 end
             end
         end
     end
-    logger:ForceInfoF("[Teleporter] Saved Locations (%d)", totalCount)
-    for _, author in ipairs(sortedKeys(grouped)) do
-        logger:ForceInfoF("[Teleporter] Author: %s", author)
-        printCategoryNode(grouped[author], 1)
+    local coordFormat = string.format("%%%ds  %%%ds  %%%ds", coordWidth, coordWidth, coordWidth)
+    local lines = {}
+    for _, item in ipairs(items) do
+        local line = item.Prefix .. item.Text
+        if item.Kind == "save" and showCoordinates then
+            line = line .. string.rep(" ", nameWidth - displayWidth(line) + 2) .. string.format(coordFormat,
+                string.format("%.3f", tonumber(item.Save.X) or 0),
+                string.format("%.3f", tonumber(item.Save.Y) or 0),
+                string.format("%.3f", tonumber(item.Save.Z) or 0))
+        end
+        lines[#lines + 1] = line
+        if item.Kind == "save" and showDescriptions then
+            for _, wrapped in ipairs(wrapText(trimString(item.Save.Description), wrapWidth)) do
+                if wrapped == "" then
+                    -- Paragraph break: keep the trunk, drop the padding behind it.
+                    lines[#lines + 1] = (item.Continuation:gsub("%s+$", ""))
+                else
+                    lines[#lines + 1] = item.Continuation .. DESCRIPTION_INDENT .. wrapped
+                end
+            end
+        end
     end
+    if totals.Invalid > 0 then
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = string.format("Skipped %s without coordinates:",
+            pluralize(totals.Invalid, "entry", "entries"))
+        for _, key in ipairs(invalidKeys) do
+            lines[#lines + 1] = TREE_BRANCH .. key
+        end
+        lines[#lines] = TREE_LAST .. invalidKeys[#invalidKeys]
+    end
+    local summary = string.format("Saves — %s across %s from %s",
+        pluralize(totals.Saves, "save", "saves"),
+        pluralize(totals.Categories, "category", "categories"),
+        pluralize(totals.Authors, "author", "authors"))
+    return { Lines = lines, Summary = summary, Totals = totals }
+end
+registerLuaFunctionHighlight('FormatSaveTree')
+
+--
+--- ∑ Logs every saved location as one tree, grouped by author and category path.
+---   Emitted as a single forced entry so the log prefix does not repeat on every
+---   row and the tree keeps its shape.
+--- @param options table|nil # Passed through to FormatSaveTree.
+--- @return boolean # true when something was printed.
+--
+function Teleporter:PrintSaves(options)
+    if not self.Saves or next(self.Saves) == nil then
+        logger:ForceError("[Teleporter] No saves found.")
+        return false
+    end
+    local rendered = self:FormatSaveTree(options)
+    logger:ForceInfo(string.format("%s %s\n%s", MODULE_PREFIX, rendered.Summary,
+        table.concat(rendered.Lines, "\n")))
+    return true
 end
 registerLuaFunctionHighlight('PrintSaves')
 
