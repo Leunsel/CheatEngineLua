@@ -87,7 +87,7 @@ re-executed.
 | `Bootstrap.Flush()` | `integer` | Replays every line queued before a logger existed, oldest first. Safe to call at any time. |
 | `Bootstrap.WriteManifest()` | `integer` | Re-writes the manifest of every module that has announced so far into the log file. Call it once, immediately after `logger:ClearLogFile()`, and never at any other point. |
 | `Bootstrap.Report()` | `table` | Everything the registry knows. Two rows with the same name and different sources is a collision you can act on. |
-| `Bootstrap.PrintReport()` | | Logs the report as one block. An on-demand diagnostic, deliberately outside the one-line-per-module rule. |
+| `Bootstrap.PrintReport()` | | Logs the report, one entry per module, through `Logger:BuildBlock`. An on-demand diagnostic, deliberately outside the one-line-per-module rule. Falls back to its own renderer when no logger exists yet. |
 | `Bootstrap.GetModuleInfo()` / `PrintModuleInfo()` | `table` / | The usual metadata pair, dot-called. |
 
 ### Fields
