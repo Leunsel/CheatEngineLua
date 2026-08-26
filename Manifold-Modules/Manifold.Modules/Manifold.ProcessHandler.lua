@@ -1,9 +1,16 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.8"
+local VERSION = "1.3.0"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
+    v1.3.0 (2026-08-26)
+        Watch epochs moved into a shared registry so a reloaded table
+        retires the previous load's watchers instead of letting each
+        one run its own cleanup. Liveness is debounced, cleanup is
+        single-flight, and repeated cycles now stop with one error
+        rather than looping.
+
     v1.2.8 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
@@ -23,6 +30,15 @@ ProcessHandler = {
     ProcessWatchGeneration = 0,
     ProcessWatchFallbackTicks = 0,
     ProcessWatchFallbackLastTick = nil,
+    ProcessWatchFailureStreak = 0,
+    --- Consecutive bad probes before the target counts as gone. One failed read
+    --- is not evidence. Two in a row is.
+    LivenessFailureThreshold = 2,
+    --- Cleanup-and-reattach cycles tolerated inside the window before the
+    --- handler stops restarting itself and says so once.
+    RestartStormLimit = 4,
+    RestartStormWindowSeconds = 10,
+    RestartStormTripped = false,
     IsAutoAttaching = false,
     IsWatchingProcess = false,
     AttachedProcessName = nil,
@@ -36,8 +52,8 @@ local MODULE_PREFIX = "[ProcessHandler]"
 --
 --- ∑ Manifold.Bootstrap handshake. Uses the framework core when the cheat
 ---   table has loaded it, and degrades to an inert stub when it has not, so
----   this module stays loadable on its own. Identical in every module - this
----   is the one duplication the design costs, and it is irreducible: something
+---   this module stays loadable on its own. Identical in every module. This
+---   is the one duplication the design costs, and it is irreducible. Something
 ---   has to reach the loader before the loader exists.
 --
 local BOOTSTRAP = rawget(_G, "ManifoldBootstrap") or {
@@ -86,6 +102,30 @@ local function _DestroyTimer(timer)
         pcall(function() timer.destroy() end)
     end
 end
+
+--
+--- ∑ Watch bookkeeping shared by every ProcessHandler in the Lua state.
+---   It has to live in _G rather than in the instance or in a module upvalue.
+---   Reloading a Cheat Table re-runs this file and builds a new instance, but
+---   the timers and threads of the previous one keep running. When their
+---   generation counter lived on their own instance nothing could ever retire
+---   them, so each surviving watcher ran its own full cleanup when the game
+---   exited. One shared epoch retires all of them at once.
+--
+local WATCH_REGISTRY_KEY = "__ManifoldProcessWatchRegistry"
+
+local function _WatchRegistry()
+    local registry = rawget(_G, WATCH_REGISTRY_KEY)
+    if type(registry) ~= "table" then
+        registry = { Epoch = 0, Busy = false, Restarts = {} }
+        rawset(_G, WATCH_REGISTRY_KEY, registry)
+    end
+    if type(registry.Restarts) ~= "table" then registry.Restarts = {} end
+    return registry
+end
+
+-- Loading this file is itself a reason to retire older watchers.
+_WatchRegistry().Epoch = _WatchRegistry().Epoch + 1
 
 function ProcessHandler:New(config)
     local instance = setmetatable({}, self)
@@ -284,10 +324,61 @@ end
 registerLuaFunctionHighlight('GetAttachedNameNoExt')
 
 --
---- ∑ Stops and destroys the auto-attach timer if it exists, and resets related state.
---- @param timer timer|nil # Optional timer to stop. If nil, stops the current auto-attach timer.
---- @return void
+--- ∑ Opens a new watch epoch and retires every watcher started before it,
+---   including ones left behind by an earlier load of this module.
+--- @return number # The epoch the caller now owns.
 --
+function ProcessHandler:BeginWatchEpoch()
+    local registry = _WatchRegistry()
+    registry.Epoch = registry.Epoch + 1
+    self.ProcessWatchGeneration = registry.Epoch
+    return registry.Epoch
+end
+registerLuaFunctionHighlight('BeginWatchEpoch')
+
+--
+--- ∑ Whether the caller still owns the current watch epoch.
+--- @param epoch number # Epoch captured when the watcher was created.
+--- @return boolean # False once a newer watcher has taken over.
+--
+function ProcessHandler:IsWatchEpochCurrent(epoch)
+    return epoch ~= nil and _WatchRegistry().Epoch == epoch
+end
+registerLuaFunctionHighlight('IsWatchEpochCurrent')
+
+--
+--- ∑ Records a restart attempt and reports whether the handler should still
+---   be restarting itself. A handler that tears the table down several times a
+---   second is not recovering, it is thrashing, and it should say so once
+---   instead of filling the log.
+--- @return boolean, number # Allowed to restart, attempts inside the window.
+--
+function ProcessHandler:RegisterRestartAttempt()
+    local registry = _WatchRegistry()
+    local window = tonumber(self.RestartStormWindowSeconds) or 10
+    local limit = tonumber(self.RestartStormLimit) or 4
+    local now = os.time()
+    local kept = {}
+    for _, stamp in ipairs(registry.Restarts) do
+        if now - stamp < window then
+            kept[#kept + 1] = stamp
+        end
+    end
+    kept[#kept + 1] = now
+    registry.Restarts = kept
+    return #kept <= limit, #kept
+end
+registerLuaFunctionHighlight('RegisterRestartAttempt')
+
+--
+--- ∑ Clears the restart-storm history, re-arming automatic recovery.
+--
+function ProcessHandler:ClearRestartHistory()
+    _WatchRegistry().Restarts = {}
+    self.RestartStormTripped = false
+end
+registerLuaFunctionHighlight('ClearRestartHistory')
+
 function ProcessHandler:StopAutoAttachTimer(timer)
     local activeTimer = timer or self.AutoAttachTimer
     _DestroyTimer(activeTimer)
@@ -305,8 +396,14 @@ registerLuaFunctionHighlight('StopAutoAttachTimer')
 --
 function ProcessHandler:StopProcessWatchTimer(timer)
     local activeTimer = timer or self.ProcessWatchTimer
+    local isCurrentTimer = not timer or timer == self.ProcessWatchTimer
+    if isCurrentTimer then
+        -- Retiring the epoch is what stops watchers belonging to other instances
+        -- from each running their own copy of the cleanup below.
+        self:BeginWatchEpoch()
+        self.ProcessWatchFailureStreak = 0
+    end
     if not activeTimer then
-        self.ProcessWatchGeneration = self.ProcessWatchGeneration + 1
         if self.IsWatchingProcess then
             logger:Warning("[ProcessHandler] Process watch state was active, but no timer existed. Resetting watch state.")
             self.IsWatchingProcess = false
@@ -314,10 +411,6 @@ function ProcessHandler:StopProcessWatchTimer(timer)
             logger:Debug("[ProcessHandler] No process watch timer to stop.")
         end
         return false
-    end
-    local isCurrentTimer = not timer or timer == self.ProcessWatchTimer
-    if isCurrentTimer then
-        self.ProcessWatchGeneration = self.ProcessWatchGeneration + 1
     end
     _DestroyTimer(activeTimer)
     if isCurrentTimer then
@@ -337,35 +430,40 @@ registerLuaFunctionHighlight('StopProcessWatchTimer')
 --- @param processID number # PID expected to remain alive.
 --- @return boolean # True when the fallback thread was started.
 --
-function ProcessHandler:StartProcessWatchFallback(processName, processID)
+function ProcessHandler:StartProcessWatchFallback(processName, processID, epoch)
     if type(createThread) ~= "function" then
         logger:Warning("[ProcessHandler] [Fallback] createThread is unavailable. Process watch fallback was not started.")
         return false
     end
-    local generation = self.ProcessWatchGeneration
+    epoch = epoch or self.ProcessWatchGeneration
     local interval = self.ProcessWatchTimerInterval
+    -- os.time() only resolves to whole seconds, so the timer has to be quiet for
+    -- more than one of them before its silence means anything.
+    local silenceSeconds = math.max(2, math.ceil((tonumber(interval) or 1000) / 500))
     self.ProcessWatchFallbackTicks = 0
     self.ProcessWatchFallbackLastTick = nil
     local ok, err = pcall(function()
         createThread(function(thread)
-            while not thread.Terminated and self.ProcessWatchGeneration == generation do
+            while not thread.Terminated and self:IsWatchEpochCurrent(epoch) do
                 sleep(interval)
-                if thread.Terminated or self.ProcessWatchGeneration ~= generation then
+                if thread.Terminated or not self:IsWatchEpochCurrent(epoch) then
                     return
                 end
                 self.ProcessWatchFallbackTicks = self.ProcessWatchFallbackTicks + 1
                 self.ProcessWatchFallbackLastTick = os.time()
-                local querySucceeded, currentProcessID = pcall(getProcessIDFromProcessName, processName)
-                if querySucceeded and currentProcessID ~= processID then
+                -- The TTimer is the primary watcher. This thread exists only for
+                -- the case where CE stops dispatching timer events, so it stays
+                -- out of the way while the timer is demonstrably still ticking.
+                local lastTick = self.ProcessWatchTimerLastTick
+                local timerIsSilent = lastTick == nil or (os.time() - lastTick) >= silenceSeconds
+                if timerIsSilent then
+                    local keepWatching = true
                     thread.synchronize(function()
-                        if self.ProcessWatchGeneration == generation and self.AttachedProcessID == processID then
-                            self:HandleProcessUnavailable(
-                                "[Fallback] Process is no longer available. Expected PID: " .. tostring(processID) ..
-                                " | Current PID: " .. tostring(currentProcessID)
-                            )
-                        end
+                        keepWatching = self:EvaluateTarget("[Fallback]", epoch)
                     end)
-                    return
+                    if not keepWatching then
+                        return
+                    end
                 end
             end
         end)
@@ -384,9 +482,13 @@ registerLuaFunctionHighlight('StartProcessWatchFallback')
 --- @param options number|table|nil # maxSecs number or options table.
 --- @return boolean # True when the timer was started.
 --
-function ProcessHandler:AutoAttach(processName, options)
+function ProcessHandler:AutoAttach(processName, options, internalRestart)
     processName = self:ResolveProcessName(processName)
     if not processName then return false end
+    if internalRestart ~= true then
+        -- An explicit call is the operator saying "try again". Forget the storm.
+        self:ClearRestartHistory()
+    end
     local maxSecs = 0
     if type(options) == "number" then
         maxSecs = options
@@ -417,6 +519,7 @@ function ProcessHandler:AutoAttach(processName, options)
             end
             self.AttachedProcessName = processName
             self.AttachedProcessID = processID
+            self.ProcessWatchFailureStreak = 0
             self:OnProcessAttached(processName, processID, options)
             return
         end
@@ -520,15 +623,24 @@ function ProcessHandler:StartProcessWatchTimer(processName)
     processName = self:ResolveProcessName(processName)
     if not processName then return false end
     self:StopProcessWatchTimer()
+    local epoch = self:BeginWatchEpoch()
     self.ProcessWatchTimer = createTimer(MainForm)
     self.ProcessWatchTimerTicks = 0
     self.ProcessWatchTimerLastTick = nil
+    self.ProcessWatchFailureStreak = 0
     self.ProcessWatchTimer.Interval = self.ProcessWatchTimerInterval
     self.ProcessWatchTimer.OnTimer = function(timer)
+        if not self:IsWatchEpochCurrent(epoch) then
+            -- Superseded by a newer watch. Destroy the timer directly rather than
+            -- going through StopProcessWatchTimer, which would retire the epoch
+            -- that the current watcher is relying on.
+            _DestroyTimer(timer)
+            return
+        end
         self.ProcessWatchTimerTicks = self.ProcessWatchTimerTicks + 1
         self.ProcessWatchTimerLastTick = os.time()
         local ok, err = pcall(function()
-            self:CheckWatchedProcess(timer)
+            self:EvaluateTarget("watch timer", epoch, timer)
         end)
         if not ok then
             logger:Error("[ProcessHandler] Process watch timer callback failed: " .. tostring(err))
@@ -536,7 +648,7 @@ function ProcessHandler:StartProcessWatchTimer(processName)
     end
     self.ProcessWatchTimer.Enabled = true
     self.IsWatchingProcess = true
-    self:StartProcessWatchFallback(processName, self.AttachedProcessID)
+    self:StartProcessWatchFallback(processName, self.AttachedProcessID, epoch)
     logger:Info("[ProcessHandler] Process watch timer started for '" .. tostring(processName) .. "'.")
     return true
 end
@@ -559,16 +671,87 @@ end
 registerLuaFunctionHighlight('GetProcessWatchStatus')
 
 --
---- ∑ Checks if the watched process is still available.
---- @param timer Timer # The timer that triggered the check.
---- @return boolean # True if the process is available. False if the process is unavailable and cleanup was triggered.
+--- ∑ One honest answer about the target.
+---   getOpenedProcessID() keeps returning the old PID long after the process is
+---   gone, so it gets no vote here; the process list and an actual read are the
+---   only two sources trusted.
+--- @param processName string # Name being watched.
+--- @param expectedProcessID number|nil # PID that should still own that name.
+--- @return string, number|nil # "alive" | "gone" | "changed" | "unknown", current PID.
 --
-function ProcessHandler:CheckWatchedProcess(timer)
-    if self:IsAttachedProcessAvailable() then
+function ProcessHandler:ProbeTarget(processName, expectedProcessID)
+    local queried, currentProcessID = pcall(getProcessIDFromProcessName, processName)
+    if not queried then
+        -- The query itself failed. That says nothing about the process.
+        return "unknown", nil
+    end
+    local readable = self:IsAttachedProcessAvailable() ~= nil
+    if currentProcessID == nil then
+        return readable and "unknown" or "gone", nil
+    end
+    if expectedProcessID ~= nil and currentProcessID ~= expectedProcessID then
+        return "changed", currentProcessID
+    end
+    if readable then
+        return "alive", currentProcessID
+    end
+    return "unknown", currentProcessID
+end
+registerLuaFunctionHighlight('ProbeTarget')
+
+--
+--- ∑ The single decision point for both watchers.
+---   Debounced, so one bad probe cannot tear the table down, and guarded, so two
+---   watchers noticing the same death produce one cleanup rather than two.
+--- @param source string # Which watcher is asking, for the log.
+--- @param epoch number|nil # Epoch of the calling watcher.
+--- @param timer timer|nil # Timer to stop if cleanup runs.
+--- @return boolean # True while the watch should continue.
+--
+function ProcessHandler:EvaluateTarget(source, epoch, timer)
+    if epoch ~= nil and not self:IsWatchEpochCurrent(epoch) then
+        return false
+    end
+    if _WatchRegistry().Busy then
+        logger:Debug("[ProcessHandler] " .. tostring(source) .. ": cleanup already in progress, standing down.")
+        return false
+    end
+    local processName = self.AttachedProcessName or self.ProcessName
+    local expectedProcessID = self.AttachedProcessID
+    if not processName or processName == "" or expectedProcessID == nil then
+        return false
+    end
+    local verdict, currentProcessID = self:ProbeTarget(processName, expectedProcessID)
+    if verdict == "alive" then
+        self.ProcessWatchFailureStreak = 0
         return true
     end
-    self:HandleProcessUnavailable("Process is no longer available.", timer)
+    local threshold = math.max(1, tonumber(self.LivenessFailureThreshold) or 2)
+    self.ProcessWatchFailureStreak = (self.ProcessWatchFailureStreak or 0) + 1
+    if self.ProcessWatchFailureStreak < threshold then
+        logger:DebugF("[ProcessHandler] %s: '%s' probed '%s' (%d/%d). Waiting for confirmation.",
+            tostring(source), tostring(processName), verdict,
+            self.ProcessWatchFailureStreak, threshold)
+        return true
+    end
+    local detail = string.format("%s Expected PID: %s | Current PID: %s",
+        tostring(source), tostring(expectedProcessID), tostring(currentProcessID))
+    if verdict == "changed" then
+        self:HandleProcessChanged(expectedProcessID, currentProcessID, timer)
+    else
+        self:HandleProcessUnavailable(detail .. " Process is no longer available.", timer)
+    end
     return false
+end
+registerLuaFunctionHighlight('EvaluateTarget')
+
+--
+--- ∑ Checks if the watched process is still available.
+--- @param timer Timer # The timer that triggered the check.
+--- @return boolean # True if the process is available. False if cleanup was triggered.
+--
+function ProcessHandler:CheckWatchedProcess(timer)
+    return self:EvaluateTarget("watch timer", self.ProcessWatchGeneration, timer)
 end
 registerLuaFunctionHighlight('CheckWatchedProcess')
 
@@ -626,17 +809,51 @@ registerLuaFunctionHighlight('ResetProcessBoundState')
 --- @return void
 --
 function ProcessHandler:CleanupAndReattach(reason, timer)
-    local processName = self.ProcessName or self.AttachedProcessName
-    self:StopAutoAttachTimer()
-    self:StopProcessWatchTimer(timer)
-    logger:Warning("[ProcessHandler] " .. tostring(reason or "Process unavailable") .. " Cleaning up and restarting AutoAttach.")
-    self:DisableAllWithoutExecute()
-    self:ResetProcessBoundState(reason or "Process unavailable")
-    self.AttachedProcessName = nil
-    self.AttachedProcessID = nil
-    if processName and processName ~= "" then
-        self:AutoAttach(processName, self.AutoAttachOptions)
+    local registry = _WatchRegistry()
+    if registry.Busy then
+        logger:Debug("[ProcessHandler] Cleanup already in progress. Ignoring: " .. tostring(reason))
+        return false
     end
+    if self.RestartStormTripped then
+        -- Already reported once. Repeating the teardown would only add noise to
+        -- a situation that has stopped being automatic.
+        logger:Debug("[ProcessHandler] Auto-Attach is disarmed after a restart storm. Ignoring: " .. tostring(reason))
+        return false
+    end
+    registry.Busy = true
+    local processName = self.ProcessName or self.AttachedProcessName
+    local wasAttached = self.AttachedProcessID ~= nil
+    local ok, err = pcall(function()
+        self:StopAutoAttachTimer()
+        self:StopProcessWatchTimer(timer)
+        logger:Warning("[ProcessHandler] " .. tostring(reason or "Process unavailable") .. " Cleaning up and restarting AutoAttach.")
+        if wasAttached then
+            self:DisableAllWithoutExecute()
+            self:ResetProcessBoundState(reason or "Process unavailable")
+        else
+            logger:Debug("[ProcessHandler] Nothing was attached; skipping record and patch cleanup.")
+        end
+        self.AttachedProcessName = nil
+        self.AttachedProcessID = nil
+        self.ProcessWatchFailureStreak = 0
+    end)
+    registry.Busy = false
+    if not ok then
+        logger:Error("[ProcessHandler] Cleanup failed: " .. tostring(err))
+    end
+    local allowed, attempts = self:RegisterRestartAttempt()
+    if not allowed then
+        self.RestartStormTripped = true
+        logger:ForceErrorF(
+            "[ProcessHandler] %d cleanup cycles within %ds - this is thrashing, not recovery. " ..
+            "Auto-Attach stopped. Call processHandler:AutoAttach(\"%s\") to resume once the cause is known.",
+            attempts, tonumber(self.RestartStormWindowSeconds) or 10, tostring(processName))
+        return false
+    end
+    if processName and processName ~= "" then
+        self:AutoAttach(processName, self.AutoAttachOptions, true)
+    end
+    return true
 end
 registerLuaFunctionHighlight('CleanupAndReattach')
 
@@ -647,7 +864,7 @@ registerLuaFunctionHighlight('CleanupAndReattach')
 --- @return void
 --
 function ProcessHandler:HandleProcessUnavailable(reason, timer)
-    self:CleanupAndReattach(reason, timer)
+    return self:CleanupAndReattach(reason, timer)
 end
 registerLuaFunctionHighlight('HandleProcessUnavailable')
 
@@ -657,8 +874,8 @@ registerLuaFunctionHighlight('HandleProcessUnavailable')
 --- @param newPid number|nil # The new process ID, if known.
 --- @return void
 --
-function ProcessHandler:HandleProcessChanged(oldPid, newPid)
-    self:CleanupAndReattach("Process changed. Previous PID: " .. tostring(oldPid) .. " | Current PID: " .. tostring(newPid))
+function ProcessHandler:HandleProcessChanged(oldPid, newPid, timer)
+    return self:CleanupAndReattach("Process changed. Previous PID: " .. tostring(oldPid) .. " | Current PID: " .. tostring(newPid), timer)
 end
 registerLuaFunctionHighlight('HandleProcessChanged')
 
