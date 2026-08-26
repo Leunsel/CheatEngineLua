@@ -281,11 +281,14 @@ end
 function AssemblerCommands:_beginCommand(commandName, parameters, syntaxcheck)
     local phase = syntaxcheck and "SYNTAXCHECK" or "EXECUTE"
     local args = self:_splitArgs(parameters)
-    logger:Info(string.format("%s %s", MODULE_PREFIX, commandName))
-    logger:InfoF("   Phase: %s", phase)
+    logger:InfoBlock(string.format("%s %s", MODULE_PREFIX, commandName), {
+        { "Phase", phase },
+    })
     if not syntaxcheck then
-        logger:DebugF("   Parameters: %s", tostring(parameters))
-        logger:DebugF("   Parsed Args:\n%s", self:_fmtArgDump(args))
+        logger:DebugBlock(string.format("%s %s arguments", MODULE_PREFIX, commandName), {
+            { "Parameters", tostring(parameters) },
+            { "Parsed Args", self:_fmtArgDump(args) },
+        })
     end
     return {
         Name = commandName,
@@ -886,17 +889,19 @@ end
 --- @return nil
 --
 function AssemblerCommands:_logStoredPatchResult(commandName, actionLabel, key, addr, beforeBytes, writeBytes, afterBytes, extraLogLines)
-    logger:Info(string.format("%s %s %s OK", MODULE_PREFIX, commandName, actionLabel))
-    logger:InfoF("   Patch Key: %s", tostring(key))
-    logger:InfoF("   Address  : %s", getNameFromAddress(addr))
+    local rows = {
+        { "Patch Key", tostring(key) },
+        { "Address",   getNameFromAddress(addr) },
+    }
     if type(extraLogLines) == "table" then
         for _, line in ipairs(extraLogLines) do
-            logger:InfoF("   %s", tostring(line))
+            rows[#rows + 1] = tostring(line)
         end
     end
-    logger:InfoF("   Before   : %s", self:_fmtBytes(beforeBytes))
-    logger:InfoF("   %-8s : %s", tostring(actionLabel), self:_fmtBytes(writeBytes))
-    logger:InfoF("   After    : %s", self:_fmtBytes(afterBytes))
+    rows[#rows + 1] = { "Before", self:_fmtBytes(beforeBytes) }
+    rows[#rows + 1] = { tostring(actionLabel), self:_fmtBytes(writeBytes) }
+    rows[#rows + 1] = { "After", self:_fmtBytes(afterBytes) }
+    logger:InfoBlock(string.format("%s %s %s OK", MODULE_PREFIX, commandName, actionLabel), rows)
 end
 
 --
@@ -998,16 +1003,18 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     local normalizedModule = self:_stripQuotes(moduleName)
     local normalizedSignature = self:_stripQuotes(signature)
     local signatureId = self:_sigId(normalizedSignature)
-    logger:Info(MODULE_PREFIX .. " Scan")
-    logger:InfoF("    Module   : %s", tostring(normalizedModule))
-    logger:InfoF("    Signature: %s", self:_sigSummary(normalizedSignature, self.LOG_SIG_MAX_INFO))
-    logger:Debug(MODULE_PREFIX .. " Scan Request")
-    logger:DebugF("   Module (Raw)   : %s", tostring(rawModule))
-    logger:DebugF("   Signature (Raw): %s", self:_shorten(rawSignature, self.LOG_SIG_MAX_DEBUG))
-    logger:DebugF("   Signature ID   : %s", tostring(signatureId))
-    logger:DebugF("   Protection     : %s", tostring(protectionFlags))
-    logger:DebugF("   Alignment Type : %s", tostring(alignmentType))
-    logger:DebugF("   Alignment Param: %s", tostring(alignmentParam))
+    logger:InfoBlock(MODULE_PREFIX .. " Scan", {
+        { "Module",    tostring(normalizedModule) },
+        { "Signature", self:_sigSummary(normalizedSignature, self.LOG_SIG_MAX_INFO) },
+    })
+    logger:DebugBlock(MODULE_PREFIX .. " Scan Request", {
+        { "Module (Raw)",    tostring(rawModule) },
+        { "Signature (Raw)", self:_shorten(rawSignature, self.LOG_SIG_MAX_DEBUG) },
+        { "Signature ID",    tostring(signatureId) },
+        { "Protection",      tostring(protectionFlags) },
+        { "Alignment Type",  tostring(alignmentType) },
+        { "Alignment Param", tostring(alignmentParam) },
+    })
     if normalizedModule == "" then return nil, "moduleName empty" end
     if normalizedSignature == "" then return nil, "signature empty" end
     local moduleOk, moduleErr = self:_isModuleSuitableForAttachContext(normalizedModule)
@@ -1019,12 +1026,13 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
     end)
     if not ok then return nil, "AOBScanModuleUnique exception: " .. tostring(addrOrErr) end
     if not addrOrErr then return nil, "AOB not found or not unique" end
-    logger:Info(MODULE_PREFIX .. " Scan Result")
-    logger:Info("   Status      : OK")
-    logger:InfoF("   Signature ID: %s", tostring(signatureId))
-    logger:InfoF("   Address     : %s", getNameFromAddress(addrOrErr))
     local _, opcode, __, ___ = splitDisassembledString(disassemble(addrOrErr))
-    logger:InfoF("   Instruction : %s", opcode)
+    logger:InfoBlock(MODULE_PREFIX .. " Scan Result", {
+        { "Status",       "OK" },
+        { "Signature ID", tostring(signatureId) },
+        { "Address",      getNameFromAddress(addrOrErr) },
+        { "Instruction",  opcode },
+    })
     return addrOrErr, nil
 end
 
@@ -1094,7 +1102,10 @@ function AssemblerCommands:_cmdManifoldScanModule()
         local addr, scanErr = self:_aobScanModuleUnique(moduleName, signature, protection, alignType, alignParam)
         if not addr then return self:_commandError(ctx.Name, scanErr) end
         local replace = string.format("define(%s, %s)", symbol, getNameFromAddress(addr))
-        logger:InfoF("   Replace Line: %s", replace)
+        logger:InfoBlock(string.format("%s %s OK", MODULE_PREFIX, ctx.Name), {
+            { "Symbol",       symbol },
+            { "Replace Line", replace },
+        })
         return replace
     end
 end
@@ -1127,17 +1138,19 @@ function AssemblerCommands:_cmdManifoldAssert()
         end
         local mismatchAt = self:_findPatternMismatch(expected, actual)
         if mismatchAt then
-            logger:ForceWarning(MODULE_PREFIX .. " ManifoldAssert mismatch")
-            logger:ForceWarningF("   Address : %s", getNameFromAddress(addr))
-            logger:ForceWarningF("   Expected: %s", self:_fmtBytes(expected))
-            logger:ForceWarningF("   Actual  : %s", self:_fmtBytes(actual))
-            logger:ForceWarningF("   %s%s", string.rep(" ", #"Actual  : "), self:_buildMismatchMarker(mismatchAt))
-            logger:ForceWarningF("   First mismatch at +%X (index %d)", mismatchAt - 1, mismatchAt)
+            logger:ForceWarningBlock(MODULE_PREFIX .. " ManifoldAssert mismatch", {
+                { "Address",  getNameFromAddress(addr) },
+                { "Expected", self:_fmtBytes(expected) },
+                -- The marker hangs under Actual, so it has to share that label width.
+                { "Actual",   self:_fmtBytes(actual) .. "\n" .. self:_buildMismatchMarker(mismatchAt) },
+                { "First mismatch", string.format("+%X (index %d)", mismatchAt - 1, mismatchAt) },
+            })
             return EMPTY_RESULT
         end
-        logger:Info(MODULE_PREFIX .. " ManifoldAssert OK")
-        logger:InfoF("   Address: %s", getNameFromAddress(addr))
-        logger:InfoF("   Bytes  : %s", self:_fmtBytes(expected))
+        logger:InfoBlock(MODULE_PREFIX .. " ManifoldAssert OK", {
+            { "Address", getNameFromAddress(addr) },
+            { "Bytes",   self:_fmtBytes(expected) },
+        })
         return EMPTY_RESULT
     end
 end
@@ -1431,22 +1444,24 @@ function AssemblerCommands:_cmdManifoldResolveStatic()
         local targetValue = outputMode == "pointer" and pointerValue or operandAddress
         local targetLiteral = self:_formatAddressLiteral(targetValue)
         local replace = string.format("define(%s, %s)", symbol, targetLiteral)
-        logger:Info(MODULE_PREFIX .. " ManifoldResolveStatic OK")
-        logger:InfoF("   Mode        : %s", mode)
-        logger:InfoF("   Output      : %s", outputMode)
-        if detectReason then logger:InfoF("   Auto Detect : %s", detectReason) end
-        logger:InfoF("   Base Address: %s", baseLiteral)
-        logger:InfoF("   Value Offset: %d", dispOffset)
+        local rows = {
+            { "Mode",         mode },
+            { "Output",       outputMode },
+            detectReason and { "Auto Detect", detectReason } or false,
+            { "Base Address", baseLiteral },
+            { "Value Offset", dispOffset },
+        }
         if mode == "absolute" then
-            logger:InfoF("   Abs32       : %08X", value)
+            rows[#rows + 1] = { "Abs32", string.format("%08X", value) }
         else
-            logger:InfoF("   Disp32      : %X", value)
-            logger:InfoF("   Instr Length: %d", instructionLength)
+            rows[#rows + 1] = { "Disp32", string.format("%X", value) }
+            rows[#rows + 1] = { "Instr Length", instructionLength }
         end
-        logger:InfoF("   Operand Addr: %s", operandLiteral)
-        logger:InfoF("   Pointer     : %s", pointerLiteral)
-        logger:InfoF("   Target      : %s", targetLiteral)
-        logger:InfoF("   Replace Line: %s", replace)
+        rows[#rows + 1] = { "Operand Addr", operandLiteral }
+        rows[#rows + 1] = { "Pointer",      pointerLiteral }
+        rows[#rows + 1] = { "Target",       targetLiteral }
+        rows[#rows + 1] = { "Replace Line", replace }
+        logger:InfoBlock(MODULE_PREFIX .. " ManifoldResolveStatic OK", rows)
         return replace
     end
 end
