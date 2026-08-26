@@ -613,10 +613,15 @@ OnProcessAttached(name, pid, options)
    │    └─ utils:VerifyFileHash()    (only when utils.VerifyMD5)
    ├─ options.onAttached(self, name, pid)     (optional callback)
    └─ StartProcessWatchTimer(name)
-        ├─ TTimer, 1000 ms → CheckWatchedProcess()
-        └─ StartProcessWatchFallback()  ← createThread fallback for cases where
-                                          CE does not dispatch timer events
+        ├─ TTimer, 1000 ms ─┐
+        └─ fallback thread ─┴→ EvaluateTarget(source, epoch)
+                                 ├─ ProbeTarget() → alive | gone | changed | unknown
+                                 ├─ debounce: LivenessFailureThreshold in a row
+                                 └─ single-flight: one cleanup, never two
 ```
+
+The fallback thread exists only for the case where CE stops dispatching timer events. It stays out
+of the way while the TTimer is demonstrably still ticking, so the two watchers never race.
 
 When the process disappears:
 
@@ -629,15 +634,23 @@ HandleProcessUnavailable(reason)
      ├─ ResetProcessBoundState()     → autoAssembler:Reset()
      │                                 assemblerCommands.ActivePatches = {}
      │                                 trampolines:Reset()
-     └─ AutoAttach(processName)      → the cycle restarts
+     └─ AutoAttach(processName)      → the cycle restarts, unless the
+                                        restart-storm guard has tripped
 ```
+
+If more than `RestartStormLimit` cycles happen inside `RestartStormWindowSeconds`, the handler stops
+restarting itself and reports once. That is thrashing, not recovery, and repeating it only buries the
+cause in log noise. `processHandler:AutoAttach(name)` re-arms it.
 
 The fallback thread matters. It periodically compares the PID against the process name and
 therefore also catches a game restart under the same name, which a plain `readInteger(process)`
 probe would miss.
 
-`ProcessWatchGeneration` is a counter incremented on every stop. The fallback thread terminates
-itself as soon as the generation no longer matches its own, so a re-attach leaves no orphaned
+The watch epoch lives in `_G.__ManifoldProcessWatchRegistry` and is retired on every stop. Every
+timer and thread carries the epoch it was born under and exits as soon as that epoch is gone. It has
+to be shared rather than per-instance: reloading the table builds a new handler while the previous
+one's watchers keep running, and only a process-wide epoch can retire those. A re-attach leaves no
+orphaned
 threads behind.
 
 ### 5.2 Auto Assembler execution

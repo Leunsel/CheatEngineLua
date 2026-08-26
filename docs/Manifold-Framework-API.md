@@ -482,14 +482,18 @@ Each of the three returns early when the type is already registered.
 | `ProcessWatchTimerInterval` | `1000` | ms |
 | `AttachedProcessName` / `AttachedProcessID` | `nil` | Set after a successful attach |
 | `IsAutoAttaching` / `IsWatchingProcess` | `false` | |
-| `ProcessWatchGeneration` | `0` | Incremented on every stop, which terminates stale fallback threads |
+| `ProcessWatchGeneration` | `0` | Mirror of the shared watch epoch this instance last claimed |
+| `LivenessFailureThreshold` | `2` | Consecutive bad probes before the target counts as gone |
+| `RestartStormLimit` | `4` | Cleanup cycles tolerated inside the window |
+| `RestartStormWindowSeconds` | `10` | Length of that window |
+| `RestartStormTripped` | `false` | Set when auto-restart has disarmed itself |
 | `AutoAttachOptions` | `nil` | The options last passed in |
 
 ### Attaching
 
 | Function | Returns | Description |
 |---|---|---|
-| `processHandler:AutoAttach(name [, options])` | `boolean` | Starts the waiting timer. `options` may be a number, meaning a timeout in seconds, or a table of `{ maxSecs, runPostAttachTasks, onAttached }`. `maxSeconds` and `timeoutSeconds` are accepted as aliases of `maxSecs`. |
+| `processHandler:AutoAttach(name [, options, internalRestart])` | `boolean` | Starts the waiting timer. `options` may be a number, meaning a timeout in seconds, or a table of `{ maxSecs, runPostAttachTasks, onAttached }`. `maxSeconds` and `timeoutSeconds` are accepted as aliases of `maxSecs`. Unless `internalRestart` is `true` the call clears the restart-storm history, so an explicit call always re-arms recovery. |
 | `processHandler:AttachToProcess(name [, pid, options])` | `boolean` | Direct attach with validation. A changed PID triggers `ResetProcessBoundState`. |
 | `processHandler:AttachToProcessByName(name)` | `boolean` | Resolves the PID and calls `AttachToProcess`. |
 | `processHandler:ResolveProcessName(name)` | `string\|nil` | Falls back to `ProcessName` and then `AttachedProcessName`, and stores the result in `ProcessName`. |
@@ -525,19 +529,36 @@ processHandler:AutoAttach("Game.exe", {
 
 | Function | Returns | Description |
 |---|---|---|
-| `processHandler:StartProcessWatchTimer([name])` | `boolean` | TTimer plus fallback thread |
-| `processHandler:StopProcessWatchTimer([timer])` | `boolean` | Increments `ProcessWatchGeneration` |
-| `processHandler:StartProcessWatchFallback(name, pid)` | `boolean` | A `createThread` loop comparing the PID against the process name |
-| `processHandler:CheckWatchedProcess(timer)` | `boolean` | Tick handler |
+| `processHandler:StartProcessWatchTimer([name])` | `boolean` | Opens a new epoch, then starts the TTimer and the fallback thread |
+| `processHandler:StopProcessWatchTimer([timer])` | `boolean` | Retires the current epoch, which stops every watcher in the Lua state |
+| `processHandler:StartProcessWatchFallback(name, pid [, epoch])` | `boolean` | `createThread` loop that only acts while the TTimer is silent |
+| `processHandler:ProbeTarget(name [, pid])` | `string, number\|nil` | `"alive"`, `"gone"`, `"changed"` or `"unknown"`, plus the PID currently holding the name |
+| `processHandler:EvaluateTarget(source [, epoch, timer])` | `boolean` | The single decision point. Debounced and single-flight; `false` means the watch stopped |
+| `processHandler:CheckWatchedProcess(timer)` | `boolean` | Thin wrapper over `EvaluateTarget` |
 | `processHandler:StopAutoAttachTimer([timer])` | | |
+
+### Watch epochs and the restart guard
+
+Watch bookkeeping lives in `_G.__ManifoldProcessWatchRegistry`, not on the instance. Reloading a
+cheat table re-runs the module and builds a new handler, but the timers and threads of the previous
+one keep running; when their generation counter lived on their own instance nothing could retire
+them, and every surviving watcher ran its own full cleanup when the game exited. A shared epoch
+retires all of them at once.
+
+| Function | Returns | Description |
+|---|---|---|
+| `processHandler:BeginWatchEpoch()` | `number` | Opens a new epoch and retires every older watcher |
+| `processHandler:IsWatchEpochCurrent(epoch)` | `boolean` | False once a newer watcher has taken over |
+| `processHandler:RegisterRestartAttempt()` | `boolean, number` | Records a cycle; `false` once the window limit is exceeded |
+| `processHandler:ClearRestartHistory()` | | Forgets the history and clears `RestartStormTripped` |
 
 ### Cleanup
 
 | Function | Description |
 |---|---|
 | `processHandler:HandleProcessUnavailable(reason [, timer])` | Delegates to `CleanupAndReattach`. |
-| `processHandler:HandleProcessChanged(oldPid, newPid)` | The same, with PID context in the message. |
-| `processHandler:CleanupAndReattach(reason [, timer])` | Stops the timers, then `DisableAllWithoutExecute`, then `ResetProcessBoundState`, then `AutoAttach`. |
+| `processHandler:HandleProcessChanged(oldPid, newPid [, timer])` | The same, with PID context in the message. |
+| `processHandler:CleanupAndReattach(reason [, timer])` | Stops the timers, then `DisableAllWithoutExecute`, then `ResetProcessBoundState`, then `AutoAttach`. Single-flight: a second caller while one is running is ignored. Record and patch teardown is skipped when nothing was attached. Returns `false` when it refused. |
 | `processHandler:DisableAllWithoutExecute()` | `AddressList.disableAllWithoutExecute()` plus `deleteAllRegisteredSymbols()`. |
 | `processHandler:ResetProcessBoundState(reason)` | `autoAssembler:Reset()`, `assemblerCommands.ActivePatches = {}` and `trampolines:Reset()`, each only when that module is loaded. |
 
