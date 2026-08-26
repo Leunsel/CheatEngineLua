@@ -13,6 +13,10 @@
         recompiled on every menu click,
       * include("Name") renders a partial with the same context (cycle-safe),
       * runtime errors are mapped back to the template line that caused them.
+
+    New over 3.0:
+      * a <% %> tag alone on its line takes that line with it, instead of
+        leaving a blank one behind. See _trimStandaloneTags below.
 ]]
 
 local Errors = require("Manifold-TemplateLoader-Errors")
@@ -88,9 +92,101 @@ local function countLines(text)
 end
 
 --
+--- A <% %> tag that sits on a line of its own should take that line with it.
+--- Otherwise the newline before it and the newline after it both survive, and
+--- every <% if %>/<% else %>/<% end %> in a template contributes a blank line
+--- to the generated script, so a two-branch block opens a gap wherever it
+--- appears, and nesting them multiplies it.
+---
+--- Mustache calls these standalone tags. ERB spells the same idea "-%>". Only
+--- the tag's own line is affected. A blank line the author actually typed is
+--- still a blank line in the output.
+---
+--- << >> expressions are deliberately excluded. They stand for content, so a
+--- value that renders empty collapsing its own line would be a surprise rather
+--- than a fix.
+--
+
+--- Code nodes emit statements and never text, so a scan may look straight
+--- through them to the text on the far side.
+local function _isTransparent(node)
+    return node.kind == "code"
+end
+
+--- True when everything between the preceding newline and this node is blank.
+local function _standaloneBefore(nodes, index)
+    for scan = index - 1, 1, -1 do
+        local node = nodes[scan]
+        if not _isTransparent(node) then
+            if node.kind ~= "text" then return false end
+            if not node.text:match("[^\n]*$"):match("^[ \t\r]*$") then return false end
+            if node.text:find("\n", 1, true) then return true end
+        end
+    end
+    return true -- start of template
+end
+
+--- True when everything between this node and the next newline is blank.
+local function _standaloneAfter(nodes, index)
+    for scan = index + 1, #nodes do
+        local node = nodes[scan]
+        if not _isTransparent(node) then
+            if node.kind ~= "text" then return false end
+            if not node.text:match("^[^\n]*"):match("^[ \t\r]*$") then return false end
+            if node.text:find("\n", 1, true) then return true end
+        end
+    end
+    return true -- end of template
+end
+
+--- Drops the blank remainder of the line leading up to the tag, keeping the
+--- newline that ended the previous line.
+local function _dropIndentBefore(nodes, index)
+    for scan = index - 1, 1, -1 do
+        local node = nodes[scan]
+        if node.kind == "text" then
+            local head = node.text:match("^(.-)[^\n]*$")
+            local reachedContent = head ~= ""
+            node.text = head
+            if reachedContent then return end
+        end
+    end
+end
+
+--- Drops the blank remainder of the tag's line, newline included.
+local function _dropLineAfter(nodes, index)
+    for scan = index + 1, #nodes do
+        local node = nodes[scan]
+        if node.kind == "text" then
+            local rest = node.text:match("^[^\n]*\n(.*)$")
+            if rest then
+                node.text = rest
+                return
+            end
+            node.text = ""
+        end
+    end
+end
+
+local function _trimStandaloneTags(nodes)
+    for index = 1, #nodes do
+        if nodes[index].kind == "code"
+            and _standaloneBefore(nodes, index)
+            and _standaloneAfter(nodes, index) then
+            _dropIndentBefore(nodes, index)
+            _dropLineAfter(nodes, index)
+        end
+    end
+    return nodes
+end
+
+--
 --- Parses template source into a node list. Each node carries the template
 --- line it starts on:
 ---   { kind = "text"|"expr"|"code", text|code = ..., line = n }
+---
+--- Line numbers are assigned before standalone trimming and are not adjusted
+--- by it, so error positions keep pointing at the original template text.
 --
 function Engine:Parse(source, sourceName)
     if type(source) ~= "string" then
@@ -144,7 +240,7 @@ function Engine:Parse(source, sourceName)
         line = line + countLines(source:sub(start, closeStart + 1))
         position = closeStart + 2
     end
-    return nodes
+    return _trimStandaloneTags(nodes)
 end
 
 -- Compilation ----------------------------------------------------------------
