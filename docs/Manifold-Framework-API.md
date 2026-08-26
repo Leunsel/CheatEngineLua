@@ -232,7 +232,7 @@ module reload keeps working
 
 ## Manifold.Logger
 
-`Logger`, version 1.0.3. A framework leaf with no declared dependencies. Writing to the log file
+`Logger`, version 1.1.0. A framework leaf with no declared dependencies. Writing to the log file
 needs `customIO`, and the module degrades to console output only when it is absent.
 
 ### Construction and metadata
@@ -274,6 +274,8 @@ load time:
 | `logger:<Level>F(fmt, ...)` | `logger:InfoF("%d/%d", a, b)` |
 | `logger:Force<Level>(msg)` | `logger:ForceError("critical")` |
 | `logger:Force<Level>F(fmt, ...)` | `logger:ForceWarningF("%s", x)` |
+| `logger:<Level>Block(title, rows [, options])` | `logger:InfoBlock(MODULE_PREFIX .. " Scan Result", { { "Status", "OK" } })` |
+| `logger:Force<Level>Block(title, rows [, options])` | `logger:ForceWarningBlock(title, rows)` |
 
 The `Force` variants bypass the level filter and tag the line with `[FORCED]`.
 
@@ -281,6 +283,33 @@ The `Force` variants bypass the level filter and tag the line with `[FORCED]`.
 |---|---|
 | `logger:Log(level, message)` | Direct variant, honours `Level`. |
 | `logger:ForceLog(level, message)` | Direct variant without filtering. |
+| `logger:BuildBlock(title, rows [, options])` | Renders a block without logging it. Pure, so it can be tested and reused. |
+
+### Blocks
+
+A multi-row report written as N separate calls repeats the timestamp and the module prefix on every
+row, which is most of the line width. `BuildBlock` renders the whole report as one string, so it
+becomes a single log entry with one prefix and labels that align themselves.
+
+```lua
+logger:InfoBlock(MODULE_PREFIX .. " InstallDetour OK", {
+    { "Name",         entry.Name },
+    { "Relay Offset", string.format("%s+%X", moduleName, offset) },
+    condition and { "Dest Address", address } or false,
+})
+```
+
+```
+[19:48:29] [INFO] [Trampolines] InstallDetour OK
+   Name         : Player
+   Relay Offset : gamedll_x64_rwdi.dll+500
+```
+
+- Rows are `{ label, value }` pairs, or a plain string for a line without a label.
+- Use `false` to skip a row. A bare `nil` cuts the block short, because the walk is an `ipairs` and
+  stops at the first hole.
+- Values run through `Stringify`, and a value containing newlines hangs under its own label.
+- `options`: `indent` (default `"   "`), `separator` (default `" : "`), `align` (default `true`).
 | `logger:Stringify(value [, processed])` | Recursive text representation. A cycle becomes `{...}` and a null byte becomes `\0`. |
 
 Format: `[HH:MM:SS] [LEVEL] [FORCED] <message>`
