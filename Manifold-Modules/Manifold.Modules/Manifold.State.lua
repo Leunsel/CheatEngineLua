@@ -486,10 +486,13 @@ end
 ---   and there are usually hundreds of them.
 --- @param stateOutcomes table # Per-record results from the restore loop.
 --- @param hotkeyOutcomes table # Per-record hotkey results.
---- @param stats table # Counters for the summary line.
+--- @param stats table # Counters for the summary line. Only the ones present
+---        are named, so an operation that cannot activate anything does not
+---        report "0 activated".
+--- @param title string|nil # Opening words of the summary.
 --- @return table # { Lines, Summary }
 --
-function State:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats)
+function State:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats, title)
     stats = stats or {}
     local buckets = {
         { Title = "Activated",   Rows = {} },
@@ -566,10 +569,18 @@ function State:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats)
             end
         end
     end
-    local summary = string.format(
-        "Restore complete — %d activated, %d deactivated, %d unchanged, %d failed",
-        stats.activatedCount or 0, stats.deactivatedCount or 0,
-        stats.unchangedCount or 0, stats.failedCount or 0)
+    local counts = {}
+    local function count(value, noun)
+        if value then counts[#counts + 1] = string.format("%d %s", value, noun) end
+    end
+    count(stats.activatedCount, "activated")
+    count(stats.deactivatedCount, "deactivated")
+    count(stats.unchangedCount, "unchanged")
+    count(stats.failedCount, "failed")
+    local summary = tostring(title or "Restore complete")
+    if #counts > 0 then
+        summary = summary .. " — " .. table.concat(counts, ", ")
+    end
     return { Lines = lines, Summary = summary }
 end
 registerLuaFunctionHighlight('FormatRestoreReport')
@@ -721,10 +732,13 @@ function State:RestoreOriginalState()
             end
         end
     end
-    for _, outcome in ipairs(stateOutcomes) do
-        self:_LogMemoryRecordStateOutcome(outcome)
+    local report = self:FormatRestoreReport(stateOutcomes, nil, stats, "Original state restored")
+    if #report.Lines > 0 then
+        logger:Info(string.format("%s %s\n%s", MODULE_PREFIX, report.Summary,
+            table.concat(report.Lines, "\n")))
+    else
+        logger:Info(MODULE_PREFIX .. " " .. report.Summary)
     end
-    logger:Info(string.format("%s RestoreOriginalState completed. Deactivated: %d, Unchanged: %d, Failed: %d", MODULE_PREFIX, stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
     return stats
 end
 registerLuaFunctionHighlight('RestoreOriginalState')
