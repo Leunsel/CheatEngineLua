@@ -865,6 +865,30 @@ local function SetCaptionAnimationInterval(interval)
 end
 
 ----------------------------------------
+-- TABLE FILE VIEWER
+----------------------------------------
+
+--
+--- ∑ Opens the table file viewer.
+---   The viewer itself lives in Manifold-TableFiles, a standalone autorun
+---   module. It carries its own copy of the Manifold design framework, so the
+---   window follows the Cheat Table's theme rather than the raw LCL greys, and
+---   it is usable on its own through ManifoldTableFiles:Open(). This file only
+---   contributes the menu entry.
+--- @return nil # No return value.
+--
+local function OpenTableFileViewer()
+    local viewer = rawget(_G, "ManifoldTableFiles")
+    if type(viewer) ~= "table" or type(viewer.Open) ~= "function" then
+        FailLog("TableViewer", "Manifold-TableFiles is not installed. Copy " ..
+            "Manifold-TableFiles.lua and its -Modules folder into Cheat Engine's " ..
+            "autorun directory.")
+        return
+    end
+    viewer:Open()
+end
+
+----------------------------------------
 -- MENU CREATION
 ----------------------------------------
 
@@ -1012,6 +1036,7 @@ local function CreateUtilityEntries()
     AddSubItem("Open Structure Dissect", function() RunInMainThread(function() createStructureForm(nil, nil, nil) end) end, Config.Indices.NewWindow)
     AddSubItem("Generate Structure Records", function() GenerateStructure() end, Config.Indices.NewWindow)
     AddSubItem("Remove All Structures", function() DeleteAllStructures() end, Config.Indices.Destroy)
+    AddSubItem("Open Table File Viewer", function() OpenTableFileViewer() end, Config.Indices.Open)
     AddSeparator()
     AddSubItem("Deactivate All Scripts", function() DeactivateActiveScripts() end, Config.Indices.Toggle, "Ctrl+D")
     AddSubItem("Deactivate Everything", function() DeactivateEverything() end, Config.Indices.Toggle, "Ctrl+F")
