@@ -1,12 +1,13 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.6"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
-    ∂ v1.0.6 (2026-08-23)
-        Implemented the Bootstrap handshake so this module
-        can be loaded on its own or through the framework.
+    ∂ v1.1.0 (2026-08-27)
+        RestoreState reports the whole run as one log entry with
+        aligned columns, grouped by outcome, instead of one prefixed
+        line per record. Layout lives in FormatRestoreReport().
 
 ]]--
 
@@ -115,6 +116,33 @@ local function _describeRecord(mr)
     return string.format("ID=%s (Description='%s')", tostring(mr.ID), tostring(mr.Description))
 end
 
+--
+--- ∑ Character count, so padding survives the em dashes in group headers.
+--
+local function _textWidth(text)
+    local value = tostring(text or "")
+    local ok, count = pcall(function() return utf8.len(value) end)
+    return (ok and count) or #value
+end
+
+--
+--- ∑ Drops Cheat Engine's script-record suffix. Every script record ends in
+---   "()->", so in a report column it is the same five characters on every row.
+--
+local function _cleanDescription(text)
+    local value = tostring(text or ""):gsub("%s*%(%)%->%s*$", "")
+    return (value:match("^%s*(.-)%s*$"))
+end
+
+--
+--- ∑ True for the "[- Something -]" rows the address list uses as group
+---   headers. They carry the structure, so the report keeps them flush left and
+---   indents everything else under them.
+--
+local function _isGroupHeader(description)
+    return tostring(description or ""):match("^%[.*%]$") ~= nil
+end
+
 local function _serializeHotkeys(mr)
     local hotkeys = {}
     if not (mr and mr.HotkeyCount and mr.HotkeyCount > 0) then
@@ -134,11 +162,6 @@ local function _serializeHotkeys(mr)
     return hotkeys
 end
 
---
---- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
---- @return void
---- @note This function checks for the existence of the 'json' and 'IO' dependencies,
----       and attempts to load them if not already present.
 --
 --- ∑ The single dependency lookup, shared by every Manifold module.
 ---   The name is kept so external callers and the docs keep working, and so a
@@ -340,6 +363,10 @@ function State:_SetMemoryRecordStateOnMainThread(mr, state, timeoutMs)
         changed = false,
         state = state,
         record = _describeRecord(mr),
+        -- Kept apart from `record` so a report can put them in columns instead
+        -- of parsing the formatted string back open.
+        id = mr.ID,
+        description = mr.Description,
         asyncWasProcessing = false,
         didTimeout = false,
         waitedMs = 0
@@ -451,10 +478,106 @@ function State:_RestoreHotkeysOnMainThread(mr, hotkeys)
 end
 
 --
---- ∑ Restores the state of memory records based on the state file.
---- Only the records listed in the state file will be activated; all others will be deactivated.
---- @param stateData table  # The list of state data to restore.
---- @return void  # This function does not return a value.
+--- ∑ Renders a restore run as one report instead of a line per record.
+---   A profile touching forty records produced forty log entries, each with its
+---   own timestamp and module prefix, all within the same second. The prefix was
+---   most of the line and the timings could not be compared by eye.
+---   Rows that did not change are not listed. They are counted in the summary,
+---   and there are usually hundreds of them.
+--- @param stateOutcomes table # Per-record results from the restore loop.
+--- @param hotkeyOutcomes table # Per-record hotkey results.
+--- @param stats table # Counters for the summary line.
+--- @return table # { Lines, Summary }
+--
+function State:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats)
+    stats = stats or {}
+    local buckets = {
+        { Title = "Activated",   Rows = {} },
+        { Title = "Deactivated", Rows = {} },
+        { Title = "Timed out",   Rows = {} },
+        { Title = "Failed",      Rows = {} },
+        { Title = "Hotkeys",     Rows = {} },
+    }
+    local activated, deactivated, timedOut, failed, hotkeys = 1, 2, 3, 4, 5
+    local function addRow(index, id, description, detail, milliseconds)
+        local text = _cleanDescription(description)
+        local rows = buckets[index].Rows
+        rows[#rows + 1] = {
+            Id = tostring(id or "?"),
+            Text = text,
+            Detail = detail or "",
+            Milliseconds = milliseconds,
+            Header = _isGroupHeader(text),
+        }
+    end
+    for _, outcome in ipairs(stateOutcomes or {}) do
+        local description = outcome.description or outcome.record
+        if not outcome.success then
+            addRow(failed, outcome.id, description, string.format(
+                "Active=%s Async=%s AsyncProcessing=%s",
+                tostring(outcome.active), tostring(outcome.async), tostring(outcome.asyncProcessing)))
+        elseif outcome.didTimeout then
+            addRow(timedOut, outcome.id, description, nil, outcome.waitedMs or 0)
+        elseif outcome.changed then
+            addRow(outcome.state and activated or deactivated, outcome.id, description,
+                nil, outcome.asyncWasProcessing and (outcome.waitedMs or 0) or nil)
+        end
+    end
+    for _, outcome in ipairs(hotkeyOutcomes or {}) do
+        local description = outcome.description or outcome.record
+        if outcome.success then
+            addRow(hotkeys, outcome.id, description, string.format("%d restored", outcome.count or 0))
+        else
+            addRow(failed, outcome.id, description, "hotkeys: " .. tostring(outcome.err))
+        end
+    end
+    -- One set of column widths across every section, so the numbers line up
+    -- whichever section they are in.
+    local idWidth, textWidth, msWidth = 0, 0, 0
+    for _, bucket in ipairs(buckets) do
+        for _, row in ipairs(bucket.Rows) do
+            if #row.Id > idWidth then idWidth = #row.Id end
+            local width = _textWidth(row.Text) + (row.Header and 0 or 2)
+            if width > textWidth then textWidth = width end
+            if row.Milliseconds then
+                local digits = #tostring(math.floor(row.Milliseconds))
+                if digits > msWidth then msWidth = digits end
+            end
+        end
+    end
+    for _, bucket in ipairs(buckets) do
+        for _, row in ipairs(bucket.Rows) do
+            if row.Milliseconds then
+                row.Detail = string.format("%" .. msWidth .. "d ms", row.Milliseconds)
+            end
+        end
+    end
+    local lines = {}
+    for _, bucket in ipairs(buckets) do
+        if #bucket.Rows > 0 then
+            lines[#lines + 1] = "   " .. bucket.Title
+            for _, row in ipairs(bucket.Rows) do
+                local text = (row.Header and "" or "  ") .. row.Text
+                local body = "      " .. string.rep(" ", idWidth - #row.Id) .. row.Id .. "  " .. text
+                if row.Detail ~= "" then
+                    body = body .. string.rep(" ", math.max(2, textWidth + 2 - _textWidth(text))) .. row.Detail
+                end
+                lines[#lines + 1] = (body:gsub("%s+$", ""))
+            end
+        end
+    end
+    local summary = string.format(
+        "Restore complete — %d activated, %d deactivated, %d unchanged, %d failed",
+        stats.activatedCount or 0, stats.deactivatedCount or 0,
+        stats.unchangedCount or 0, stats.failedCount or 0)
+    return { Lines = lines, Summary = summary }
+end
+registerLuaFunctionHighlight('FormatRestoreReport')
+
+--
+--- ∑ Restores the state of memory records from a state file.
+--- @param stateData table  # The state data to restore.
+--- @return table  # A table containing statistics about the restore operation.
 --
 function State:RestoreState(stateData)
     if not inMainThread() then
@@ -504,23 +627,21 @@ function State:RestoreState(stateData)
                 hotkeyOutcomes[#hotkeyOutcomes + 1] = {
                     success = ok,
                     record = record,
+                    id = mr.ID,
+                    description = mr.Description,
                     count = #rec.hotkeys,
                     err = err
                 }
             end
         end
     end
-    for _, outcome in ipairs(stateOutcomes) do
-        self:_LogMemoryRecordStateOutcome(outcome)
+    local report = self:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats)
+    if #report.Lines > 0 then
+        logger:Info(string.format("%s %s\n%s", MODULE_PREFIX, report.Summary,
+            table.concat(report.Lines, "\n")))
+    else
+        logger:Info(MODULE_PREFIX .. " " .. report.Summary)
     end
-    for _, outcome in ipairs(hotkeyOutcomes) do
-        if outcome.success then
-            logger:Info(string.format("%s Restored %d hotkeys for %s.", MODULE_PREFIX, outcome.count, outcome.record))
-        else
-            logger:Warning(string.format("%s Failed to restore hotkeys for %s: %s", MODULE_PREFIX, outcome.record, tostring(outcome.err)))
-        end
-    end
-    logger:Info(string.format("%s Restore complete. Activated: %d, Deactivated: %d, Unchanged: %d, Failed: %d", MODULE_PREFIX, stats.activatedCount, stats.deactivatedCount, stats.unchangedCount, stats.failedCount))
     return stats
 end
 registerLuaFunctionHighlight('RestoreState')
