@@ -8,18 +8,16 @@ return {
     CategoryOrder = 2,
     Order = 10,
     Tags = { "pointer", "readmem" },
-
     Requires = {
         "AddressValue", "Module", "HookName",
         "AoBStr", "OriginalBytes", "JumpSize",
         "BaseAddressRegister", "PointerType", "PointerSize"
     },
-
     Inputs = {
         {
             Name = "CaptureSlots",
             Type = "integer",
-            Caption = "Capture slots (1 = single pointer)",
+            Caption = "Capture slots",
             Default = 1,
             Min = 1,
             Max = 8
@@ -27,13 +25,13 @@ return {
         {
             Name = "CompareRegister",
             Type = "string",
-            Caption = "Compare register (slots > 1)",
+            Caption = "Compare register",
             Default = "rax"
         },
         {
             Name = "UseMultiplier",
             Type = "boolean",
-            Caption = "Add a multiplier cell",
+            Caption = "Multiplier",
             Default = false
         },
         {
@@ -49,7 +47,6 @@ return {
             Default = "1.0"
         }
     },
-
     Memory = {
         AskForInjectionAddress = false,
         AskForHookName = true,

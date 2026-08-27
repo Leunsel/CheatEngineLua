@@ -29,7 +29,7 @@ return {
         {
             Name = "ReturnValue",
             Type = "integer",
-            Caption = "Return value (mode: Return value)",
+            Caption = "Return value",
             Default = 1,
             Min = -2147483648,
             Max = 2147483647
@@ -37,7 +37,7 @@ return {
         {
             Name = "CustomBytes",
             Type = "string",
-            Caption = "Bytes (mode: Custom bytes)",
+            Caption = "Custom bytes",
             Default = "90 90 90"
         }
     },

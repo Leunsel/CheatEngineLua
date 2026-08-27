@@ -8,22 +8,19 @@ return {
     CategoryOrder = 2,
     Order = 20,
     Tags = { "pointer", "trampoline", "detour" },
-
     Requires = {
         "AddressValue", "Module", "HookName",
         "AoBStr", "OriginalBytes", "BaseAddressRegister",
         "PointerType", "PointerSize"
     },
-
     -- No plain Cheat Engine equivalent exists for these commands, so the
     -- loader warns up front rather than generating a script that cannot work.
     Capabilities = { "Manifold.Trampolines" },
-
     Inputs = {
         {
             Name = "CaptureSlots",
             Type = "integer",
-            Caption = "Capture slots (1 = single pointer)",
+            Caption = "Capture slots",
             Default = 1,
             Min = 1,
             Max = 8
@@ -31,13 +28,13 @@ return {
         {
             Name = "CompareRegister",
             Type = "string",
-            Caption = "Compare register (slots > 1)",
+            Caption = "Compare register",
             Default = "rax"
         },
         {
             Name = "UseMultiplier",
             Type = "boolean",
-            Caption = "Add a multiplier cell",
+            Caption = "Multiplier",
             Default = false
         },
         {
@@ -53,7 +50,6 @@ return {
             Default = "1.0"
         }
     },
-
     Memory = {
         AskForInjectionAddress = false,
         AskForHookName = true,
