@@ -8,7 +8,7 @@
 local Version = {
     Major = 3,
     Minor = 1,
-    Patch = 1,
+    Patch = 2,
     Name = "Manifold TemplateLoader"
 }
 
