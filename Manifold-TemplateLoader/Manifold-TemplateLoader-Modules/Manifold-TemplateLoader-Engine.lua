@@ -61,6 +61,26 @@ Engine.Helpers = {
     isEmpty = function(value)
         return value == nil or value == ""
     end,
+    --- Number of bytes in a space-separated list, e.g. "F3 0F 5C" -> 3.
+    byteCount = function(bytes)
+        local count = 0
+        for _ in tostring(bytes or ""):gmatch("%S+") do count = count + 1 end
+        return count
+    end,
+    --- The first `count` bytes of such a list, e.g. ("F3 0F 5C", 2) -> "F3 0F".
+    --- A guard should cover exactly what a patch overwrites; asserting the whole
+    --- scanned span fails on anything further along it that the patch never
+    --- touches.
+    bytesPrefix = function(bytes, count)
+        local limit = tonumber(count) or 0
+        if limit < 1 then return "" end
+        local kept = {}
+        for token in tostring(bytes or ""):gmatch("%S+") do
+            kept[#kept + 1] = token
+            if #kept >= limit then break end
+        end
+        return table.concat(kept, " ")
+    end,
     trim = function(value)
         return type(value) == "string" and value:match("^%s*(.-)%s*$") or value
     end
