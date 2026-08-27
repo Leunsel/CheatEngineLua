@@ -1,12 +1,14 @@
 # Manifold Documentation
 
-Documentation for the three segments of the
+Documentation for the five segments of the
 [`Leunsel/CheatEngineLua`](https://github.com/Leunsel/CheatEngineLua) repository.
 
 | Segment | Directory | Runs where | Purpose |
 |---|---|---|---|
 | Manifold CE Utility | `Manifold-CE-Utility/` | Cheat Engine `autorun` | Quality of life menu for the Cheat Engine UI itself |
+| Manifold Exception Handler | `Manifold-ExceptionHandler/` | Cheat Engine `autorun` + native DLL | Attributes every exception raised in the process |
 | Manifold Framework | `Manifold-Modules/` | Inside a Cheat Table (`luaFiles` or table files) | Modular runtime library for Cheat Tables |
+| Manifold Table Files | `Manifold-TableFiles/` | Cheat Engine `autorun` | Editable window over the files attached to a Cheat Table |
 | Manifold Template Loader | `Manifold-TemplateLoader/` | Cheat Engine `autorun` | Template engine for Auto Assembler scripts |
 
 ## Entry points
@@ -14,11 +16,17 @@ Documentation for the three segments of the
 [Manifold CE Utility](Manifold-CE-Utility.md) covers installation, the menu reference and
 configuration.
 
+[Manifold Exception Handler](Manifold-ExceptionHandler.md) covers installation, building the
+native half, the report anatomy and what is and is not catchable.
+
 [Manifold Framework](Manifold-Framework.md) covers the architecture, bootstrapping, the data
 directory and an overview of the modules.
 
 [Manifold Framework API Reference](Manifold-Framework-API.md) is the complete function reference
 for every module.
+
+[Manifold Table Files](Manifold-TableFiles.md) covers installation, the window, and the design
+framework instance it carries.
 
 [Manifold Template Loader](Manifold-Template-Loader.md) covers the template syntax, context
 variables, the menu and hot reload.
@@ -27,7 +35,7 @@ variables, the menu and hot reload.
 
 ## Overall architecture
 
-The three segments are functionally separate and run at different times. There is no hard
+The four segments are functionally separate and run at different times. There is no hard
 coupling between them. They only share naming conventions and, in part, the data directory.
 
 ```
@@ -35,6 +43,14 @@ Cheat Engine starts
 │
 ├─ autorun/Manifold-CE-Utility.lua            Segment 1, the "[— Manifold —]" menu
 │    └─ hooks into MainForm.Menu
+│
+├─ autorun/Manifold-ExceptionHandler.lua      Segment 5, the exception recorder
+│    └─ package.loadlib → ManifoldExceptionHandler.dll
+│         └─ AddVectoredExceptionHandler(first)
+│              sees every exception in the process, before Cheat Engine does
+│
+├─ autorun/Manifold-TableFiles.lua            Segment 4, the Table Files window
+│    └─ publishes ManifoldTableFiles, registers no menu of its own
 │
 ├─ autorun/Manifold-TemplateLoader-Main.lua   Segment 3, the Template Loader
 │    ├─ Host (persistent, survives a hot reload)
@@ -65,8 +81,21 @@ render a comment block naming what is missing.
 The CE Utility has no runtime coupling to the Framework. It only references it in source comments
 as a reference implementation.
 
-The data directories do not collide. The Framework uses `%LOCALAPPDATA%\Manifold\` and the
-Template Loader uses `%LOCALAPPDATA%\Manifold\TemplateLoader\`.
+The CE Utility contributes the menu entry that opens Table Files and delegates to the global
+`ManifoldTableFiles`, logging where to install it when that global is absent. Neither segment
+requires the other. Table Files reads `forms.ActiveDesignTheme` when a Cheat Table has a live
+`Manifold.Forms`, so it follows the table's theme, but it never loads that module: it carries its
+own copy of the design framework, exactly as the Template Loader does.
+
+The Exception Handler is coupled to nothing at all, deliberately. It is the segment that has to
+keep working when the rest is broken, so it depends on no Manifold module, loads before the
+Framework exists, and degrades to a warning if its native half is missing. The Framework may call
+`ManifoldExceptionHandler.Note(...)` when the global happens to be there; nothing requires it to
+be.
+
+The data directories do not collide. The Framework uses `%LOCALAPPDATA%\Manifold\`, the
+Template Loader uses `%LOCALAPPDATA%\Manifold\TemplateLoader\`, and the Exception Handler writes
+to `%LOCALAPPDATA%\Manifold\Crashes\`.
 
 ## License
 

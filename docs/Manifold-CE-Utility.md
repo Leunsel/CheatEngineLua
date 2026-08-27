@@ -47,6 +47,7 @@ After startup an entry `[— Manifold —]` appears in Cheat Engine's main menu 
 | Open Structure Dissect | | `createStructureForm(nil, nil, nil)` |
 | Generate Structure Records | | Builds memory records from a selected structure |
 | Remove All Structures | | Removes all global structures, destructive |
+| Open Table File Viewer | | Opens [Manifold Table Files](Manifold-TableFiles.md), if installed |
 | *(separator)* | | |
 | Deactivate All Scripts | `Ctrl+D` | Deactivates all active `vtAutoAssembler` entries, destructive |
 | Deactivate Everything | `Ctrl+F` | Deactivates every active address list entry, destructive |

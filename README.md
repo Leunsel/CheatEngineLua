@@ -20,7 +20,10 @@ is an autorun script that generates Auto Assembler scripts from templates.
 [Manifold CE Utility](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-CE-Utility)
 is an autorun script that adds a quality of life menu to Cheat Engine itself.
 
-The documentation for all three lives in [`docs/`](docs/README.md).
+[Manifold Table Files](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-TableFiles)
+is an autorun script that puts every file attached to a Cheat Table into one editable window.
+
+The documentation for all four lives in [`docs/`](docs/README.md).
 
 ## Credits
 
