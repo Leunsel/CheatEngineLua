@@ -1,0 +1,122 @@
+<%
+-- Capture slots, the flag default and the multiplier all come from the input
+-- dialog, so this one template covers what used to be three files.
+local slots = math.floor(tonumber(CaptureSlots) or 1)
+if slots < 1 then slots = 1 end
+local pointerLabel = HookName .. "Ptr"
+local flagLabel = HookName .. "Flag"
+local multiplierLabel = HookName .. "Multiplier"
+local pointerSize = math.floor(tonumber(PointerSize) or 8)
+
+-- Slot 1 lives at the label itself; only later slots need an offset.
+local function cell(base, index, stride)
+    local offset = (index - 1) * stride
+    if offset == 0 then return base end
+    return base .. "+" .. offset
+end
+local function slotLabel(index) return "s" .. index .. "_" .. HookName end
+local function featureLabel(index) return "f" .. index .. "_" .. HookName end
+local function scaleLabel(index) return "m" .. index .. "_" .. HookName end
+
+local labels = {}
+for index = 1, slots do
+    labels[#labels + 1] = featureLabel(index)
+    if UseMultiplier then labels[#labels + 1] = scaleLabel(index) end
+    if slots > 1 then labels[#labels + 1] = slotLabel(index) end
+end
+local branchLabels = table.concat(labels, " ")
+
+-- Flag 2 only exists while the multiplier does. Without this the generated
+-- script would start on a value no branch handles and reset itself to 0.
+local flagDefault = math.floor(tonumber(FlagDefault) or 1)
+if not UseMultiplier and flagDefault > 1 then flagDefault = 1 end
+local dataSymbols = join(" ", pointerLabel, flagLabel, UseMultiplier and multiplierLabel or nil)
+%>
+<< Header >>
+
+[ENABLE]
+
+<< ScanModule >>
+<< Alloc >>
+
+<< AssertBytes >>
+
+label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
+label(<< dataSymbols >>)
+label(<< branchLabels >>)
+
+n_<< HookName >>:
+<% if slots > 1 then %>
+  // One capture slot per caller. The comparisons are placeholders: replace
+  // each cmp with whatever actually tells the callers apart.
+<% for slot = 1, slots - 1 do %>
+  cmp << CompareRegister >>,<< slot - 1 >>
+  je << slotLabel(slot) >>
+<% end %>
+  jmp << slotLabel(slots) >>
+<% end %>
+<% for slot = 1, slots do %>
+<% if slots > 1 then %>
+
+<< slotLabel(slot) >>:
+<% end %>
+  mov [<< cell(pointerLabel, slot, pointerSize) >>],<< BaseAddressRegister >>
+  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],0            // Disabled
+  je o_<< HookName >>
+  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],1            // Feature
+  je << featureLabel(slot) >>
+<% if UseMultiplier then %>
+  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],2            // Multiplier
+  je << scaleLabel(slot) >>
+<% end %>
+  mov byte ptr [<< cell(flagLabel, slot, 1) >>],0            // Unhandled: fall back to disabled
+  jmp o_<< HookName >>
+
+<< featureLabel(slot) >>:
+  // Flag 1: put what the feature does here.
+  jmp o_<< HookName >>
+<% if UseMultiplier then %>
+
+<< scaleLabel(slot) >>:
+  mulss << MultiplierRegister >>,[<< cell(multiplierLabel, slot, 4) >>]
+  jmp o_<< HookName >>
+<% end %>
+<% end %>
+
+o_<< HookName >>:
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
+  jmp r_<< HookName >>
+
+z_<< HookName >>:
+  readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
+
+<< pointerLabel >>:
+<% for slot = 1, slots do %>
+  << PointerType >> 0
+<% end %>
+
+<< flagLabel >>:
+<% for slot = 1, slots do %>
+  db << flagDefault >>
+<% end %>
+<% if UseMultiplier then %>
+
+<< multiplierLabel >>:
+<% for slot = 1, slots do %>
+  dd (float)<< MultiplierValue >>
+<% end %>
+<% end %>
+
+<< HookNameParsed >><< AoBOffset >>:
+  << JumpType >> n_<< HookName >>
+  << NopPadding >>
+r_<< HookName >>:
+registersymbol(<< HookNameParsed >> z_<< HookName >> << dataSymbols >>)
+
+[DISABLE]
+
+<< HookNameParsed >><< AoBOffset >>:
+  readMem(z_<< HookName >>,<< JumpSize >>)
+
+unregisterSymbol(*)
+dealloc(*)
