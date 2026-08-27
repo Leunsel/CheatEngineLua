@@ -1,12 +1,16 @@
 local NAME        = "Manifold.Bootstrap.lua"
 local AUTHOR      = {"Leunsel", "LeFiXER"}
-local VERSION     = "1.0.1"
+local VERSION     = "1.0.2"
 local DESCRIPTION = "Manifold Framework Bootstrap - dependency lookup, module registry, collision detection"
 
 --[[
-    ∂ v1.0.1 (2026-08-26)
-        PrintReport and PrintModuleInfo emit one entry per block through
-        Logger:BuildBlock, with a local fallback for the pre-logger case.
+    ∂ v1.0.2 (2026-08-27)
+        Draining the pre-logger queue no longer forces every line.
+        Only Warning and above are promoted; a queued Info is a
+        startup banner and ReadyLevel already decides whether it
+        shows. Manifold.Json and Manifold.Logger were the only two
+        modules built before the logger, so they were the only
+        banners that ignored that setting.
 
     ∂ v1.0.0 (2026-08-23)
         Initial release. One dependency lookup for every production module.
@@ -179,6 +183,20 @@ Bootstrap.Settings = REG.Settings
 ---   is lost anyway.
 --- @return table|nil
 --
+--
+--- ∑ Queued levels that are promoted to their Force variant when the queue
+---   drains. A warning or an error produced before any logger existed would
+---   otherwise be lost for good, and nobody could have chosen a level for it.
+---
+---   Info and Debug are deliberately absent. A queued Info is a startup banner,
+---   and ReadyLevel exists precisely so the console level decides whether it
+---   shows. Promoting it made Manifold.Json and Manifold.Logger - the only two
+---   modules built before the logger - the only banners that ignored that
+---   setting, and stamped them [FORCED] into the bargain. The log FILE keeps
+---   them either way: Logger:_DispatchLog writes before it filters.
+--
+local FORCE_ON_FLUSH = { Warning = true, Error = true, Critical = true }
+
 local function _logger()
     local lg = rawget(_G, "logger")
     if type(lg) == "table" and type(lg.Info) == "function" then return lg end
@@ -246,13 +264,14 @@ function Bootstrap.Flush()
     -- then appends to a fresh table instead of mutating the one being walked.
     REG.Pending = {}
     for index = 1, count do
-        -- Queued lines are emitted with the Force variant, and only queued
-        -- lines. They were produced BEFORE any logger existed, so the cheat
-        -- table had no opportunity to choose a level for them - there is no
-        -- preference here to override. Everything logged afterwards goes out at
-        -- its plain level and is filtered normally.
+        -- Only queued lines are promoted, and only the ones that report a
+        -- problem: those were produced before any logger existed and would be
+        -- lost otherwise. A level the caller already asked to force (ReadyLevel
+        -- = "ForceInfo", say) is left exactly as it is.
         local level = pending[index][1]
-        if lg["Force" .. level] then level = "Force" .. level end
+        if not level:match("^Force") and FORCE_ON_FLUSH[level] and lg["Force" .. level] then
+            level = "Force" .. level
+        end
         _emit(lg, level, pending[index][2])
     end
     REG.LogBusy = false
