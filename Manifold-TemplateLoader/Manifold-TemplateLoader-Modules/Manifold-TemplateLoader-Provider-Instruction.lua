@@ -87,13 +87,55 @@ function Provider.Register(registry, services)
         end
         return nil, nil
     end
-    local baseRegisterHint = function(ctx)
-        local instruction = (ctx:Resolve("OriginalInstruction")) or "?"
-        return "This template requires a simple memory operand such as:\n\n"
-            .. "[rax]\n[rax+30]\n[rbx-10]\n\n"
-            .. "The selected instruction uses:\n\n"
-            .. tostring(instruction) .. "\n\n"
-            .. "Select a compatible instruction or use a template that does not require BaseAddressRegister."
+    --- Any base register mentioned anywhere in the instruction, used as the
+    --- prompt default. Only a hint: the operand it belongs to may be the wrong
+    --- one, which is exactly why the value is offered rather than assumed.
+    local function firstKnownRegister(instruction)
+        if type(instruction) ~= "string" then return nil end
+        for token in instruction:gmatch("[%a][%w]*") do
+            if BASE_REGISTERS[token:lower()] then return token end
+        end
+        return nil
+    end
+    local function sortedRegisterNames()
+        local names = {}
+        for name in pairs(BASE_REGISTERS) do names[#names + 1] = name end
+        table.sort(names)
+        return table.concat(names, ", ")
+    end
+    --
+    --- Asks for the base register when the instruction does not carry one.
+    ---
+    --- A conditional hook on something like "subss xmm0,xmm9" is perfectly ordinary. The
+    --- pointer lives in some other register of the function, and only the
+    --- author knows which. Refusing to generate was wrong, the instruction
+    --- being unsuitable for auto-detection says nothing about whether the hook
+    --- makes sense.
+    --- @return string # A validated base register name.
+    --
+    local function askForBaseRegister(instruction)
+        local suggestion = firstKnownRegister(instruction) or ""
+        local message = "No memory operand such as [rax] or [rbx+30] was found in:\n\n"
+            .. tostring(instruction or "?") .. "\n\n"
+            .. "Enter the register that holds the base address at this point."
+        while true do
+            local answer = ce:InputQuery("Base Address Register", message, suggestion)
+            if answer == nil then
+                error(Errors.New{
+                    Code = Errors.Codes.INPUT_CANCELLED, Stage = Errors.Stages.Context,
+                    Message = "Base address register prompt was cancelled"
+                }, 0)
+            end
+            answer = tostring(answer):match("^%s*(.-)%s*$")
+            if BASE_REGISTERS[answer:lower()] then
+                log:Info("[Instruction] Base register '" .. answer .. "' supplied by hand for '"
+                    .. tostring(instruction) .. "'.")
+                return answer
+            end
+            message = "'" .. answer .. "' is not a base register.\n\nPick one of:\n\n"
+                .. sortedRegisterNames()
+            suggestion = firstKnownRegister(instruction) or ""
+        end
     end
     return registry:RegisterProvider{
         Name = Provider.Name,
@@ -276,27 +318,32 @@ function Provider.Register(registry, services)
             },
             BaseAddressRegister = {
                 Type = "string",
-                Description = "Base register of the first instruction's memory operand, or nil",
+                Description = "Base register of the instruction's memory operand, or one entered by hand",
                 DependsOn = { "OriginalInstruction" },
-                Hint = baseRegisterHint,
                 Resolve = function(ctx)
-                    local register = registerData(ctx:Get("OriginalInstruction"))
-                    if not register then
-                        log:Warning("[Instruction] No usable base register in '"
-                            .. tostring(ctx:Get("OriginalInstruction"))
-                            .. "'. Templates requiring << BaseAddressRegister >> cannot generate from this instruction.")
-                    end
-                    return register
+                    local instruction = ctx:Get("OriginalInstruction")
+                    local register = registerData(instruction)
+                    if register then return register end
+                    -- Auto-detection is deliberately conservative and gives up on
+                    -- anything past [reg] or [reg+/-off]. That is a limit of the
+                    -- detection, not a verdict on the hook, so ask instead of
+                    -- refusing. The answer is cached with the variable, so the
+                    -- prompt appears once per generation.
+                    log:Debug("[Instruction] No base register in '" .. tostring(instruction)
+                        .. "'. Asking for one.")
+                    return askForBaseRegister(instruction)
                 end
             },
             BaseAddressOffset = {
                 Type = "string",
-                Description = "Displacement of that operand ('0' for [reg]), or nil",
+                Description = "Displacement of that operand, '0' when the register was entered by hand",
                 DependsOn = { "OriginalInstruction" },
-                Hint = baseRegisterHint,
                 Resolve = function(ctx)
                     local _, offset = registerData(ctx:Get("OriginalInstruction"))
-                    return offset
+                    -- A hand-entered register stands for [reg] with no
+                    -- displacement. Without this the templates that pair the two
+                    -- would emit an empty offset.
+                    return offset or "0"
                 end
             }
         }
