@@ -74,7 +74,6 @@ z_<< HookName >>:
   << PointerType >> 0
 <% end %>
 <% if UseMultiplier then %>
-
 << multiplierLabel >>:
 <% for slot = 1, slots do %>
   dd (float)<< MultiplierValue >>

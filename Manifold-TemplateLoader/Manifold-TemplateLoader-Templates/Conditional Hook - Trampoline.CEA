@@ -3,6 +3,8 @@
 -- dialog, so this one template covers what used to be two files.
 local slots = math.floor(tonumber(CaptureSlots) or 1)
 if slots < 1 then slots = 1 end
+-- Code labels carry the parsed name (…Hook); data labels carry the bare one.
+local hook = HookName
 local pointerLabel = HookName .. "Ptr"
 local flagLabel = HookName .. "Flag"
 local multiplierLabel = HookName .. "Multiplier"
@@ -14,17 +16,7 @@ local function cell(base, index, stride)
     if offset == 0 then return base end
     return base .. "+" .. offset
 end
-local function slotLabel(index) return "s" .. index .. "_" .. HookName end
-local function featureLabel(index) return "f" .. index .. "_" .. HookName end
-local function scaleLabel(index) return "m" .. index .. "_" .. HookName end
-
-local labels = {}
-for index = 1, slots do
-    labels[#labels + 1] = featureLabel(index)
-    if UseMultiplier then labels[#labels + 1] = scaleLabel(index) end
-    if slots > 1 then labels[#labels + 1] = slotLabel(index) end
-end
-local branchLabels = table.concat(labels, " ")
+local function slotLabel(index) return "s" .. index .. "_" .. hook end
 
 -- Flag 2 only exists while the multiplier does. Without this the generated
 -- script would start on a value no branch handles and reset itself to 0.
@@ -39,14 +31,16 @@ local dataSymbols = join(" ", pointerLabel, flagLabel, UseMultiplier and multipl
 << ScanModule >>
 << GlobalAlloc >>
 
-ManifoldInstallDetour(<< HookName >>,<< HookNameParsed >><< AoBOffset >>,n_<< HookName >>)
+ManifoldInstallDetour(<< HookName >>,<< HookNameParsed >><< AoBOffset >>,n_<< hook >>)
 << AssertBytes >>
 
-label(o_<< HookName >>)
+label(o_<< hook >> r_<< hook >>)
 label(<< dataSymbols >>)
-label(<< branchLabels >>)
+<% if slots > 1 then %>
+label(<% local names = {} for index = 1, slots do names[index] = slotLabel(index) end %><< table.concat(names, " ") >>)
+<% end %>
 
-n_<< HookName >>:
+n_<< hook >>:
 <% if slots > 1 then %>
   // One capture slot per caller. The comparisons are placeholders: replace
   // each cmp with whatever actually tells the callers apart.
@@ -62,42 +56,41 @@ n_<< HookName >>:
 << slotLabel(slot) >>:
 <% end %>
   mov [<< cell(pointerLabel, slot, pointerSize) >>],<< BaseAddressRegister >>
-  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],0            // Disabled
-  je o_<< HookName >>
-  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],1            // Feature
-  je << featureLabel(slot) >>
+  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],0    // Disabled
+  je o_<< hook >>
+
+  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],1    // Feature
+  jne @f
+    jmp o_<< hook >>
+
+  @@:
 <% if UseMultiplier then %>
-  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],2            // Multiplier
-  je << scaleLabel(slot) >>
-<% end %>
-  mov byte ptr [<< cell(flagLabel, slot, 1) >>],0            // Unhandled: fall back to disabled
-  jmp o_<< HookName >>
+  cmp byte ptr [<< cell(flagLabel, slot, 1) >>],2    // Multiplier (Default)
+  jne @f
+    mulss << MultiplierRegister >>,[<< cell(multiplierLabel, slot, 4) >>]
+    jmp o_<< hook >>
 
-<< featureLabel(slot) >>:
-  // Flag 1: put what the feature does here.
-  jmp o_<< HookName >>
-<% if UseMultiplier then %>
-
-<< scaleLabel(slot) >>:
-  mulss << MultiplierRegister >>,[<< cell(multiplierLabel, slot, 4) >>]
-  jmp o_<< HookName >>
+  @@:
 <% end %>
+  mov byte ptr [<< cell(flagLabel, slot, 1) >>],0    // Unhandled Case
+  jmp o_<< hook >>
 <% end %>
 
-o_<< HookName >>:
-  ManifoldEmitOriginal(<< HookName >>)
+o_<< hook >>:
+  ManifoldEmitOriginalNoReturn(<< HookName >>)
+
+r_<< hook >>:
+  ManifoldEmitReturn(<< HookName >>)
 
 << pointerLabel >>:
 <% for slot = 1, slots do %>
   << PointerType >> 0
 <% end %>
-
 << flagLabel >>:
 <% for slot = 1, slots do %>
   db << flagDefault >>
 <% end %>
 <% if UseMultiplier then %>
-
 << multiplierLabel >>:
 <% for slot = 1, slots do %>
   dd (float)<< MultiplierValue >>
