@@ -544,7 +544,7 @@ logger.DataDir   = "D:\\Manifold"   -- the logger keeps its own copy!
 | Module | Version | Purpose |
 |---|---|---|
 | Manifold.Utils | 1.1.0 | Window title, dialogs, hash check, custom types, async switching |
-| Manifold.ProcessHandler | 1.2.8 | Auto-attach, process monitoring, cleanup and re-attach |
+| Manifold.ProcessHandler | 2.0.0 | Auto-attach, process monitoring, cleanup and re-attach |
 
 ### Runtime
 
@@ -600,58 +600,55 @@ scenario. `Manifold.UnitTest.Output.txt` contains a recorded run.
 
 ### 5.1 Process lifecycle
 
+Four steps, and the module does nothing besides them.
+
 ```
 processHandler:AutoAttach("Game.exe")
    │  timer every 1000 ms (AutoAttachTimerInterval)
    │  optional timeout via options.maxSecs
    ▼
-getProcessIDFromProcessName → openProcess
-   ▼
-OnProcessAttached(name, pid, options)
-   ├─ PerformPostAttachTasks()
-   │    ├─ utils:InitializeTable()   → ui:InitializeForm() + utils:SetTitle()
-   │    └─ utils:VerifyFileHash()    (only when utils.VerifyMD5)
-   ├─ options.onAttached(self, name, pid)     (optional callback)
-   └─ StartProcessWatchTimer(name)
-        ├─ TTimer, 1000 ms ─┐
-        └─ fallback thread ─┴→ EvaluateTarget(source, epoch)
-                                 ├─ ProbeTarget() → alive | gone | changed | unknown
-                                 ├─ debounce: LivenessFailureThreshold in a row
-                                 └─ single-flight: one cleanup, never two
+getProcessIDFromProcessName  →  openProcess  →  readInteger(process)
+   │                                                   │
+   │  a PID and an open are not proof; only the read is │
+   ▼                                                   ▼
+stale entry: say so once, keep waiting        confirmed: attached
+                                                       │
+                                                       ├─ PerformPostAttachTasks()
+                                                       │    ├─ utils:InitializeTable()
+                                                       │    └─ utils:VerifyFileHash()  (when utils.VerifyMD5)
+                                                       ├─ options.onAttached(self, name, pid)
+                                                       └─ watch
+                                                            ├─ timer every 1000 ms → readInteger(process)
+                                                            └─ fallback thread, only while the timer is silent
 ```
 
-The fallback thread exists only for the case where CE stops dispatching timer events. It stays out
-of the way while the TTimer is demonstrably still ticking, so the two watchers never race.
-
-When the process disappears:
+When the read fails `LivenessFailureThreshold` times in a row:
 
 ```
-HandleProcessUnavailable(reason)
- └─ CleanupAndReattach(reason, timer)
-     ├─ StopAutoAttachTimer() / StopProcessWatchTimer()
-     ├─ DisableAllWithoutExecute()   → AddressList.disableAllWithoutExecute()
-     │                                 + deleteAllRegisteredSymbols()
-     ├─ ResetProcessBoundState()     → autoAssembler:Reset()
-     │                                 assemblerCommands.ActivePatches = {}
-     │                                 trampolines:Reset()
-     └─ AutoAttach(processName)      → the cycle restarts, unless the
-                                        restart-storm guard has tripped
+watch → loss
+ ├─ Stop()                        both timers, and the watch epoch is retired
+ ├─ DisableAllWithoutExecute()    AddressList.disableAllWithoutExecute()
+ │                                + deleteAllRegisteredSymbols()
+ ├─ ResetProcessBoundState()      autoAssembler:Reset()
+ │                                assemblerCommands.ActivePatches = {}
+ │                                trampolines:Reset()
+ └─ AutoAttach(processName)       the cycle restarts, unless it has disarmed
 ```
 
-If more than `RestartStormLimit` cycles happen inside `RestartStormWindowSeconds`, the handler stops
-restarting itself and reports once. That is thrashing, not recovery, and repeating it only buries the
-cause in log noise. `processHandler:AutoAttach(name)` re-arms it.
+Cheat Engine hands out PIDs from a cached process list, so a game that has already exited is still
+found by name and `openProcess` on its dead PID still reports success — the entry lingers as
+`<pid>-???`. That is why the attach is confirmed with a read: without it the handler reattaches to
+the corpse, the watch notices immediately, and the table is torn down every few seconds forever.
 
-The fallback thread matters. It periodically compares the PID against the process name and
-therefore also catches a game restart under the same name, which a plain `readInteger(process)`
-probe would miss.
+Losing the same PID `SamePidLossLimit` times in a row, each within `QuickLossSeconds` of attaching,
+means the reattach is not recovering anything. The handler then stops restarting itself and reports
+once. A longer session resets the count, and `processHandler:AutoAttach(name)` re-arms it.
 
-The watch epoch lives in `_G.__ManifoldProcessWatchRegistry` and is retired on every stop. Every
+The watch epoch lives in `_G.__ManifoldProcessHandlerEpoch` and is retired on every `Stop()`. Every
 timer and thread carries the epoch it was born under and exits as soon as that epoch is gone. It has
 to be shared rather than per-instance: reloading the table builds a new handler while the previous
-one's watchers keep running, and only a process-wide epoch can retire those. A re-attach leaves no
-orphaned
-threads behind.
+one's watchers keep running, and only a process-wide epoch can retire those.
+
 
 ### 5.2 Auto Assembler execution
 
