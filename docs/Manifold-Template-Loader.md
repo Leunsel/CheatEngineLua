@@ -101,18 +101,41 @@ A cancelled prompt aborts silently. A real failure produces one structured error
 ```
 Template generation failed
 
-Template:  Pointer Hook
-Source:    .../Pointer Hook.CEA
-Variable:  BaseAddressRegister
-Provider:  Instruction
-Reason:    Required context variable 'BaseAddressRegister' could not be resolved.
+Template:  Mono Hook
+Source:    .../Mono Hook.CEA
+Variable:  MonoDescriptor
+Provider:  Mono
+Reason:    Required context variable 'MonoDescriptor' could not be resolved.
 
-This template requires a simple memory operand such as:
-[rax] / [rax+30] / [rbx-10]
-The selected instruction uses:
-movss [rax+rcx*4+30],xmm0
-Select a compatible instruction or use a template that does not require BaseAddressRegister.
+The target is not a managed (Mono/.NET) process.
 ```
+
+### Base address register
+
+`BaseAddressRegister` is detected from the instruction's memory operand, and the detection is
+deliberately conservative: anything past `[reg]` or `[reg+/-off]` returns nothing rather than a
+partial answer that would capture the wrong pointer. A scaled index like `[rax+rcx*4+30]`, an
+absolute operand like `[A1B2C3D4]`, or an instruction with no memory operand at all, such as
+`subss xmm0,xmm9`, all fall into that gap.
+
+That is a limit of the detection, not a verdict on the hook. A conditional hook on `subss` is
+perfectly ordinary — the pointer simply lives in some other register of the function, and only the
+author knows which. So the loader asks:
+
+```
+Base Address Register
+
+No memory operand such as [rax] or [rbx+30] was found in:
+
+subss xmm0,xmm9
+
+Enter the register that holds the base address at this point.
+```
+
+Any base register in the instruction is offered as the default. An answer that is not a base
+register is asked again with the valid names listed; cancelling aborts the generation silently. When
+the register is entered by hand, `BaseAddressOffset` resolves to `"0"`, so the two stay usable
+together.
 
 ## Template syntax
 
@@ -674,10 +697,9 @@ built-in variable is deprecated today.
 
 Changed on purpose and visible to the user:
 
-Cancelling a prompt aborts silently where 2.x showed an error dialog. `BaseAddressRegister` and
-`BaseAddressOffset` resolve to `nil` instead of an empty string and `"0"` when no simple base
-register exists. The rendered output is empty either way, and templates declaring `Requires` now
-fail early with an actionable hint. A full runtime reload asks for confirmation before closing
+Cancelling a prompt aborts silently where 2.x showed an error dialog. When no simple base register
+can be detected, `BaseAddressRegister` is asked for instead of failing the generation, and
+`BaseAddressOffset` then resolves to `"0"`. A full runtime reload asks for confirmation before closing
 Auto Assembler windows. The log file moved from `autorun\...\Modules\` to
 `%LOCALAPPDATA%\Manifold\TemplateLoader\Logs\`. The `Template Loader` menu was restructured.
 `TemplateSettings` exposes normalized fields plus the legacy spellings.

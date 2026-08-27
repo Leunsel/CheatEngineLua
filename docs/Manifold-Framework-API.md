@@ -499,37 +499,49 @@ Each of the three returns early when the type is already registered.
 
 ## Manifold.ProcessHandler
 
-`ProcessHandler`, version 1.2.8. `logger` is required and `utils` is a runtime dependency.
+`ProcessHandler`, version 2.0.0. `logger` is required and `utils` is a runtime dependency.
 `New(config)` copies every key of `config` onto the instance.
+
+The module does four things and nothing else: wait for the process, attach to it, watch it, and
+start over when it dies.
+
+### The one true signal
+
+Cheat Engine offers three ways to answer "is the process there", and two of them lie:
+
+| Call | Behaviour |
+|---|---|
+| `getOpenedProcessID()` | Keeps reporting the PID of a process that has exited |
+| `getProcessIDFromProcessName(name)` | Keeps serving that PID from a cached list, so an exited game is still "found" and `openProcess` still succeeds on it |
+| `readInteger(process)` | Tracks reality |
+
+So the first two are used only to **find** a candidate; a read is what **confirms** one. An attach is
+never reported until the read succeeds, which is what stops the handler from talking to a corpse.
 
 ### Fields
 
 | Field | Default | Description |
 |---|---|---|
 | `ProcessName` | `nil` | Target process |
-| `AutoAttachTimerInterval` | `1000` | ms |
-| `ProcessWatchTimerInterval` | `1000` | ms |
-| `AttachedProcessName` / `AttachedProcessID` | `nil` | Set after a successful attach |
-| `IsAutoAttaching` / `IsWatchingProcess` | `false` | |
-| `ProcessWatchGeneration` | `0` | Mirror of the shared watch epoch this instance last claimed |
-| `LivenessFailureThreshold` | `2` | Consecutive bad probes before the target counts as gone |
-| `RestartStormLimit` | `4` | Cleanup cycles tolerated inside the window |
-| `RestartStormWindowSeconds` | `10` | Length of that window |
-| `RestartStormTripped` | `false` | Set when auto-restart has disarmed itself |
+| `AutoAttachTimerInterval` | `1000` | ms between attach attempts |
+| `ProcessWatchTimerInterval` | `1000` | ms between liveness reads |
+| `LivenessFailureThreshold` | `2` | Consecutive failed reads before the process counts as gone |
+| `SamePidLossLimit` | `3` | Quick losses of the same PID in a row before auto-restart gives up |
+| `QuickLossSeconds` | `10` | A session shorter than this counts as a quick loss |
+| `AttachedProcessName` / `AttachedProcessID` | `nil` | Set once an attach is confirmed |
+| `IsAutoAttaching` / `IsWatchingProcess` | `false` | Which timer is live |
+| `Disarmed` | `false` | Set when auto-restart has stopped itself |
 | `AutoAttachOptions` | `nil` | The options last passed in |
 
 ### Attaching
 
 | Function | Returns | Description |
 |---|---|---|
-| `processHandler:AutoAttach(name [, options, internalRestart])` | `boolean` | Starts the waiting timer. `options` may be a number, meaning a timeout in seconds, or a table of `{ maxSecs, runPostAttachTasks, onAttached }`. `maxSeconds` and `timeoutSeconds` are accepted as aliases of `maxSecs`. Unless `internalRestart` is `true` the call clears the restart-storm history, so an explicit call always re-arms recovery. |
-| `processHandler:AttachToProcess(name [, pid, options])` | `boolean` | Direct attach with validation. A changed PID triggers `ResetProcessBoundState`. |
-| `processHandler:AttachToProcessByName(name)` | `boolean` | Resolves the PID and calls `AttachToProcess`. |
-| `processHandler:ResolveProcessName(name)` | `string\|nil` | Falls back to `ProcessName` and then `AttachedProcessName`, and stores the result in `ProcessName`. |
-| `processHandler:OnProcessAttached(name, pid, options)` | | Post-attach tasks, the `onAttached` callback and the watch timer. |
-| `processHandler:PerformPostAttachTasks()` | | `utils:InitializeTable()` and, when `utils.VerifyMD5` is set, `utils:VerifyFileHash()`. Both are guarded, since `utils` is a runtime dependency. |
-
-Options table:
+| `processHandler:AutoAttach(name [, options, internalRestart])` | `boolean` | Starts the waiting timer. `options` may be a number, meaning a timeout in seconds, or a table of `{ maxSecs, runPostAttachTasks, onAttached }`; `maxSeconds` and `timeoutSeconds` are aliases of `maxSecs`. `internalRestart` is used by the loss handler and is refused while disarmed, so only an explicit call re-arms recovery. |
+| `processHandler:AttachToProcessByName(name)` | `boolean` | Attaches right now, without waiting. Refuses a PID that does not answer a read. |
+| `processHandler:AttachToProcess(name [, pid, options])` | `boolean` | The same for a known PID; falls back to the name when `pid` is nil. |
+| `processHandler:ResolveProcessName([name])` | `string\|nil` | Falls back to `ProcessName`, then `AttachedProcessName`, and stores the result. |
+| `processHandler:Stop()` | | Stops both timers and retires the watch epoch. |
 
 ```lua
 processHandler:AutoAttach("Game.exe", {
@@ -537,7 +549,6 @@ processHandler:AutoAttach("Game.exe", {
     runPostAttachTasks = true,      -- false = leave UI/title alone
     onAttached = function(handler, name, pid)
         logger:InfoF("Attached to %s (%d)", name, pid)
-        state:LoadTableState("Default")
     end,
 })
 ```
@@ -547,56 +558,45 @@ processHandler:AutoAttach("Game.exe", {
 | Function | Returns | Description |
 |---|---|---|
 | `processHandler:IsProcessAttached()` | `boolean` | Did `readInteger(process)` succeed? |
-| `processHandler:IsAttachedProcessAvailable()` | `integer\|nil` | Raw value of the probe read |
+| `processHandler:IsAttachedProcessAvailable()` | `integer\|nil` | The raw probe value |
 | `processHandler:GetAttachedProcessName()` | `string\|nil` | |
 | `processHandler:GetAttachedNameNoExt()` | `string\|nil` | The attached name without its `.exe` extension |
-| `processHandler:IsAttachedToTarget([name, pid])` | `boolean` | Compares `getOpenedProcessID()` against the expected PID. The name argument is kept for call-site compatibility only. |
-| `processHandler:IsTargetProcessValid([name, pid])` | `boolean` | Synonym for `IsProcessAttached` |
-| `processHandler:GetProcessWatchStatus()` | `table` | `{isWatching, timer, ticks, lastTick, fallbackTicks, fallbackLastTick}`, useful for diagnostics |
-
-### Monitoring
-
-| Function | Returns | Description |
-|---|---|---|
-| `processHandler:StartProcessWatchTimer([name])` | `boolean` | Opens a new epoch, then starts the TTimer and the fallback thread |
-| `processHandler:StopProcessWatchTimer([timer])` | `boolean` | Retires the current epoch, which stops every watcher in the Lua state |
-| `processHandler:StartProcessWatchFallback(name, pid [, epoch])` | `boolean` | `createThread` loop that only acts while the TTimer is silent |
-| `processHandler:ProbeTarget(name [, pid])` | `string, number\|nil` | `"alive"`, `"gone"`, `"changed"` or `"unknown"`, plus the PID currently holding the name |
-| `processHandler:EvaluateTarget(source [, epoch, timer])` | `boolean` | The single decision point. Debounced and single-flight; `false` means the watch stopped |
-| `processHandler:CheckWatchedProcess(timer)` | `boolean` | Thin wrapper over `EvaluateTarget` |
-| `processHandler:StopAutoAttachTimer([timer])` | | |
-
-### Watch epochs and the restart guard
-
-Watch bookkeeping lives in `_G.__ManifoldProcessWatchRegistry`, not on the instance. Reloading a
-cheat table re-runs the module and builds a new handler, but the timers and threads of the previous
-one keep running; when their generation counter lived on their own instance nothing could retire
-them, and every surviving watcher ran its own full cleanup when the game exited. A shared epoch
-retires all of them at once.
-
-| Function | Returns | Description |
-|---|---|---|
-| `processHandler:BeginWatchEpoch()` | `number` | Opens a new epoch and retires every older watcher |
-| `processHandler:IsWatchEpochCurrent(epoch)` | `boolean` | False once a newer watcher has taken over |
-| `processHandler:RegisterRestartAttempt()` | `boolean, number` | Records a cycle; `false` once the window limit is exceeded |
-| `processHandler:ClearRestartHistory()` | | Forgets the history and clears `RestartStormTripped` |
 
 ### Cleanup
 
 | Function | Description |
 |---|---|
-| `processHandler:HandleProcessUnavailable(reason [, timer])` | Delegates to `CleanupAndReattach`. |
-| `processHandler:HandleProcessChanged(oldPid, newPid [, timer])` | The same, with PID context in the message. |
-| `processHandler:CleanupAndReattach(reason [, timer])` | Stops the timers, then `DisableAllWithoutExecute`, then `ResetProcessBoundState`, then `AutoAttach`. Single-flight: a second caller while one is running is ignored. Record and patch teardown is skipped when nothing was attached. Returns `false` when it refused. |
-| `processHandler:DisableAllWithoutExecute()` | `AddressList.disableAllWithoutExecute()` plus `deleteAllRegisteredSymbols()`. |
+| `processHandler:DisableAllWithoutExecute()` | `AddressList.disableAllWithoutExecute()` plus `deleteAllRegisteredSymbols()`. The disable scripts cannot run: their process is gone. |
 | `processHandler:ResetProcessBoundState(reason)` | `autoAssembler:Reset()`, `assemblerCommands.ActivePatches = {}` and `trampolines:Reset()`, each only when that module is loaded. |
+| `processHandler:PerformPostAttachTasks()` | `utils:InitializeTable()` and, when `utils.VerifyMD5` is set, `utils:VerifyFileHash()`. Both guarded, since `utils` is a runtime dependency. |
+
+### Watch epochs
+
+Watch state is keyed by an epoch counter in `_G.__ManifoldProcessHandlerEpoch`, not on the instance.
+Reloading a cheat table re-runs the module and builds a new handler, but the timers and threads of
+the previous one keep running; a counter on the instance could never retire those, and every
+surviving watcher then ran its own cleanup when the game exited. Every timer and thread carries the
+epoch it was born under and exits as soon as that epoch is gone. Loading the file opens a new epoch,
+and so does `Stop()`.
+
+A background thread backs the watch timer up, for hosts where Cheat Engine stops dispatching TTimer
+events. It stays quiet while the timer is demonstrably still ticking, so the two never race, and it
+runs the same check.
+
+### Giving up
+
+Losing the same PID `SamePidLossLimit` times in a row, each within `QuickLossSeconds` of attaching,
+means the reattach is not recovering anything. The handler stops restarting itself and reports once
+rather than tearing the table down every few seconds. A session that lasted longer than
+`QuickLossSeconds` was a normal one and resets the count. `processHandler:AutoAttach(name)` re-arms.
 
 ### Miscellaneous
 
 | Function | Description |
 |---|---|
 | `processHandler:CloseProcess()` | Asks for confirmation and terminates the process via `taskkill /PID <pid> /F`. |
-| `processHandler:OpenLink(url)` | Asks for confirmation and opens the URL via `ShellExecute`. |
+| `processHandler:OpenLink(url)` | Asks for confirmation and opens the URL via `ShellExecute`. Used by cheat tables for `steam://run/<appid>`. |
+
 
 ## Manifold.Memory
 
