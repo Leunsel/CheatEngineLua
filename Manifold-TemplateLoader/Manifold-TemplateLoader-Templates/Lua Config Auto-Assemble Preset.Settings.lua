@@ -23,7 +23,7 @@ return {
             Name = "FlagDefault",
             Type = "integer",
             Caption = "Flag starts at",
-            Default = 1,
+            Default = 2,
             Min = 0,
             Max = 255
         },
