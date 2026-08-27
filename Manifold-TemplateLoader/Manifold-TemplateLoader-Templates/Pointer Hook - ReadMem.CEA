@@ -1,3 +1,27 @@
+<%
+-- Capture slots, the multiplier and the compare register all come from the
+-- input dialog, so this one template covers what used to be four files.
+local slots = math.floor(tonumber(CaptureSlots) or 1)
+if slots < 1 then slots = 1 end
+local pointerLabel = HookName .. "Ptr"
+local multiplierLabel = HookName .. "Multiplier"
+local pointerSize = math.floor(tonumber(PointerSize) or 8)
+
+-- Slot 1 lives at the label itself; only later slots need an offset.
+local function cell(base, index, stride)
+    local offset = (index - 1) * stride
+    if offset == 0 then return base end
+    return base .. "+" .. offset
+end
+local function slotLabel(index)
+    return "s" .. index .. "_" .. HookName
+end
+
+local slotNames = {}
+for index = 1, slots do slotNames[index] = slotLabel(index) end
+local slotLabelList = table.concat(slotNames, " ")
+local dataSymbols = join(" ", pointerLabel, UseMultiplier and multiplierLabel or nil)
+%>
 << Header >>
 
 [ENABLE]
@@ -8,26 +32,60 @@
 << AssertBytes >>
 
 label(o_<< HookName >> r_<< HookName >> z_<< HookName >>)
-label(<< HookName >>Ptr)
+label(<< dataSymbols >>)
+<% if slots > 1 then %>
+label(<< slotLabelList >>)
+<% end %>
 
 n_<< HookName >>:
-  mov [<< HookName >>Ptr],<< BaseAddressRegister >>
+<% if slots == 1 then %>
+  mov [<< pointerLabel >>],<< BaseAddressRegister >>
+<% if UseMultiplier then %>
+  mulss << MultiplierRegister >>,[<< multiplierLabel >>]
+<% end %>
+<% else %>
+  // One capture slot per caller. The comparisons are placeholders: replace
+  // each cmp with whatever actually tells the callers apart.
+<% for slot = 1, slots - 1 do %>
+  cmp << CompareRegister >>,<< slot - 1 >>
+  je << slotLabel(slot) >>
+<% end %>
+  jmp << slotLabel(slots) >>
+<% for slot = 1, slots do %>
+
+<< slotLabel(slot) >>:
+  mov [<< cell(pointerLabel, slot, pointerSize) >>],<< BaseAddressRegister >>
+<% if UseMultiplier then %>
+  mulss << MultiplierRegister >>,[<< cell(multiplierLabel, slot, 4) >>]
+<% end %>
+  jmp o_<< HookName >>
+<% end %>
+<% end %>
 
 o_<< HookName >>:
   readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
   jmp r_<< HookName >>
-  
+
 z_<< HookName >>:
   readMem(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
 
-<< HookName >>Ptr:
+<< pointerLabel >>:
+<% for slot = 1, slots do %>
   << PointerType >> 0
+<% end %>
+<% if UseMultiplier then %>
+
+<< multiplierLabel >>:
+<% for slot = 1, slots do %>
+  dd (float)<< MultiplierValue >>
+<% end %>
+<% end %>
 
 << HookNameParsed >><< AoBOffset >>:
   << JumpType >> n_<< HookName >>
   << NopPadding >>
 r_<< HookName >>:
-registersymbol(<< HookNameParsed >> z_<< HookName >> << HookName >>Ptr)
+registersymbol(<< HookNameParsed >> z_<< HookName >> << dataSymbols >>)
 
 [DISABLE]
 

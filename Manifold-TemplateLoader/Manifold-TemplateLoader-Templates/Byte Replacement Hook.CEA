@@ -1,3 +1,18 @@
+<%
+-- Mode picks what gets written over the signature. Nop is left to ManifoldNop,
+-- which already knows the span; every other mode needs an explicit byte string.
+local ReplacementBytes = ""
+if Mode == "Return" then
+    ReplacementBytes = "C3"
+elseif Mode == "Return value" then
+    -- mov eax,<value> is B8 followed by a little-endian imm32, then ret.
+    local value = math.floor(tonumber(ReturnValue) or 0)
+    ReplacementBytes = string.format("B8 %02X %02X %02X %02X C3",
+        value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF, (value >> 24) & 0xFF)
+elseif Mode == "Custom bytes" then
+    ReplacementBytes = trim(CustomBytes)
+end
+%>
 << Header >>
 
 [ENABLE]
@@ -5,15 +20,31 @@
 << ScanModule >>
 
 << AssertBytes >>
-
+<% if Mode == "Nop" then %>
+<% if HasManifoldCommands then %>
+ManifoldNop(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)
+<% else %>
 << HookNameParsed >><< AoBOffset >>:
-  db << OriginalBytes >>
+  db << default(NopBytes, "90") >>
+<% end %>
+<% elseif HasManifoldCommands then %>
+ManifoldPatch(<< HookNameParsed >><< AoBOffset >>,<< ReplacementBytes >>)
+<% else %>
+<< HookNameParsed >><< AoBOffset >>:
+  db << ReplacementBytes >>
+<% end %>
 
 registersymbol(<< HookNameParsed >>)
 
 [DISABLE]
 
+<% if not HasManifoldCommands then %>
 << HookNameParsed >><< AoBOffset >>:
   db << OriginalBytes >>
+<% elseif Mode == "Nop" then %>
+ManifoldNop(<< HookNameParsed >><< AoBOffset >>)
+<% else %>
+ManifoldPatch(<< HookNameParsed >><< AoBOffset >>)
+<% end %>
 
 unregisterSymbol(*)
