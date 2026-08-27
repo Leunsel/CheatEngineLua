@@ -671,7 +671,8 @@ dependency. Since 1.0.5 every Cheat Engine access is main-thread synchronized.
 | `state:SaveTableState(name)` | `boolean` | Saves active records and records with hotkeys. With neither present it returns `false` plus a warning. |
 | `state:LoadTableState(name)` | `boolean` | Reads the file and calls `RestoreState`. |
 | `state:RestoreState(stateData)` | `table` | `{activatedCount, deactivatedCount, unchangedCount, failedCount}`. Exclusive, so records not listed get deactivated. Reports the whole run as one log entry. |
-| `state:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats)` | `table` | `{ Lines, Summary }`. Pure, so the layout can be tested without the logger. |
+| `state:RestoreOriginalState()` | `table` | Deactivates everything that is active. Reports as one entry too. |
+| `state:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats [, title])` | `table` | `{ Lines, Summary }`. Pure, so the layout can be tested without the logger. The summary names only the counters present in `stats`, so an operation that cannot activate anything does not report `0 activated`. |
 
 A restore touching forty records used to produce forty log entries, each with its own timestamp and
 module prefix, all inside the same second. It is now one entry, grouped by outcome, with the record
