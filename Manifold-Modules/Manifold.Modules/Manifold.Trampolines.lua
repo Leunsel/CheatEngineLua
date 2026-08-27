@@ -1,47 +1,34 @@
 local NAME = "Manifold.Trampolines.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 local DESCRIPTION = "Manifold Framework Trampolines"
 
 --[[
-    ∂ v1.1.0 (2026-08-23)
-        _rewriteAbsoluteMemoryInstruction no longer wraps control transfers or
-        stack instructions in push/pop. For `jmp qword ptr [rip+X]` - an import
-        thunk, a very common hook target - control left at the jmp and the
-        matching pop never ran, so the callee's ret took the saved register as
-        its return address. For `call qword ptr [rip+X]` the extra push shifted
-        RSP off its 16-byte alignment and faulted any callee spilling XMM to a
-        stack local. Those mnemonics are position independent already and are
-        now copied verbatim instead.
-
-        _selectTempRegister sees sub-register spellings. It tested only the
-        64-bit name against a word-frontier pattern, so "r11" did not match
-        inside "r11d" and r11 was declared free for `mov r11d,[rip+X]`; the
-        emitted `pop r11` then destroyed the value just loaded. It now rejects
-        a candidate if any spelling of it appears, and returns nil rather than
-        guessing when nothing is free.
-
-        Instruction relocation is bitness-correct. The conditional-jump path
-        hard-coded a 2-byte skip of 0x0E over a `jmp far`, which is only the
-        x64 encoding; on x86 it overshot by 4 bytes into the middle of the next
-        relocated instruction, silently. Absolute jumps and calls are now
-        emitted as raw bytes whose length this module knows - FF 25 with an
-        inline qword on x64, push imm32/ret on x86 - and the skip is derived
-        from that. The relocated call no longer clobbers r11 on either bitness;
-        x64 uses a rip-relative indirect call over an inline pointer.
-
-        InstallDetour refuses an inject range that overlaps a live detour, and
-        refuses bytes that visibly belong to somebody else's patch (a leading
-        E9/EB or FF 25). Two scripts hooking one instruction previously produced
-        a deterministic crash from enable/disable ordering alone: the second
-        recorded the first one's jump as "original bytes" and restored it later
-        into a relay slot that had since been zeroed.
-
-        The PE-header relay search is clamped to the first section's RVA.
-        max(SizeOfHeaders, 0x1000) reached past the headers whenever
-        SectionAlignment was below 0x1000, and _isHeaderCaveFree accepts 0xCC -
-        exactly MSVC's inter-function padding - so a relay could be written into
-        .text and the page then left permanently writable.
+    ∂ v1.2.0 (2026-08-27)
+        The module that owns an address is read from the module list instead of
+        being parsed out of getNameFromAddress. That function is a display
+        formatter: it returns whichever label reads best, and both a
+        user-defined symbol and an exported or PDB symbol outrank
+        "module+offset". Any DLL that ships symbols - a RelWithDebInfo game
+        build exports thousands - therefore named an inject site
+        "SomeFunction+1F", the old parse took "SomeFunction" for the module
+        name, and the PE reader was handed a function entry point. It then
+        reported "module header does not start with MZ" about a module whose
+        header was perfectly intact, and which of two neighbouring hooks
+        tripped it came down to nothing but whether that particular address
+        happened to sit near a symbol.
+        Generated Auto Assembler no longer embeds getNameFromAddress output.
+        Install, destroy, byte-restore and relocated control flow each wrote
+        whatever label CE handed back straight into the script, so a decorated
+        C++ export reached the AA parser verbatim; and because every install
+        registers its own symbols, a later script could name an address after a
+        symbol the first one owns, which stops pointing there the moment the
+        first script is disabled. Those sites emit module+offset now, or bare
+        hex for an address inside no module.
+        A failed header read is no longer reported as a bad signature.
+        _readLittleEndian returning nil took the same branch as a mismatch, so
+        an unreadable page and a wrong magic produced one identical message.
+        Both now say what was read and where.
 ]]--
 
 Trampolines = {
@@ -239,8 +226,8 @@ function Trampolines:_autoAssembleRestoreBytes(addr, bytes)
     local aa = rawget(_G, "autoAssemble")
     if type(aa) ~= "function" then return nil, "autoAssemble not available" end
     local script = table.concat({
-        "fullAccess(" .. getNameFromAddress(addr) .. "," .. tostring(#bytes) .. ")",
-        getNameFromAddress(addr) .. ":",
+        "fullAccess(" .. self:_formatCodeAddress(addr) .. "," .. tostring(#bytes) .. ")",
+        self:_formatCodeAddress(addr) .. ":",
         self:_formatDbDirective(bytes)
     }, "\n")
     local ok, result = pcall(function() return aa(script) end)
@@ -363,6 +350,23 @@ function Trampolines:_formatAddressLiteral(addr)
         local ok, name = pcall(function() return getNameFn(addr) end)
         if ok and type(name) == "string" and name ~= "" then return name end
     end
+    return string.format("%X", addr)
+end
+
+--
+--- ∑ An address literal that is safe to paste into generated Auto Assembler.
+---   _formatAddressLiteral is for humans, and may hand back a symbol name: a
+---   decorated C++ export the AA parser chokes on, or a symbol another detour
+---   registered, which stops pointing here the moment that detour is disabled.
+---   Generated code gets module+offset instead, and bare hex for an address
+---   that belongs to no module.
+--- @param addr number
+--- @return string
+--
+function Trampolines:_formatCodeAddress(addr)
+    if type(addr) ~= "number" then return tostring(addr) end
+    local owner = self:_findModuleContaining(addr)
+    if owner then return string.format("%s+%X", owner.Name, addr - owner.Base) end
     return string.format("%X", addr)
 end
 
@@ -536,7 +540,7 @@ function Trampolines:_buildRelocatedInstruction(entry, index, lines)
     local source = entry.InjectAddress + offset
     local relative = self:_analyzeRelativeControlFlow(source, bytes, size)
     if relative then
-        local target = self:_formatAddressLiteral(relative.Target)
+        local target = self:_formatCodeAddress(relative.Target)
         if relative.Kind == "jcc" then
             local inverse = self:_conditionMnemonic(relative.Inverse)
             if not inverse then
@@ -675,20 +679,120 @@ function Trampolines:_buildRel32Jump(source, target)
     }, nil
 end
 
+--
+--- ∑ The loaded module list, guarded so this module stays loadable outside CE.
+--- @return table|nil, string|nil
+--
+function Trampolines:_enumModules()
+    local fn = rawget(_G, "enumModules")
+    if type(fn) ~= "function" then return nil, "enumModules not available" end
+    local ok, modules = pcall(fn)
+    if not ok then return nil, tostring(modules) end
+    if type(modules) ~= "table" then return nil, "enumModules returned non-table" end
+    return modules, nil
+end
+
+--
+--- ∑ A module's mapped span. enumModules reports Size on current builds;
+---   getModuleSize covers the ones that do not.
+--- @param module table
+--- @return number|nil
+--
+function Trampolines:_moduleSize(module)
+    local size = tonumber(module and module.Size)
+    if size and size > 0 then return size end
+    local fn = rawget(_G, "getModuleSize")
+    if type(fn) ~= "function" or type(module and module.Name) ~= "string" then return nil end
+    local ok, result = pcall(fn, module.Name)
+    if not ok then return nil end
+    result = tonumber(result)
+    if result and result > 0 then return result end
+    return nil
+end
+
+--
+--- ∑ The module whose mapped span contains `addr`.
+---   The highest base at or below the address is the only candidate worth
+---   sizing: where spans nest - a manually mapped image inside another
+---   module's reserve - the innermost one starts last and is the real owner.
+--- @param addr number
+--- @return table|nil, string|nil # { Name, Base, Size }, error
+--
+function Trampolines:_findModuleContaining(addr)
+    if type(addr) ~= "number" then return nil, "address must be numeric" end
+    local modules, enumErr = self:_enumModules()
+    if not modules then return nil, enumErr end
+    local candidate, candidateBase = nil, nil
+    for _, module in ipairs(modules) do
+        local base = tonumber(module and module.Address)
+        if base and base <= addr and (candidateBase == nil or base > candidateBase) then
+            candidate, candidateBase = module, base
+        end
+    end
+    if not candidate then
+        return nil, string.format("no loaded module starts at or below %X", addr)
+    end
+    local size = self:_moduleSize(candidate)
+    if not size then
+        return nil, "could not determine the size of module '" .. tostring(candidate.Name) .. "'"
+    end
+    if addr >= candidateBase + size then
+        return nil, string.format("%X lies past the end of '%s' and inside no loaded module", addr, tostring(candidate.Name))
+    end
+    return { Name = candidate.Name, Base = candidateBase, Size = size }, nil
+end
+
+--
+--- ∑ Finds the module that owns `addr`.
+---
+---   This used to parse getNameFromAddress()'s output and take everything left
+---   of the '+' as a module name. getNameFromAddress is a DISPLAY function: it
+---   returns whichever label reads best, and a user-defined symbol or an
+---   exported/PDB symbol both outrank "module+offset". A DLL that ships
+---   symbols names its inject site "SomeFunction+1F", so the parse yielded
+---   "SomeFunction", the PE reader was handed a function entry point, and the
+---   MZ check failed on a module whose header was intact. Two hooks a few
+---   instructions apart could disagree about it for no reason other than which
+---   of them sat near a symbol.
+---
+---   The module list is the authority, so ask it. The name parse survives only
+---   for an environment without enumModules, and even there the parsed name
+---   must resolve to something that really is a module base.
+--- @param addr number
+--- @return table|nil, string|nil # { Name, Base, Size, AddressName }, error
+--
 function Trampolines:_resolveModuleForAddress(addr)
     local addressName = getNameFromAddress(addr)
+    local owner, ownerErr = self:_findModuleContaining(addr)
+    if owner then
+        return { Name = owner.Name, Base = owner.Base, Size = owner.Size, AddressName = addressName }, nil
+    end
     local moduleName = type(addressName) == "string" and addressName:match("^([^+]+)%+") or nil
-    if not moduleName then return nil, "could not determine module from address " .. tostring(addressName) end
+    if not moduleName then
+        return nil, "could not determine module from address " .. tostring(addressName) .. ": " .. tostring(ownerErr)
+    end
     local moduleBase, err = self:_resolveAddress(moduleName)
     if not moduleBase then return nil, "could not resolve module base '" .. tostring(moduleName) .. "': " .. tostring(err) end
+    if self:_readLittleEndian(moduleBase, 2) ~= 0x5A4D then
+        return nil, string.format(
+            "'%s', parsed from %s, resolves to %X, which is not a module base - that label is a symbol, not a module",
+            tostring(moduleName), tostring(addressName), moduleBase)
+    end
     return { Name = moduleName, Base = moduleBase, AddressName = addressName }, nil
 end
 
 function Trampolines:_getPeHeaderInfo(addr)
     local moduleInfo, moduleErr = self:_resolveModuleForAddress(addr)
     if not moduleInfo then return nil, moduleErr end
-    local mz = self:_readLittleEndian(moduleInfo.Base, 2)
-    if mz ~= 0x5A4D then return nil, "module header does not start with MZ" end
+    local mz, mzErr = self:_readLittleEndian(moduleInfo.Base, 2)
+    if not mz then
+        return nil, string.format("failed to read the header of '%s' at %X: %s",
+            tostring(moduleInfo.Name), moduleInfo.Base, tostring(mzErr))
+    end
+    if mz ~= 0x5A4D then
+        return nil, string.format("header of '%s' at %X does not start with MZ (read %04X)",
+            tostring(moduleInfo.Name), moduleInfo.Base, mz)
+    end
     local peOffset, peOffsetErr = self:_readLittleEndian(moduleInfo.Base + 0x3C, 4)
     if not peOffset then return nil, "failed to read PE header offset: " .. tostring(peOffsetErr) end
     local ntHeader = moduleInfo.Base + peOffset
@@ -1026,10 +1130,10 @@ function Trampolines:_buildInstallScript(entry)
     local dataDirective = is64Bit and "dq" or "dd"
     local destinationAddress = entry.RelayAddress + 6
     local lines = {
-        "define(" .. block .. "," .. getNameFromAddress(entry.RelayAddress) .. ")",
-        "define(" .. relay .. "," .. getNameFromAddress(entry.RelayAddress) .. ")",
-        "define(" .. destination .. "," .. getNameFromAddress(destinationAddress) .. ")",
-        "define(" .. returnLabel .. "," .. getNameFromAddress(entry.ReturnAddress) .. ")",
+        "define(" .. block .. "," .. self:_formatCodeAddress(entry.RelayAddress) .. ")",
+        "define(" .. relay .. "," .. self:_formatCodeAddress(entry.RelayAddress) .. ")",
+        "define(" .. destination .. "," .. self:_formatCodeAddress(destinationAddress) .. ")",
+        "define(" .. returnLabel .. "," .. self:_formatCodeAddress(entry.ReturnAddress) .. ")",
         "",
         "fullAccess(" .. relay .. "," .. tostring(entry.RelaySize) .. ")",
         "",
@@ -1080,10 +1184,10 @@ end
 function Trampolines:_buildDestroyScript(entry)
     local name = entry.Name
     local lines = {
-        getNameFromAddress(entry.InjectAddress) .. ":",
+        self:_formatCodeAddress(entry.InjectAddress) .. ":",
         self:_formatDbDirective(entry.OriginalBytes),
         "",
-        getNameFromAddress(entry.RelayAddress) .. ":",
+        self:_formatCodeAddress(entry.RelayAddress) .. ":",
         self:_formatDbDirective(entry.RelayOriginalBytes),
         ""
     }
