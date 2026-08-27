@@ -560,7 +560,7 @@ logger.DataDir   = "D:\\Manifold"   -- the logger keeps its own copy!
 | Module | Version | Purpose |
 |---|---|---|
 | Manifold.AssemblerCommands | 1.2.7 | Registers 10 custom Auto Assembler commands |
-| Manifold.Trampolines | 1.1.0 | 5-byte detours through a relay slot in the PE header |
+| Manifold.Trampolines | 1.2.0 | 5-byte detours through a relay slot in the PE header |
 
 ### Presentation
 

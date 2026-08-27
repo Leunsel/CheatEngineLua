@@ -933,7 +933,7 @@ table on a process change.
 
 ## Manifold.Trampolines
 
-`Trampolines`, version 1.1.0. It declares `logger` as an optional dependency. Normally it is not
+`Trampolines`, version 1.2.0. It declares `logger` as an optional dependency. Normally it is not
 called directly, because `Manifold.AssemblerCommands` is the interface. It is also the one module
 without a `PrintModuleInfo`.
 
@@ -1001,9 +1001,13 @@ exactly MSVC's inter-function padding, so without it a relay could land in `.tex
 
 | Function | Description |
 |---|---|
+| `_enumModules()` / `_moduleSize(module)` | The loaded module list, and a module's span from `Size` or `getModuleSize` |
+| `_findModuleContaining(addr)` | The module whose mapped span contains the address. The highest base at or below it wins, so a nested image is the owner |
+| `_resolveModuleForAddress(addr)` | The owning module, from the module list. Parsing `getNameFromAddress` is only a fallback, and the parsed name must resolve to a real module base |
+| `_formatCodeAddress(addr)` | `module+offset` for generated Auto Assembler, bare hex outside any module. Never a symbol name |
 | `_collectInstructionRange(addr, minSize)` | Collects whole instructions until the total reaches `minSize` |
 | `_buildRel32Jump(source, target)` | 5-byte `E9` jump, with a rel32 range check |
-| `_getPeHeaderInfo(addr)` | MZ and PE signatures, `SizeOfHeaders`, the end of the section headers and the lowest section RVA |
+| `_getPeHeaderInfo(addr)` | MZ and PE signatures, `SizeOfHeaders`, the end of the section headers and the lowest section RVA. An unreadable header and a wrong signature report separately |
 | `_findHeaderRelaySlot(injectAddr, size)` | Searches for a free, aligned slot |
 | `_isHeaderCaveFree(addr, size)` | Only `0x00` and `0xCC` count as free |
 | `_isHeaderRelaySlotReserved(addr, size)` | Collision with existing detours |
