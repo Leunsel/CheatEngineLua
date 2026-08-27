@@ -12,6 +12,22 @@ elseif Mode == "Return value" then
 elseif Mode == "Custom bytes" then
     ReplacementBytes = trim(CustomBytes)
 end
+
+-- The guard has to cover exactly the bytes this patch overwrites. The stock
+-- AssertBytes spans the whole scanned instruction span, which is right for Nop
+-- but wrong for a one- or six-byte patch: it would compare bytes the patch never
+-- touches. Clamped to what OriginalBytes holds, since that is all that was read.
+local guard = AssertBytes
+local patchedBytes = byteCount(ReplacementBytes)
+if patchedBytes > 0 and patchedBytes < byteCount(OriginalBytes) then
+    local site = HookNameParsed .. AoBOffset
+    local expected = bytesPrefix(OriginalBytes, patchedBytes)
+    if HasManifoldCommands then
+        guard = string.format("ManifoldAssert(%s,%s)", site, expected)
+    else
+        guard = string.format("assert(%s,%s)", site, expected)
+    end
+end
 %>
 << Header >>
 
@@ -19,7 +35,7 @@ end
 
 << ScanModule >>
 
-<< AssertBytes >>
+<< guard >>
 <% if Mode == "Nop" then %>
 <% if HasManifoldCommands then %>
 ManifoldNop(<< HookNameParsed >><< AoBOffset >>,<< JumpSize >>)

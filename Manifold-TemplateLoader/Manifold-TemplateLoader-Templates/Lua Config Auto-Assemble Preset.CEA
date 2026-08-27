@@ -30,7 +30,6 @@ autoAssembler:AutoAssemble("<< HookNameParsed >>.CEA", memrec)
 << flagBlock >>
 <% end %>
 <% if UseMultiplier then %>
-
 << HookName >>Multiplier:
   dd (float)<< MultiplierValue >>
 <% end %>

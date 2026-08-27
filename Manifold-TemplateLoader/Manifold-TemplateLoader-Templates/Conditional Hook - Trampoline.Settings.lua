@@ -38,7 +38,7 @@ return {
             Name = "FlagDefault",
             Type = "integer",
             Caption = "Flag starts at",
-            Default = 1,
+            Default = 2,
             Min = 0,
             Max = 255
         },
@@ -51,8 +51,8 @@ return {
         {
             Name = "MultiplierRegister",
             Type = "string",
-            Caption = "Multiplier register",
-            Default = "xmm0"
+            Caption = "Scratch register",
+            Default = "xmm1"
         },
         {
             Name = "MultiplierValue",
