@@ -197,7 +197,7 @@ Set `SchemaVersion = 2`. Everything above still applies, with `Category` preferr
 
 | Field | Meaning |
 |---|---|
-| `Id` | Stable identity such as `"manifold.pointer.extended"`. Favorites, recent templates, diagnostics and validation key on it |
+| `Id` | Stable identity such as `"manifold.pointer.readmem"`. Favorites, recent templates, diagnostics and validation key on it |
 | `Description`, `Author`, `Version`, `Tags` | Metadata for diagnostics, validation and future browsing |
 | `Category`, `CategoryOrder` | `>` nests categories. `CategoryOrder` replaces the `[n]` caption prefix |
 | `Requires` | Context contract. Generation aborts with an explanation before rendering |
