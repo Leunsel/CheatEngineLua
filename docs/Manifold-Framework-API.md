@@ -670,7 +670,30 @@ dependency. Since 1.0.5 every Cheat Engine access is main-thread synchronized.
 | `state:GetIndexedAddressList()` | `table, table` | An indexed list and an id-keyed list of all records |
 | `state:SaveTableState(name)` | `boolean` | Saves active records and records with hotkeys. With neither present it returns `false` plus a warning. |
 | `state:LoadTableState(name)` | `boolean` | Reads the file and calls `RestoreState`. |
-| `state:RestoreState(stateData)` | `table` | `{activatedCount, deactivatedCount, unchangedCount, failedCount}`. Exclusive, so records not listed get deactivated. |
+| `state:RestoreState(stateData)` | `table` | `{activatedCount, deactivatedCount, unchangedCount, failedCount}`. Exclusive, so records not listed get deactivated. Reports the whole run as one log entry. |
+| `state:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats)` | `table` | `{ Lines, Summary }`. Pure, so the layout can be tested without the logger. |
+
+A restore touching forty records used to produce forty log entries, each with its own timestamp and
+module prefix, all inside the same second. It is now one entry, grouped by outcome, with the record
+ids and the async durations in columns:
+
+```
+[13:14:22] [INFO] [State] Restore complete — 36 activated, 0 deactivated, 386 unchanged, 0 failed
+   Activated
+        47  [— State : Save —]
+       106    Manifold.Activation       2360 ms
+       475  [— CET : Scripts —]
+       751    Manifold.Teleporter       1375 ms
+      1503  [— Player : Weapon —]
+      1523    Disable : Recoil           391 ms
+   Hotkeys
+      2118    Manifold.Debug            1 restored
+```
+
+Group headers stay flush left and everything else indents under them, so the block mirrors the
+address list. Records that did not change are counted in the summary rather than listed; there are
+usually hundreds of them. Sections appear only when they have rows, so a clean restore shows
+`Activated` and nothing else.
 | `state:RestoreOriginalState()` | `table` | Deactivates everything, iterating backwards. Returns `{deactivatedCount, unchangedCount, failedCount}`. |
 | `state:SetMemoryRecordState(mr, state [, timeoutMs])` | `boolean` | The default timeout for async records is 10,000 ms. |
 | `state:WriteStateFile(path, data)` | `boolean` | |

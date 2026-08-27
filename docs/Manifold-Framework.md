@@ -551,7 +551,7 @@ logger.DataDir   = "D:\\Manifold"   -- the logger keeps its own copy!
 | Module | Version | Purpose |
 |---|---|---|
 | Manifold.Memory | 1.1.0 | Type-safe read/write/add wrappers, symbol resolution, pointer paths |
-| Manifold.State | 1.0.6 | Saving and restoring activation states and hotkeys |
+| Manifold.State | 1.1.0 | Saving and restoring activation states and hotkeys |
 | Manifold.AutoAssembler | 2.0.7 | Process-aware AA toggling with transactions and rollback |
 | Manifold.Callbacks | 1.0.6 | Overrides CE callbacks, locks edits |
 
