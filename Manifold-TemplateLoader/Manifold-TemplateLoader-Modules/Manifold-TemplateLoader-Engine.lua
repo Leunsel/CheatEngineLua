@@ -475,6 +475,9 @@ function Engine:AnalyzeIdentifiers(nodes)
                     :gsub("%-%-[^\n]*", " ")
                     :gsub('"[^"]*"', " ")
                     :gsub("'[^']*'", " ")
+                    -- Number literals are not names. Without this "0xFF" leaves
+                    -- "xFF" behind and gets reported as an unknown identifier.
+                    :gsub("%f[%w]%d[%w_%.]*", " ")
             }
         end
     end
@@ -491,7 +494,8 @@ function Engine:AnalyzeIdentifiers(nodes)
         for names in entry.code:gmatch("for%s+([%a_][%w_,%s]-)%s+in%s") do
             for name in names:gmatch("[%a_][%w_]*") do declared[name] = true end
         end
-        for params in entry.code:gmatch("function%s*%(([^%)]*)%)") do
+        -- Matches both "function(a, b)" and "function name(a, b)".
+        for params in entry.code:gmatch("function[^%(]*%(([^%)]*)%)") do
             for name in params:gmatch("[%a_][%w_]*") do declared[name] = true end
         end
     end
