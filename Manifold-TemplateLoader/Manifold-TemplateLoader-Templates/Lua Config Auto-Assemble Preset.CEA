@@ -1,18 +1,41 @@
+<%
+-- Both cells are optional. With neither of them on this preset is the base one,
+-- so the {$asm} block is left out entirely rather than emitted empty.
+local flagDefault = math.floor(tonumber(FlagDefault) or 1)
+if not UseMultiplier and flagDefault > 1 then flagDefault = 1 end
+local hasConfig = UseFlag or UseMultiplier
+
+-- The comment lines hang under the first one, and the flag value is one to
+-- three digits wide, so the indent has to be measured rather than typed.
+local meanings = { "0: Disabled", "1: Feature" }
+if UseMultiplier then meanings[#meanings + 1] = "2: Multiplier" end
+local head = "  db " .. flagDefault
+local gap = string.rep(" ", 8)
+local flagBlock = head .. gap .. "// " .. meanings[1]
+local hanging = string.rep(" ", #head + #gap)
+for index = 2, #meanings do
+    flagBlock = flagBlock .. "\n" .. hanging .. "// " .. meanings[index]
+end
+%>
 {$lua}
 if syntaxcheck then return end
 autoAssembler:AutoAssemble("<< HookNameParsed >>.CEA", memrec)
 [ENABLE]
 -- ...........................[ENABLE]...........................
+<% if hasConfig then %>
 {$asm}
+<% if UseFlag then %>
 
 << HookName >>Flag:
-  db 2 // Flag
-          // 0: Disabled
-          // 1: Feature
-          // 2: Multiplier (Default)
+<< flagBlock >>
+<% end %>
+<% if UseMultiplier then %>
+
 << HookName >>Multiplier:
-  dd (float)3.00 // Multiplier
+  dd (float)<< MultiplierValue >>
+<% end %>
 
 {$lua}
+<% end %>
 [DISABLE]
 -- ..........................[DISABLE]...........................
