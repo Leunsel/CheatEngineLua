@@ -129,7 +129,12 @@ end
 -- Collection dialog ----------------------------------------------------------
 
 local ROW_HEIGHT = 32
-local LABEL_WIDTH, CONTROL_WIDTH = 160, 220
+local CONTROL_WIDTH = 220
+--- The value column starts after the widest caption rather than at a fixed
+--- offset. A caption wider than the old constant used to be drawn underneath
+--- its own edit box. LABEL_MAX_WIDTH stops one very long caption from pushing
+--- the dialog off screen. Captions past it are clipped and get a hint instead.
+local LABEL_MIN_WIDTH, LABEL_MAX_WIDTH, LABEL_GAP = 160, 320, 12
 
 --
 --- One row per input, laid out inside a card so the dialog matches the rest
@@ -137,7 +142,7 @@ local LABEL_WIDTH, CONTROL_WIDTH = 160, 220
 --
 function Inputs:_BuildForm(definitions, templateCaption)
     local theme = self.Theme
-    local width = LABEL_WIDTH + CONTROL_WIDTH + 60
+    local width = LABEL_MIN_WIDTH + CONTROL_WIDTH + 60
     local height = #definitions * ROW_HEIGHT + 150
     local form, content
     if theme then
@@ -174,6 +179,10 @@ function Inputs:_BuildForm(definitions, templateCaption)
         cancelButton.Cancel = true
     end
     local controls = {}
+    -- First pass: captions only. A label autosizes to its text, so the value
+    -- column cannot be placed until the widest one is known.
+    local rows = {}
+    local labelColumn = LABEL_MIN_WIDTH
     for index, definition in ipairs(definitions) do
         local top = 6 + (index - 1) * ROW_HEIGHT
         if definition.Type == "boolean" then
@@ -188,26 +197,51 @@ function Inputs:_BuildForm(definitions, templateCaption)
             label.Caption = definition.Caption .. ":"
             label.Left, label.Top = 4, top + 6
             if theme then theme:StyleLabel(label) end
-            local control
-            if definition.Type == "enum" then
-                control = createComboBox(content)
-                control.Style = "csDropDownList"
-                local selected = 0
-                for valueIndex, value in ipairs(definition.Values) do
-                    control.Items.add(value)
-                    if value == definition.Default then selected = valueIndex - 1 end
-                end
-                control.ItemIndex = selected
-                if theme then theme:StyleCombo(control) end
-            else
-                control = createEdit(content)
-                control.Text = tostring(definition.Default == nil and "" or definition.Default)
-                if theme then theme:StyleEdit(control) end
+            -- A host that cannot measure yet reports 0; the minimum then stands
+            -- and the layout is no worse than the old fixed column.
+            local measured = (tonumber(label.Width) or 0) + 4 + LABEL_GAP
+            if measured > labelColumn then
+                labelColumn = math.min(measured, LABEL_MAX_WIDTH)
             end
-            control.Left, control.Top, control.Width = LABEL_WIDTH, top + 2, CONTROL_WIDTH
-            control.Anchors = "[akLeft,akTop,akRight]"
-            controls[definition.Name] = { Definition = definition, Control = control }
+            rows[#rows + 1] = { Definition = definition, Label = label, Top = top }
         end
+    end
+    -- Second pass: the column is known, so the values can be placed and any
+    -- caption that still overflows can be clipped instead of overlapping.
+    local captionRoom = labelColumn - 4 - LABEL_GAP
+    for _, row in ipairs(rows) do
+        local definition = row.Definition
+        if (tonumber(row.Label.Width) or 0) > captionRoom then
+            pcall(function()
+                row.Label.AutoSize = false
+                row.Label.Width = captionRoom
+                row.Label.Hint = definition.Caption
+                row.Label.ShowHint = true
+            end)
+        end
+        local control
+        if definition.Type == "enum" then
+            control = createComboBox(content)
+            control.Style = "csDropDownList"
+            local selected = 0
+            for valueIndex, value in ipairs(definition.Values) do
+                control.Items.add(value)
+                if value == definition.Default then selected = valueIndex - 1 end
+            end
+            control.ItemIndex = selected
+            if theme then theme:StyleCombo(control) end
+        else
+            control = createEdit(content)
+            control.Text = tostring(definition.Default == nil and "" or definition.Default)
+            if theme then theme:StyleEdit(control) end
+        end
+        control.Left, control.Top, control.Width = labelColumn, row.Top + 2, CONTROL_WIDTH
+        control.Anchors = "[akLeft,akTop,akRight]"
+        controls[definition.Name] = { Definition = definition, Control = control }
+    end
+    local needed = labelColumn + CONTROL_WIDTH + 60
+    if needed > width then
+        pcall(function() form.Width = needed end)
     end
     return form, controls
 end
