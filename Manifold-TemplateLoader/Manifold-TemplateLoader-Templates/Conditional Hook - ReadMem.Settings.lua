@@ -1,6 +1,6 @@
 return {
     SchemaVersion = 2,
-    Id = "manifold.conditional.simple.readmem",
+    Id = "manifold.conditional.readmem",
     Caption = "Conditional Hook — Read Memory",
     Description = "Flag-controlled hook that restores the original code with readMem. " ..
                   "Capture slots and the multiplier are chosen in the dialog.",

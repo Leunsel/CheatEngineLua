@@ -1,6 +1,6 @@
 return {
     SchemaVersion = 2,
-    Id = "manifold.conditional.simple.trampoline",
+    Id = "manifold.conditional.trampoline",
     Caption = "Conditional Hook — Trampoline",
     Description = "Detour-based flag-controlled hook; the original instructions are relocated. " ..
                   "Capture slots and the multiplier are chosen in the dialog.",
