@@ -23,14 +23,18 @@ is an autorun script that adds a quality of life menu to Cheat Engine itself.
 [Manifold Table Files](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-TableFiles)
 is an autorun script that puts every file attached to a Cheat Table into one editable window.
 
-The documentation for all four lives in [`docs/`](docs/README.md).
+[Manifold Logger](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Logger)
+is an autorun script that gives every script one place to log to, and a canvas-drawn console with
+levels, icons, filters and search to read it in.
+
+The documentation for all of them lives in [`docs/`](docs/README.md).
 
 ## Credits
 
 Thanks to the following people and resources.
 
 LeFiXER, for invaluable guidance and extensive support throughout the development of this
-project.
+project. He's also the creator of the current icon pack which is included in this repository!
 
 Jeffrey Friedl, for sharing his [`json.lua`](http://regex.info/blog/lua/json), which made my life
 a lot easier.
