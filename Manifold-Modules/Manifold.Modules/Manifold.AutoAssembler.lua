@@ -1,9 +1,15 @@
 local NAME = "Manifold.AutoAssembler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.7"
+local VERSION = "2.0.8"
 local DESCRIPTION = "Manifold Framework Auto-Assembler"
 
 --[[
+    ∂ v2.0.8 (2026-09-01)
+        One line per script toggle instead of an announcement and
+        a result. Rollback reports every undone script in one
+        entry. Loading a script file and opening a transaction are
+        Debug, not Info.
+
     v2.0.7 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
@@ -118,16 +124,12 @@ end
 --
 function AutoAssembler:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -139,11 +141,11 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 --
 function AutoAssembler:SetProcessName(processName)
     if type(processName) ~= "string" then
-        logger:Error("[Auto-Assembler] Process name must be a text value.")
+        logger:Error(MODULE_PREFIX .. " Process name must be a text value.")
         return
     end
     self.RequiredProcess = processName
-    logger:Info("[Auto-Assembler] This table is configured for: " .. processName)
+    logger:Info(MODULE_PREFIX .. " This table is configured for: " .. processName)
 end
 registerLuaFunctionHighlight("SetProcessName")
 
@@ -192,9 +194,9 @@ function AutoAssembler:Reset(reason)
     self._txDepth = 0
     self._txStack = nil
     if reason and reason ~= "" then
-        logger:Info("[Auto-Assembler] Reset completed. Reason: " .. reason)
+        logger:Info(MODULE_PREFIX .. " Reset completed. Reason: " .. reason)
     else 
-        logger:Info("[Auto-Assembler] Reset completed.")
+        logger:Info(MODULE_PREFIX .. " Reset completed.")
     end
 end
 registerLuaFunctionHighlight('Reset')
@@ -208,7 +210,7 @@ function AutoAssembler:DisableAllWithoutExecute()
     if processHandler and type(processHandler.DisableAllWithoutExecute) == "function" then
         return processHandler:DisableAllWithoutExecute()
     end
-    logger:Error("[Auto-Assembler] ProcessHandler is required for DisableAllWithoutExecute.")
+    logger:Error(MODULE_PREFIX .. " ProcessHandler is required for DisableAllWithoutExecute.")
     return false
 end
 registerLuaFunctionHighlight('DisableAllWithoutExecute')
@@ -223,7 +225,7 @@ registerLuaFunctionHighlight('DisableAllWithoutExecute')
 function AutoAssembler:_markProcessChangedAndThrow(oldPid, newPid)
     local msg = "[Auto-Assembler] The game session changed. To prevent broken hooks, everything was reset. Please run the script again."
     self._processChangedMsg = msg
-    logger:Info("[Auto-Assembler] A new game session was detected. Resetting to keep everything safe...")
+    logger:Info(MODULE_PREFIX .. " A new game session was detected. Resetting to keep everything safe...")
     self:DisableAllWithoutExecute()
     self:Reset("Game session changed")
     -- error(msg, 3)
@@ -237,7 +239,7 @@ end
 function AutoAssembler:_checkProcessChangedOrThrow()
     local pid = self:_currentPid()
     if pid == nil then
-        logger:Warning("[Auto-Assembler] Could not read the current process id. Continuing anyway.")
+        logger:Warning(MODULE_PREFIX .. " Could not read the current process id. Continuing anyway.")
         return
     end
     if self._lastKnownPid == nil then
@@ -258,26 +260,31 @@ end
 --
 function AutoAssembler:EnsureDirectoriesExist()
     if not customIO or not customIO.EnsureDataDirectory then
-        logger:Error("[Auto-Assembler] File system support is not available (customIO missing).")
+        logger:Error(MODULE_PREFIX .. " File system support is not available (customIO missing).")
         return false
     end
     if not customIO:EnsureDataDirectory() then
-        logger:Error("[Auto-Assembler] Could not prepare the base data folder.")
+        logger:Error(MODULE_PREFIX .. " Could not prepare the base data folder.")
         return false
     end
     local ceaDir = string.format("%s/%s", customIO.DataDir, self.LocalFilesFolder)
     if not customIO:EnsureDirectoryExists(ceaDir) then
-        logger:Error("[Auto-Assembler] Could not prepare the CEA folder: " .. ceaDir)
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not prepare the CEA folder", {
+            { "Folder", ceaDir },
+        })
         return false
     end
     local processName = processHandler and processHandler:GetAttachedProcessName() or nil
     if not processName then
-        logger:Error("[Auto-Assembler] No process attached. Cannot prepare process-specific CEA folder.")
+        logger:Error(MODULE_PREFIX .. " No process attached. Cannot prepare process-specific CEA folder.")
         return false
     end
     local processDir = string.format("%s/%s", ceaDir, extractFileNameWithoutExt(processName))
     if not customIO:EnsureDirectoryExists(processDir) then
-        logger:Error("[Auto-Assembler] Could not prepare the process-specific folder: " .. processDir)
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not prepare the process folder", {
+            { "Process", processName },
+            { "Folder",  processDir },
+        })
         return false
     end
     return true
@@ -304,12 +311,12 @@ end
 --
 function AutoAssembler:GetFilePath(fileName)
     if not self:EnsureDirectoriesExist() then
-        logger:Error("[Auto-Assembler] Folder check failed. Cannot load side-loaded script files.")
+        logger:Error(MODULE_PREFIX .. " Folder check failed. Cannot load side-loaded script files.")
         return nil
     end
     local processName = processHandler:GetAttachedProcessName()
     if not processName then
-        logger:Error("[Auto-Assembler] No process attached. Cannot build file path.")
+        logger:Error(MODULE_PREFIX .. " No process attached. Cannot build file path.")
         return nil
     end
     return customIO.DataDir ..
@@ -342,14 +349,16 @@ function AutoAssembler:_loadScriptText(nameOrText)
         return nil, "The side-loading folder could not be prepared. Please attach to the game and try again."
     end
     local content, err = customIO:ReadFromFile(filePath)
+    -- Loading a script is a step towards enabling it, and the enable line
+    -- names the same script a moment later. Debug is the right level for it.
     if content then
-        logger:Info("[Auto-Assembler] Loaded script file: " .. fileName)
+        logger:Debug(MODULE_PREFIX .. " Loaded '" .. fileName .. "' from the side-loading folder.")
         return content, fileName
     end
     if customIO.ReadFromTableFile then
         content, err = customIO:ReadFromTableFile(fileName)
         if content then
-            logger:Info("[Auto-Assembler] Loaded script from table file: " .. fileName)
+            logger:Debug(MODULE_PREFIX .. " Loaded '" .. fileName .. "' from a table file.")
             return content, fileName
         end
     end
@@ -399,7 +408,7 @@ function AutoAssembler:_getOrCreateState(key)
             LastLogicalName = nil
         }
         self.States[key] = st
-        logger:Info("[Auto-Assembler] Tracking script state: " .. key)
+        logger:Debug(MODULE_PREFIX .. " Tracking script state: " .. key)
     end
     return st
 end
@@ -411,9 +420,11 @@ end
 --
 function AutoAssembler:_txBegin()
     self._txDepth = self._txDepth + 1
+    -- Not logged. The open and close of a group said nothing the script
+    -- lines between them do not, and cost two file writes per toggle.
+    -- A group that fails is reported in full by _txRollback.
     if self._txDepth == 1 then
         self._txStack = {}
-        logger:Debug("[Auto-Assembler] Starting a grouped operation...")
     end
 end
 
@@ -424,7 +435,6 @@ end
 --
 function AutoAssembler:_txCommit()
     if self._txDepth == 1 then
-        logger:Debug("[Auto-Assembler] Grouped operation completed.")
         self._txStack = nil
     end
     self._txDepth = math.max(0, self._txDepth - 1)
@@ -458,12 +468,13 @@ function AutoAssembler:_txRollback()
         self._txStack = nil
         return
     end
-    logger:Error("[Auto-Assembler] The script failed. Rolling back previous changes to keep things safe...")
+    -- Two lines per rolled back script became one row per rolled back script
+    -- in a single entry, which is also the order they were undone in.
+    local rows = {}
     for i = #self._txStack, 1, -1 do
         local e = self._txStack[i]
         local st = self.States[e.key]
         if st and e.disableInfo then
-            logger:ForceInfo("[Auto-Assembler] Rolling back: " .. tostring(e.logicalName))
             local ok, err = pcall(function()
                 local success = autoAssemble(e.scriptText, e.targetSelf, e.disableInfo)
                 if not success then error("Disable failed during rollback.", 0) end
@@ -471,11 +482,17 @@ function AutoAssembler:_txRollback()
             if ok then
                 st.DisableInfo = nil
                 st.Active = false
-                logger:ForceInfo("[Auto-Assembler] Rollback successful: " .. tostring(e.logicalName))
+                rows[#rows + 1] = { tostring(e.logicalName), "rolled back" }
             else
-                logger:Error("[Auto-Assembler] Rollback could not disable: " .. tostring(e.logicalName) .. " | Reason: " .. tostring(err))
+                rows[#rows + 1] = { tostring(e.logicalName), "STILL ACTIVE: " .. tostring(err) }
             end
         end
+    end
+    if #rows > 0 then
+        logger:ForceErrorBlock(MODULE_PREFIX .. " Script failed, rolled back " .. #rows ..
+                               " previous changes", rows)
+    else
+        logger:ForceError(MODULE_PREFIX .. " Script failed. Nothing was applied yet, so nothing was rolled back.")
     end
     self._txStack = nil
     self._txDepth = 0
@@ -513,7 +530,7 @@ function AutoAssembler:_beginTrampolineTransaction(scriptText)
     if not self:_scriptUsesTrampolines(scriptText) then return nil end
     local api = self:_getTrampolineApi()
     if not api then
-        logger:Warning("[Auto-Assembler] Detour transaction cleanup is unavailable because Manifold.Trampolines could not be loaded.")
+        logger:Warning(MODULE_PREFIX .. " Detour transaction cleanup is unavailable because Manifold.Trampolines could not be loaded.")
         return nil
     end
     api:BeginTransaction()
@@ -550,11 +567,6 @@ function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
         st.LastScriptText = scriptText
         st.LastLogicalName = logicalNameOrErr
         local willEnable = (st.DisableInfo == nil)
-        if willEnable then
-            logger:Info("[Auto-Assembler] Turning ON: " .. tostring(logicalNameOrErr))
-        else
-            logger:Info("[Auto-Assembler] Turning OFF: " .. tostring(logicalNameOrErr))
-        end
         local checkOk, checkErr = autoAssembleCheck(scriptText, willEnable, ts)
         if not checkOk then
             error("[Auto-Assembler] Script has a problem and cannot be used: " .. tostring(checkErr), 0)
@@ -568,11 +580,11 @@ function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
         if willEnable and disableInfo then
             self:_txRememberEnable(key, scriptText, ts, disableInfo, logicalNameOrErr)
         end
-        if st.Active then
-            logger:Info("[Auto-Assembler] Done: " .. tostring(logicalNameOrErr) .. " is now ON.")
-        else
-            logger:Info("[Auto-Assembler] Done: " .. tostring(logicalNameOrErr) .. " is now OFF.")
-        end
+        -- One line per script, after the fact. Announcing the intention and
+        -- then the result meant two lines and two file writes per toggle, and
+        -- the first of the two was never news on its own.
+        logger:Info(MODULE_PREFIX .. " " .. tostring(logicalNameOrErr) .. " is now " ..
+            (st.Active and "ON" or "OFF") .. ".")
         if trampolineTx then
             trampolineTx:CommitTransaction()
             trampolineTx = nil
@@ -593,7 +605,7 @@ function AutoAssembler:AutoAssemble(fileOrText, memrecOrTargetSelf, targetSelf)
     end
     self:_txRollback()
     if self.BreakOnError then
-        logger:Error(tostring(resultOrErr))
+        logger:Error(MODULE_PREFIX .. " " .. tostring(resultOrErr))
         error(tostring(resultOrErr), 2)
     end
     return false
@@ -617,7 +629,6 @@ function AutoAssembler:Disable(fileOrKey, memrec)
         if not scriptText then
             error("[Auto-Assembler] Cannot turn off a script because its text is missing.", 0)
         end
-        logger:Info("[Auto-Assembler] Turning OFF: " .. tostring(st.LastLogicalName or st.Key))
         local ok, err = pcall(function()
             local success = autoAssemble(scriptText, st.TargetSelf, st.DisableInfo)
             if not success then error("Disable failed.", 0) end
@@ -627,12 +638,19 @@ function AutoAssembler:Disable(fileOrKey, memrec)
         end
         st.DisableInfo = nil
         st.Active = false
-        logger:Info("[Auto-Assembler] Done: " .. tostring(st.LastLogicalName or st.Key) .. " is now OFF.")
+        logger:Info(MODULE_PREFIX .. " " .. tostring(st.LastLogicalName or st.Key) .. " is now OFF.")
         return true
     end
     if fileOrKey == nil then
-        logger:Info("[Auto-Assembler] Turning OFF all active scripts...")
-        for _, st in pairs(self.States) do if st.Active then disableState(st) end end
+        -- disableState logs each one. The count is what this call adds.
+        local turnedOff = 0
+        for _, st in pairs(self.States) do
+            if st.Active then
+                disableState(st)
+                turnedOff = turnedOff + 1
+            end
+        end
+        logger:Info(MODULE_PREFIX .. " Turned off " .. turnedOff .. " active scripts.")
         return true
     end
     local key = tostring(fileOrKey)
@@ -641,7 +659,7 @@ function AutoAssembler:Disable(fileOrKey, memrec)
     end
     local st = self.States[key]
     if not st then
-        logger:Warning("[Auto-Assembler] Nothing to turn off (script was not active): " .. tostring(key))
+        logger:Warning(MODULE_PREFIX .. " Nothing to turn off (script was not active): " .. tostring(key))
         return true
     end
     return disableState(st)
