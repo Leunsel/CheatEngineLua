@@ -1,9 +1,12 @@
 local NAME = "Manifold.Helper.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local DESCRIPTION = "Manifold Framework Helper - facts about the target's main module"
 
 --[[
+    ∂ v1.1.1 (2026-09-01)
+        PrintModuleInfo is one block, like every other module.
+
     ∂ v1.1.0 (2026-08-23)
         Narrowed to one goal: read-only facts about the target process's main
         loaded module - its record, name, path, base address, bitness and file
@@ -74,16 +77,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Helper:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info("[Helper] Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
