@@ -1,9 +1,13 @@
 local NAME = "Manifold.Callbacks.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.6"
+local VERSION = "1.0.7"
 local DESCRIPTION = "Manifold Framework Callbacks"
 
 --[[
+    ∂ v1.0.7 (2026-09-01)
+        Log messages carry the module prefix by concatenation,
+        matching the rest of the framework.
+
     ∂ v1.0.6 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
@@ -94,16 +98,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Callbacks:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -229,7 +229,7 @@ registerLuaFunctionHighlight('_FormatExecuteState')
 --- @param memrec MemoryRecord|nil
 --
 function Callbacks:_LogBlockedAction(actionName, memrec)
-    logger:WarningF("%s %s prevented for %s", MODULE_PREFIX, tostring(actionName), self:_DescribeMemoryRecord(memrec))
+    logger:WarningF(MODULE_PREFIX .. " %s prevented for %s", tostring(actionName), self:_DescribeMemoryRecord(memrec))
 end
 registerLuaFunctionHighlight('_LogBlockedAction')
 
@@ -292,7 +292,7 @@ end
 --
 function onMemRecPreExecute(memoryrecord, newstate)
     local ok, err = pcall(function()
-        logger:DebugF("%s PreExecute %s (%s)", MODULE_PREFIX, callbacks:_DescribeMemoryRecord(memoryrecord), callbacks:_FormatExecuteState(newstate))
+        logger:DebugF(MODULE_PREFIX .. " PreExecute %s (%s)", callbacks:_DescribeMemoryRecord(memoryrecord), callbacks:_FormatExecuteState(newstate))
     end)
     if not ok and logger and logger.Error then
         logger:Error(MODULE_PREFIX .. " Error in onMemRecPreExecute: " .. tostring(err))
@@ -310,7 +310,7 @@ registerLuaFunctionHighlight('onMemRecPreExecute')
 function onMemRecPostExecute(memoryrecord, newstate, succeeded)
     local ok, err = pcall(function()
         if not succeeded then
-            logger:WarningF("%s PostExecute failed for %s (%s)", MODULE_PREFIX, callbacks:_DescribeMemoryRecord(memoryrecord), callbacks:_FormatExecuteState(newstate))
+            logger:WarningF(MODULE_PREFIX .. " PostExecute failed for %s (%s)", callbacks:_DescribeMemoryRecord(memoryrecord), callbacks:_FormatExecuteState(newstate))
         end
     end)
     if not ok and logger and logger.Error then
