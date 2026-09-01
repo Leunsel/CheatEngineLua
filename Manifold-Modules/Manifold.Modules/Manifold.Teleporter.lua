@@ -1,32 +1,40 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.3.0"
+local VERSION = "1.4.1"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
-    ∂ v1.3.0 (2026-09-01)
-        A jump is one entry: origin, destination, distance and
-        whether the backup was stored. Settings.LogVerbose, off by
-        default, brings back the per step lines. An unresolvable
-        symbol is reported once, by ResolveAddress, instead of
-        twice.
+    ∂ v1.4.1 (2026-09-01)
+        The window builder lost a third of its lines without
+        losing a control. Panel properties moved into the option
+        tables Manifold.Forms already accepts, the menus and the
+        toolbar are built from specs, every field row is built
+        the same way, and EnsureUiState no longer declares ninety
+        fields by assigning nil to them, which built nothing.
+        One tail for add, update, rename, duplicate and delete.
 
-    ∂ v1.2.1 (2026-08-26)
-        PrintSaves() renders one tree in a single log entry instead of
-        a line per save. Descriptions are wrapped and indented inside
-        the tree rather than dumped raw. Layout moved to FormatSaveTree().
-
-    ∂ v1.2.0 (2026-08-26)
-        Saves are keyed by their full category path plus name
-        instead of the name alone, so the same name may exist
-        in several categories. Legacy files migrate on load.
-
-    ∂ v1.1.6 (2026-08-23)
-        Implemented the Bootstrap handshake so this module
-        can be loaded on its own or through the framework.
+    ∂ v1.4.0 (2026-09-01)
+        A position is no longer three components by definition.
+        Transform.Offsets decides how many there are and Axes
+        names them, so a 2D game needs two offsets and nothing
+        else. Saves carry one key per axis, so existing 3D files
+        are unchanged. ValidateConfiguration reports a symbol
+        whose offsets disagree with the Transform.
 ]]--
 
 Teleporter = {
+    --- Names for the components of a position, in memory order.
+    --- How MANY there are is not decided here. Transform.Offsets decides that,
+    --- because that is the one place the memory layout is already written down.
+    --- Axes only supplies the letters, which reach the save file as keys and
+    --- the editor as field captions. A 2D game therefore needs two offsets and
+    --- nothing else:
+    ---     teleporter.Transform.Offsets = { 0x30, 0x34 }
+    --- and gets X and Y. A top-down game that thinks in X and Z says so:
+    ---     teleporter.Axes = { "X", "Z" }
+    --- Extra names are ignored, missing ones fall back to X, Y, Z, W.
+    Axes = { "X", "Y", "Z" },
+
     Transform = {
         Symbol    = "TransformPtr",
         Offsets   = { 0x30, 0x34, 0x38 },
@@ -286,18 +294,174 @@ local function newCategoryNode()
     return { Categories = {}, Saves = {} }
 end
 
+--- Fallback names, used for any component Axes does not name.
+local DEFAULT_AXIS_NAMES = { "X", "Y", "Z", "W" }
+
 --
---- ∑ Calculates the offsets for a 3D symbol based on the defined ValueType.
----   The function assumes that the symbol represents a 3D position with 3 components (X, Y, Z).
----   It calculates the offsets dynamically based on the size of the data type (e.g., vtSingle, vtDouble, etc.).
----   The offsets are always 3 in total (corresponding to X, Y, Z).
---- @returns table # A table containing the calculated offsets (e.g., { 0, 4, 8 } for vtSingle).
+--- ∑ How many components a position has, taken from Transform.Offsets.
+---   That table already had to be written for the game, so making it the
+---   authority means a 2D table configures one thing instead of two.
+--- @return number # 3 unless the Transform says otherwise.
+--
+function Teleporter:AxisCount()
+    local offsets = self.Transform and self.Transform.Offsets
+    local count = type(offsets) == "table" and #offsets or 0
+    if count > 0 then
+        return count
+    end
+    -- No Transform yet. Fall back to however many names are configured, so
+    -- the module still answers sensibly before it has been set up.
+    return math.max(1, #(self.Axes or DEFAULT_AXIS_NAMES))
+end
+registerLuaFunctionHighlight('AxisCount')
+
+--
+--- ∑ The axis names for this table, in memory order.
+---   Cached, because the save tree asks for them once per rendered row. The
+---   cache is keyed on what it was built from, so changing either the offsets
+---   or the names is picked up without anyone having to say so.
+--- @return table # Array of names, one per component.
+--
+function Teleporter:GetAxes()
+    local count = self:AxisCount()
+    local configured = self.Axes
+    local cache = self._AxisCache
+    if cache and cache.Count == count and cache.Source == configured
+       and cache.SourceCount == (configured and #configured or 0) then
+        return cache.Names
+    end
+    local names, taken = {}, {}
+    for index = 1, count do
+        local name = configured and configured[index] or DEFAULT_AXIS_NAMES[index]
+        name = trimString(name)
+        -- Two components sharing a name would collapse into one save key, so a
+        -- duplicate or a blank gets a positional name instead of being trusted.
+        if name == "" or taken[name] then
+            name = DEFAULT_AXIS_NAMES[index] or ("A" .. index)
+            if taken[name] then
+                name = "A" .. index
+            end
+        end
+        taken[name] = true
+        names[index] = name
+    end
+    self._AxisCache = {
+        Names = names, Count = count, Source = configured,
+        SourceCount = configured and #configured or 0,
+    }
+    return names
+end
+registerLuaFunctionHighlight('GetAxes')
+
+--
+--- ∑ Drops the cached axis names. Only needed when Axes is edited in place
+---   rather than replaced, which GetAxes cannot notice on its own.
+--
+function Teleporter:RefreshAxes()
+    self._AxisCache = nil
+end
+registerLuaFunctionHighlight('RefreshAxes')
+
+--
+--- ∑ Checks that every configured symbol has one offset per axis.
+---   The Transform sets the count, so this finds the case where a table was
+---   shortened to two components but the Waypoint still lists three. That
+---   mismatch only shows up when somebody presses the waypoint button, which
+---   is a long way from where the mistake was made.
+---   A symbol with no name is skipped. That is how a table says it does not
+---   use that feature.
+--- @param quiet boolean|nil # Skip the log entry and just return the answer.
+--- @return boolean, table # Whether it is consistent, and the rows explaining it.
+--
+function Teleporter:ValidateConfiguration(quiet)
+    local axes = self:GetAxes()
+    local expected = #axes
+    local rows = { { "Axes", expected .. " (" .. table.concat(axes, ", ") .. ")" } }
+    local problems = 0
+    for _, name in ipairs({ "Transform", "Waypoint", "Additional" }) do
+        local block = self[name]
+        -- trimString turns a missing symbol into "", which is the same answer
+        -- as a blank one and the same decision: skip it.
+        local symbol = block and trimString(block.Symbol) or ""
+        if symbol ~= "" then
+            local offsets = type(block.Offsets) == "table" and #block.Offsets or 0
+            if offsets ~= expected then
+                problems = problems + 1
+                rows[#rows + 1] = { name, offsets .. " offsets for '" .. symbol ..
+                                          "', expected " .. expected }
+            end
+        end
+    end
+    if not quiet then
+        if problems > 0 then
+            logger:WarningBlock(MODULE_PREFIX .. " Offsets do not match the axis count", rows)
+        else
+            logger:DebugBlock(MODULE_PREFIX .. " Configuration is consistent", rows)
+        end
+    end
+    return problems == 0, rows
+end
+registerLuaFunctionHighlight('ValidateConfiguration')
+
+--
+--- ∑ Reads a position out of a save entry.
+---   A save stores one key per axis, so a 2D save is { X = .., Y = .. } and
+---   nothing has to know about a third component that was never there.
+--- @param save table|nil # A save entry.
+--- @return table|nil # The position, or nil when an axis is missing.
+--
+function Teleporter:SaveToPosition(save)
+    if type(save) ~= "table" then
+        return nil
+    end
+    local position = {}
+    for index, axis in ipairs(self:GetAxes()) do
+        local value = tonumber(save[axis])
+        if value == nil then
+            return nil
+        end
+        position[index] = value
+    end
+    return position
+end
+registerLuaFunctionHighlight('SaveToPosition')
+
+--
+--- ∑ Writes a position into a save entry, one key per axis.
+---   Axis names this table no longer uses are removed rather than left behind,
+---   so a file that was written while the table was configured differently
+---   does not keep a stale coordinate nobody updates.
+--- @param save table # The save entry to write into.
+--- @param position table # The position to store.
+--- @return table # The same save entry.
+--
+function Teleporter:PositionToSave(save, position)
+    local axes = self:GetAxes()
+    local inUse = {}
+    for index, axis in ipairs(axes) do
+        save[axis] = position[index]
+        inUse[axis] = true
+    end
+    for _, name in ipairs(DEFAULT_AXIS_NAMES) do
+        if not inUse[name] then
+            save[name] = nil
+        end
+    end
+    return save
+end
+registerLuaFunctionHighlight('PositionToSave')
+
+--
+--- ∑ Calculates the offsets for a position symbol from the configured ValueType.
+---   One offset per axis, so the Saved and Backup symbols follow the Transform
+---   without being configured separately.
+--- @returns table # For example { 0, 4, 8 } for three vtSingle components.
 --
 function Teleporter:CalculateSymbolOffsets()
     local size = typeSizeMap[self.Settings.ValueType] or 0
     local offsets = {}
-    for i = 0, 2 do  -- Only 3 offsets: 0, 4, 8 (for 3D space)
-        table.insert(offsets, i * size)
+    for index = 0, self:AxisCount() - 1 do
+        offsets[#offsets + 1] = index * size
     end
     return offsets
 end
@@ -399,7 +563,7 @@ function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead, value
         end
     end
     if self.Settings.LogVerbose then
-        logger:DebugF(MODULE_PREFIX .. " Read position from '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
+        logger:DebugF(MODULE_PREFIX .. " Read position from '0x%08X' -> %s", baseAddress, self:FormatPosition(position))
     end
     return position
 end
@@ -443,7 +607,7 @@ function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWr
         end
     end
     if self.Settings.LogVerbose then
-        logger:DebugF(MODULE_PREFIX .. " Wrote position to '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
+        logger:DebugF(MODULE_PREFIX .. " Wrote position to '0x%08X' -> %s", baseAddress, self:FormatPosition(position))
     end
     return true
 end
@@ -477,15 +641,22 @@ end
 registerLuaFunctionHighlight('GetBackupPosition')
 
 --
---- ∑ Formats a position as one readable value.
---- @param position table|nil # {x, y, z}
+--- ∑ Formats a position as one readable value, however many components it has.
+---   Formats what it is given rather than what the configuration expects, so a
+---   position read through a symbol whose offsets disagree with the Transform
+---   still shows its real contents instead of the word unknown.
+--- @param position table|nil # A position of any length.
 --- @return string
 --
 function Teleporter:FormatPosition(position)
-    if type(position) ~= "table" or #position < 3 then
+    if type(position) ~= "table" or #position == 0 then
         return "unknown"
     end
-    return string.format("{%.3f, %.3f, %.3f}", position[1], position[2], position[3])
+    local parts = {}
+    for index = 1, #position do
+        parts[index] = string.format("%.3f", tonumber(position[index]) or 0)
+    end
+    return "{" .. table.concat(parts, ", ") .. "}"
 end
 registerLuaFunctionHighlight('FormatPosition')
 
@@ -499,10 +670,18 @@ function Teleporter:GetDistance(oldPosition, newPosition)
     if type(oldPosition) ~= "table" or type(newPosition) ~= "table" then
         return nil
     end
-    local dx = newPosition[1] - oldPosition[1]
-    local dy = newPosition[2] - oldPosition[2]
-    local dz = newPosition[3] - oldPosition[3]
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
+    -- Summed over however many components the shorter of the two has, so a
+    -- 2D table measures in the plane and a 3D one in space, with no branch.
+    local components = math.min(#oldPosition, #newPosition)
+    if components == 0 then
+        return nil
+    end
+    local total = 0
+    for index = 1, components do
+        local delta = (tonumber(newPosition[index]) or 0) - (tonumber(oldPosition[index]) or 0)
+        total = total + delta * delta
+    end
+    return math.sqrt(total)
 end
 registerLuaFunctionHighlight('GetDistance')
 
@@ -567,11 +746,21 @@ registerLuaFunctionHighlight('SaveCurrentPosition')
 --- @return table|nil # The copied and adjusted target position, or nil on invalid input.
 --
 function Teleporter:GetAdjustedTargetPosition(position)
-    if type(position) ~= "table" or #position ~= 3 then
-        logger:Error(MODULE_PREFIX .. " Invalid target position for adjustment.")
+    local count = self:AxisCount()
+    if type(position) ~= "table" or #position ~= count then
+        -- The most likely cause is a Waypoint or Additional offset list that
+        -- was not shortened along with the Transform, so both counts are named.
+        logger:ErrorBlock(MODULE_PREFIX .. " Position has the wrong number of components", {
+            { "Expected", count .. " (" .. table.concat(self:GetAxes(), ", ") .. ")" },
+            { "Received", type(position) == "table" and #position or type(position) },
+            { "Check",    "teleporter:ValidateConfiguration() lists every symbol whose offsets disagree" },
+        })
         return nil
     end
-    local adjusted = { position[1], position[2], position[3] }
+    local adjusted = {}
+    for index = 1, count do
+        adjusted[index] = position[index]
+    end
     if not self.Settings.AdjustYCoordinate then
         return adjusted
     end
@@ -664,8 +853,12 @@ registerLuaFunctionHighlight('LoadBackupPosition')
 --- @returns # true if the teleportation was successful, false otherwise.
 --
 function Teleporter:TeleportToCoordinates(position)
-    if type(position) ~= "table" or #position ~= 3 then
-        logger:Error(MODULE_PREFIX .. " Invalid position format. Expected {x, y, z}.")
+    local count = self:AxisCount()
+    if type(position) ~= "table" or #position ~= count then
+        logger:ErrorBlock(MODULE_PREFIX .. " Invalid position format", {
+            { "Expected", count .. " values (" .. table.concat(self:GetAxes(), ", ") .. ")" },
+            { "Received", type(position) == "table" and (#position .. " values") or type(position) },
+        })
         return false
     end
     local currentPosition = self:GetCurrentPosition()
@@ -923,7 +1116,7 @@ function Teleporter:BuildSaveHierarchy(includeSaveFunc)
     self:EnsureAuthorsAndCategories()
     local grouped = {}
     for saveKey, data in pairs(self.Saves or {}) do
-        if type(saveKey) == "string" and type(data) == "table" and data.X and data.Y and data.Z then
+        if type(saveKey) == "string" and self:SaveToPosition(data) ~= nil then
             local author = trimString(data.Author)
             if author == "" then
                 author = "Unknown"
@@ -1002,8 +1195,9 @@ function Teleporter:FormatSaveTree(options)
     local wrapWidth = tonumber(options.width) or DEFAULT_DESCRIPTION_WIDTH
     local totals = { Saves = 0, Categories = 0, Authors = 0, Invalid = 0 }
     local invalidKeys = {}
+    local axes = self:GetAxes()
     for key, save in pairs(self.Saves or {}) do
-        if type(save) ~= "table" or not save.X or not save.Y or not save.Z then
+        if self:SaveToPosition(save) == nil then
             totals.Invalid = totals.Invalid + 1
             invalidKeys[#invalidKeys + 1] = tostring(key)
         end
@@ -1053,7 +1247,7 @@ function Teleporter:FormatSaveTree(options)
             if width > nameWidth then
                 nameWidth = width
             end
-            for _, axis in ipairs({ "X", "Y", "Z" }) do
+            for _, axis in ipairs(axes) do
                 local width = #string.format("%.3f", tonumber(item.Save[axis]) or 0)
                 if width > coordWidth then
                     coordWidth = width
@@ -1061,15 +1255,23 @@ function Teleporter:FormatSaveTree(options)
             end
         end
     end
-    local coordFormat = string.format("%%%ds  %%%ds  %%%ds", coordWidth, coordWidth, coordWidth)
+    -- One right aligned column per axis, so a 2D table gets two columns and a
+    -- 3D one gets three without the layout knowing which it is.
+    local columns = {}
+    for index = 1, #axes do
+        columns[index] = string.format("%%%ds", coordWidth)
+    end
+    local coordFormat = table.concat(columns, "  ")
     local lines = {}
     for _, item in ipairs(items) do
         local line = item.Prefix .. item.Text
         if item.Kind == "save" and showCoordinates then
-            line = line .. string.rep(" ", nameWidth - displayWidth(line) + 2) .. string.format(coordFormat,
-                string.format("%.3f", tonumber(item.Save.X) or 0),
-                string.format("%.3f", tonumber(item.Save.Y) or 0),
-                string.format("%.3f", tonumber(item.Save.Z) or 0))
+            local values = {}
+            for index, axis in ipairs(axes) do
+                values[index] = string.format("%.3f", tonumber(item.Save[axis]) or 0)
+            end
+            line = line .. string.rep(" ", nameWidth - displayWidth(line) + 2)
+                        .. string.format(coordFormat, table.unpack(values))
         end
         lines[#lines + 1] = line
         if item.Kind == "save" and showDescriptions then
@@ -1146,12 +1348,17 @@ function Teleporter:TeleportToSave(name)
         return false
     end
     local saveKey, reason = self:ResolveSaveKey(name)
-    local savePosition = saveKey and self.Saves and self.Saves[saveKey]
-    if not savePosition or type(savePosition) ~= "table" or not savePosition.X or not savePosition.Y or not savePosition.Z then
-        logger:ErrorF(MODULE_PREFIX .. " Save Not Found or invalid format: '%s' (%s)", tostring(name), tostring(reason or "invalid entry"))
+    local save = saveKey and self.Saves and self.Saves[saveKey]
+    local position = self:SaveToPosition(save)
+    if not position then
+        logger:ErrorBlock(MODULE_PREFIX .. " Save not found, or it has no usable position", {
+            { "Requested", tostring(name) },
+            { "Reason",    tostring(reason or "the entry is missing an axis") },
+            { "Axes",      table.concat(self:GetAxes(), ", ") },
+        })
         return false
     end
-    local success = self:TeleportToCoordinates({ savePosition.X, savePosition.Y, savePosition.Z --[[+ 10.000 ]] })
+    local success = self:TeleportToCoordinates(position)
     if success then
         logger:InfoF(MODULE_PREFIX .. " Teleported to Save: '%s'", saveKey)
     end
@@ -1341,6 +1548,7 @@ function Teleporter:CreateTeleporterSaves()
         addressList:BeginUpdate()
         didBeginUpdate = true
     end
+    local axes = self:GetAxes()
     local ok, err = pcall(function()
         self:ClearSubrecords(root)
         local grouped = self:BuildSaveHierarchy()
@@ -1352,6 +1560,14 @@ function Teleporter:CreateTeleporterSaves()
             end
             local displayName = self:GetSaveDisplayName(position, saveKey)
             local categoryText = self:CategoryPathToText(self:GetSaveCategoryPath(position, true), true)
+            -- The coordinate comment is built per axis, so the generated
+            -- script documents two values for a 2D table and three for a 3D
+            -- one instead of printing a Z that does not exist.
+            local coordinateLines = {}
+            for _, axis in ipairs(axes) do
+                coordinateLines[#coordinateLines + 1] =
+                    string.format("---- %s: %.4f", axis, tonumber(position[axis]) or 0)
+            end
             local scriptContent = string.format([[
 {$lua}
 if syntaxcheck then return end
@@ -1360,9 +1576,7 @@ if syntaxcheck then return end
 --- Save: %s
 --- Author: %s
 --- Category: %s
----- X: %.4f
----- Y: %.4f
----- Z: %.4f
+%s
 teleporter:TeleportToSave("%s")
 utils:AutoDisable(memrec.ID)
 [DISABLE]
@@ -1371,7 +1585,7 @@ utils:AutoDisable(memrec.ID)
 --- Script generated using %s
 ---- Version: %s
 ---- Source: https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Modules
-]], displayName, author, categoryText, position.X, position.Y, position.Z, saveKey, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
+]], displayName, author, categoryText, table.concat(coordinateLines, "\n"), saveKey, NAME or "Manifold.Teleporter.lua", VERSION or "Unknown")
 
             local mr = addressList.createMemoryRecord()
             mr.Type = vtAutoAssembler
@@ -1426,17 +1640,26 @@ registerLuaFunctionHighlight('CreateTeleporterSaves')
 --- @param position table # The position table to validate, expected to contain numeric values at indices 1, 2, and 3.
 --- @returns boolean # true if the position is valid, false if it is invalid and an error was logged.
 --
-local function logSavePositionError(name, position)
-    if not position or not position[1] or not position[2] or not position[3] then
-        if type(position) == "table" then
-            logger:ErrorF(MODULE_PREFIX .. " Invalid position for save '%s'. Position is a table, contents: X=%s, Y=%s, Z=%s", 
-                           name, tostring(position[1]), tostring(position[2]), tostring(position[3]))
-        else
-            logger:ErrorF(MODULE_PREFIX .. " Invalid position for save '%s'. Position is not a table: %s", name, tostring(position))
-        end
+local function logSavePositionError(teleporter, name, position)
+    local axes = teleporter:GetAxes()
+    if type(position) ~= "table" then
+        logger:ErrorBlock(MODULE_PREFIX .. " Cannot save a position that was never read", {
+            { "Save",     tostring(name) },
+            { "Received", type(position) },
+        })
         return false
     end
-    return true
+    local rows = { { "Save", tostring(name) } }
+    local complete = #position >= #axes
+    for index, axis in ipairs(axes) do
+        if position[index] == nil then complete = false end
+        rows[#rows + 1] = { axis, tostring(position[index]) }
+    end
+    if complete then
+        return true
+    end
+    logger:ErrorBlock(MODULE_PREFIX .. " Invalid position for save", rows)
+    return false
 end
 
 --
@@ -1448,98 +1671,22 @@ function Teleporter:GetCurrentAuthor()
 end
 
 --
---- ∑ Ensures that the UI state table is initialized and returns it.
---- The UI state holds references to form controls and other relevant data for managing the Teleporter UI.
---- If the UI state is not already initialized, this function will create it with default values.
---- @return table # The UI state table containing references to form controls and other UI-related data.
+--- ∑ Ensures that the UI state table exists and returns it.
+---   It holds every control the window built, keyed by name, plus the two
+---   pieces of state the refresh loop needs. The controls are not declared
+---   here. They used to be, as ninety lines assigning nil, which in Lua
+---   constructs nothing: the table it produced had exactly the two entries
+---   below. Each Create* function registers what it built, and the two Keys
+---   lists say which of the variable sets actually exist.
+---
+---     <Field>Edit / Row / Label / Border / Fill / Inner   one field row
+---     AxisFieldKeys                                       the coordinate rows
+---     ButtonKeys                                          the buttons
+---
+--- @return table # The UI state.
 --
 function Teleporter:EnsureUiState()
-    self.UiState = self.UiState or {
-        Form = nil,
-        RootPanel = nil,
-        ToolbarPanel = nil,
-        StatusPanel = nil,
-        LeftPanel = nil,
-        LeftInnerPanel = nil,
-        LeftHeaderPanel = nil,
-        LeftContentPanel = nil,
-        RightPanel = nil,
-        RightInnerPanel = nil,
-        RightHeaderPanel = nil,
-        RightContentPanel = nil,
-        EditorPanel = nil,
-        TreePanel = nil,
-        SearchPanel = nil,
-        SearchFillPanel = nil,
-        SearchInnerPanel = nil,
-        TreeBorderPanel = nil,
-        TreeHostPanel = nil,
-        FieldsHostPanel = nil,
-        TopGroupPanel = nil,
-        BottomGroupPanel = nil,
-        FooterPanel = nil,
-        MemoBorderPanel = nil,
-        MemoPanel = nil,
-        MemoInnerPanel = nil,
-        NameRow = nil,
-        NameBorder = nil,
-        NameFill = nil,
-        NameInner = nil,
-        AuthorRow = nil,
-        AuthorBorder = nil,
-        AuthorFill = nil,
-        AuthorInner = nil,
-        CategoryRow = nil,
-        CategoryBorder = nil,
-        CategoryFill = nil,
-        CategoryInner = nil,
-        XRow = nil,
-        XBorder = nil,
-        XFill = nil,
-        XInner = nil,
-        YRow = nil,
-        YBorder = nil,
-        YFill = nil,
-        YInner = nil,
-        ZRow = nil,
-        ZBorder = nil,
-        ZFill = nil,
-        ZInner = nil,
-        TreeView = nil,
-        TreeStatsLabel = nil,
-        SearchEdit = nil,
-        TreeHeaderLabel = nil,
-        EditorHeaderLabel = nil,
-        AddButton = nil,
-        DuplicateButton = nil,
-        TeleportButton = nil,
-        UpdateButton = nil,
-        ClearButton = nil,
-        RenameButton = nil,
-        UseCurrentPositionButton = nil,
-        NameLabel = nil,
-        NameEdit = nil,
-        AuthorLabel = nil,
-        AuthorEdit = nil,
-        CategoryLabel = nil,
-        CategoryEdit = nil,
-        XLabel = nil,
-        XEdit = nil,
-        YLabel = nil,
-        YEdit = nil,
-        ZLabel = nil,
-        ZEdit = nil,
-        DescriptionEdit = nil,
-        StatusLabel = nil,
-        SaveButton = nil,
-        LoadButton = nil,
-        DeleteButton = nil,
-        RefreshButton = nil,
-        WaypointButton = nil,
-        CurrentSelection = nil,
-        SearchQuery = "",
-        IsRefreshing = false,
-    }
+    self.UiState = self.UiState or { SearchQuery = "", IsRefreshing = false }
     return self.UiState
 end
 
@@ -1590,12 +1737,13 @@ end
 
 function Teleporter:ClearEditor()
     local ui = self:EnsureUiState()
+    ui.CurrentSelection = nil
     if ui.NameEdit then ui.NameEdit.Text = "" end
     if ui.AuthorEdit then ui.AuthorEdit.Text = self:GetCurrentAuthor() end
     if ui.CategoryEdit then ui.CategoryEdit.Text = "" end
-    if ui.XEdit then ui.XEdit.Text = "" end
-    if ui.YEdit then ui.YEdit.Text = "" end
-    if ui.ZEdit then ui.ZEdit.Text = "" end
+    for _, edit in ipairs(self:GetAxisEdits()) do
+        edit.Text = ""
+    end
     if ui.DescriptionEdit then ui.DescriptionEdit.Lines.Text = "" end
     ui.CurrentSelection = nil
 end
@@ -1632,29 +1780,78 @@ function Teleporter:LoadSaveIntoEditor(name)
         return false
     end
     ui.CurrentSelection = saveKey
+    -- The editor may not exist. AddSave, CreateSaveFromCurrentPosition and
+    -- TeleportToSave are all callable from a table script without the window
+    -- ever having been opened, and each of them ends up here.
+    if not ui.NameEdit then
+        return true
+    end
     ui.NameEdit.Text = self:GetSaveDisplayName(save, saveKey)
     ui.AuthorEdit.Text = save.Author or self:GetCurrentAuthor()
     ui.CategoryEdit.Text = self:CategoryPathToText(self:GetSaveCategoryPath(save, false), false)
-    ui.XEdit.Text = tostring(save.X or "")
-    ui.YEdit.Text = tostring(save.Y or "")
-    ui.ZEdit.Text = tostring(save.Z or "")
+    for index, axis in ipairs(self:GetAxes()) do
+        local edit = ui[axis .. "Edit"]
+        if edit then edit.Text = tostring(save[axis] or "") end
+    end
     ui.DescriptionEdit.Lines.Text = save.Description or ""
     return true
 end
 
 --
---- ∑ Attempts to parse the position from the editor fields. Returns nil if any field is invalid.
---- @returns table|nil # A table containing the position {x, y, z} or nil if parsing fails.
+--- ∑ The editor's coordinate boxes, in axis order.
+---   Skips any that were never built, so a caller written against three axes
+---   does not raise on a table configured for two.
+--- @return table # Array of text boxes.
+--
+function Teleporter:GetAxisEdits()
+    local ui = self:EnsureUiState()
+    local edits = {}
+    for _, axis in ipairs(ui.AxisFieldKeys or self:GetAxes()) do
+        local edit = ui[axis .. "Edit"]
+        if edit then edits[#edits + 1] = edit end
+    end
+    return edits
+end
+registerLuaFunctionHighlight('GetAxisEdits')
+
+--
+--- ∑ Writes the saves out and brings the window back in step with them.
+---   Add, update, rename, duplicate and delete all ended with the same five
+---   calls in slightly different orders, which is five places to forget one.
+--- @param key string|nil # The save to select afterwards. nil means the
+---   selection is gone, which is the delete case, and the editor is cleared.
+--- @param status string # The status bar line.
+--- @return boolean # Always true, so a caller can `return self:_Commit(...)`.
+--
+function Teleporter:_CommitSaveChange(key, status)
+    self:PersistSaves(true)
+    self:SetSelectedSaveName(key)
+    self:RefreshUi(key ~= nil)
+    if key then
+        self:LoadSaveIntoEditor(key)
+    else
+        self:ClearEditor()
+    end
+    self:SetStatus(status)
+    return true
+end
+
+--
+--- ∑ Attempts to parse the position from the editor fields.
+--- @returns table|nil # The position, or nil when a field is empty or not a number.
 --
 function Teleporter:TryGetEditorPosition()
     local ui = self:EnsureUiState()
-    local x = tonumber(ui.XEdit.Text)
-    local y = tonumber(ui.YEdit.Text)
-    local z = tonumber(ui.ZEdit.Text)
-    if not x or not y or not z then
-        return nil
+    local position = {}
+    for index, axis in ipairs(self:GetAxes()) do
+        local edit = ui[axis .. "Edit"]
+        local value = edit and tonumber(edit.Text)
+        if value == nil then
+            return nil
+        end
+        position[index] = value
     end
-    return { x, y, z }
+    return position
 end
 
 --
@@ -1743,18 +1940,15 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
         return false
     end
     local position = self:GetCurrentPosition()
-    if not logSavePositionError(saveName, position) then
+    if not logSavePositionError(self, saveName, position) then
         return false
     end
     self.Saves = self.Saves or {}
-    local save = {
+    local save = self:PositionToSave({
         Name = trimString(saveName),
-        X = position[1],
-        Y = position[2],
-        Z = position[3],
         Author = self:GetCurrentAuthor(),
         Description = description or "",
-    }
+    }, position)
     self:SetSaveCategoryPath(save, category)
     local saveKey = self:GetSaveKey(save)
     if not saveKey then
@@ -1766,13 +1960,8 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
         return false
     end
     self.Saves[saveKey] = save
-    self:PersistSaves(true)
-    self:SetSelectedSaveName(saveKey)
-    self:RefreshUi(true)
-    self:LoadSaveIntoEditor(saveKey)
-    self:SetStatus("Save created: " .. save.Name)
     logger:InfoF(MODULE_PREFIX .. " Added Save: '%s'", saveKey)
-    return true
+    return self:_CommitSaveChange(saveKey, "Save created: " .. save.Name)
 end
 
 --
@@ -1813,13 +2002,8 @@ function Teleporter:DeleteSave(saveName)
         return false
     end
     self.Saves[saveKey] = nil
-    self:PersistSaves(true)
-    self:SetSelectedSaveName(nil)
-    self:RefreshUi(false)
-    self:ClearEditor()
-    self:SetStatus("Save deleted: " .. displayName)
     logger:InfoF(MODULE_PREFIX .. " Deleted Save: '%s'.", saveKey)
-    return true
+    return self:_CommitSaveChange(nil, "Save deleted: " .. displayName)
 end
 
 --
@@ -1863,13 +2047,9 @@ function Teleporter:RenameSave(oldName, newName)
     if targetKey ~= sourceKey then
         self.Saves[sourceKey] = nil
     end
-    self:PersistSaves(true)
-    self:SetSelectedSaveName(targetKey)
-    self:RefreshUi(true)
-    self:LoadSaveIntoEditor(targetKey)
-    self:SetStatus(string.format("Renamed '%s' -> '%s'", sourceName, save.Name))
     logger:InfoF(MODULE_PREFIX .. " Renamed Save: '%s' to '%s'.", sourceKey, targetKey)
-    return true
+    return self:_CommitSaveChange(targetKey,
+        string.format("Renamed '%s' -> '%s'", sourceName, save.Name))
 end
 
 --
@@ -1887,22 +2067,17 @@ function Teleporter:DuplicateSelectedSave()
     local newName = self:GenerateUniqueCopyName(self:GetSaveDisplayName(src, sourceKey), categoryPath)
     local copiedSave = {
         Name = newName,
-        X = src.X,
-        Y = src.Y,
-        Z = src.Z,
         Author = src.Author or self:GetCurrentAuthor(),
         Description = src.Description or "",
     }
+    for _, axis in ipairs(self:GetAxes()) do
+        copiedSave[axis] = src[axis]
+    end
     self:SetSaveCategoryPath(copiedSave, categoryPath)
     local newKey = self:GetSaveKey(copiedSave)
     self.Saves[newKey] = copiedSave
-    self:PersistSaves(true)
-    self:SetSelectedSaveName(newKey)
-    self:RefreshUi(true)
-    self:LoadSaveIntoEditor(newKey)
-    self:SetStatus("Save duplicated: " .. newName)
     logger:InfoF(MODULE_PREFIX .. " Duplicated save '%s' as '%s'.", sourceKey, newKey)
-    return true
+    return self:_CommitSaveChange(newKey, "Save duplicated: " .. newName)
 end
 
 --
@@ -1937,9 +2112,7 @@ function Teleporter:UpdateSelectedSaveFromEditor()
     end
     local save = self.Saves[oldKey]
     save.Name = trimString(newName)
-    save.X = position[1]
-    save.Y = position[2]
-    save.Z = position[3]
+    self:PositionToSave(save, position)
     save.Author = ui.AuthorEdit.Text ~= "" and ui.AuthorEdit.Text or self:GetCurrentAuthor()
     self:SetSaveCategoryPath(save, ui.CategoryEdit.Text or "")
     save.Description = ui.DescriptionEdit.Lines.Text or ""
@@ -1947,13 +2120,53 @@ function Teleporter:UpdateSelectedSaveFromEditor()
         self.Saves[newKey] = save
         self.Saves[oldKey] = nil
     end
-    self:PersistSaves(true)
-    self:SetSelectedSaveName(newKey)
-    self:RefreshUi(true)
-    self:LoadSaveIntoEditor(newKey)
-    self:SetStatus("Save updated: " .. save.Name)
     logger:InfoF(MODULE_PREFIX .. " Save '%s' updated.", newKey)
-    return true
+    return self:_CommitSaveChange(newKey, "Save updated: " .. save.Name)
+end
+
+--
+--- ∑ Registers the six controls a field row is made of under one name, so the
+---   editor can reach any of them as ui.NameEdit, ui.XBorder and so on, and
+---   Manifold.UI can theme a row it was never told about by name.
+--- @param ui table # The UI state.
+--- @param key string # Field name, for example "Name" or "X".
+--
+local function registerFieldRow(ui, key, edit, row, label, border, fill, inner)
+    ui[key .. "Edit"], ui[key .. "Row"], ui[key .. "Label"] = edit, row, label
+    ui[key .. "Border"], ui[key .. "Fill"], ui[key .. "Inner"] = border, fill, inner
+end
+
+--
+--- ∑ Wraps an action so it only runs when a save is selected. Both menus are
+---   built out of these, and neither should do anything on an empty tree.
+--- @param teleporter table # The Teleporter instance.
+--- @param action function # fn(saveKey)
+--- @return function
+--
+local function onSelectedSave(teleporter, action)
+    return function()
+        local name = teleporter:GetSelectedSaveName()
+        if name then action(name) end
+    end
+end
+
+--
+--- ∑ Builds a menu from a flat spec.
+---   A caption of "-" is a separator, which is what Cheat Engine's menu items
+---   call a bare dash, and a nil handler leaves the item inert.
+--- @param owner table # The menu the items belong to.
+--- @param root table # The item or Items collection they are added to.
+--- @param entries table # Array of { caption, handler } pairs.
+--
+local function addMenuItems(owner, root, entries)
+    for _, entry in ipairs(entries) do
+        if entry then
+            local item = createMenuItem(owner)
+            item.Caption = entry[1]
+            item.OnClick = entry[2]
+            root.add(item)
+        end
+    end
 end
 
 local BUILD_THEME = {
@@ -1998,60 +2211,52 @@ end
 function Teleporter:CreateMenuStrip(parent)
     local menu = createMainMenu(parent)
     parent.Menu = menu
-    local function menuItem(root, caption, handler)
-        local item = createMenuItem(menu)
-        item.Caption = caption
-        if handler then
-            item.OnClick = handler
-        end
-        root.add(item)
-        return item
+    local hasWaypoint = self.Waypoint and trimString(self.Waypoint.Symbol) ~= ""
+    local menus = {
+        { "&File", {
+            { "Load Saves", function()
+                self:SaveLookup()
+                self:RefreshUi(true)
+                self:SetStatus("Saves loaded")
+            end },
+            { "Save To DataDir", function()
+                self:WriteSavesToDataDir()
+                self:SetStatus("Saved to DataDir")
+            end },
+            { "Save To TableFile", function()
+                self:WriteSavesToTableFile()
+                self:SetStatus("Saved to TableFile")
+            end },
+            { "-" },
+            { "Close", function()
+                if self.UiState and self.UiState.Form then self.UiState.Form.close() end
+            end },
+        } },
+        { "&Saves", {
+            { "Add Current Position", function() self:AddSave() end },
+            { "Update Selected",      function() self:UpdateSelectedSaveFromEditor() end },
+            { "Duplicate Selected",   function() self:DuplicateSelectedSave() end },
+            { "Rename Selected",      function() self:RenameSave() end },
+            { "Delete Selected",      function() self:DeleteSave() end },
+        } },
+        { "&Tools", {
+            { "Teleport To Selected Save",
+              onSelectedSave(self, function(name) self:TeleportToSave(name) end) },
+            -- Only offered when the table actually has a waypoint symbol.
+            hasWaypoint and { "Teleport To Waypoint", function() self:TeleportToWaypoint() end } or false,
+            { "Save Current Runtime Position", function()
+                self:SaveCurrentPosition()
+                self:SetStatus("Runtime position saved")
+            end },
+            { "Load Runtime Position", function() self:LoadSavedPosition() end },
+        } },
+    }
+    for _, entry in ipairs(menus) do
+        local top = createMenuItem(menu)
+        top.Caption = entry[1]
+        menu.Items.add(top)
+        addMenuItems(menu, top, entry[2])
     end
-    local fileItem = createMenuItem(menu)
-    fileItem.Caption = "&File"
-    menu.Items.add(fileItem)
-    menuItem(fileItem, "Load Saves", function()
-        self:SaveLookup()
-        self:RefreshUi(true)
-        self:SetStatus("Saves loaded")
-    end)
-    menuItem(fileItem, "Save To DataDir", function()
-        self:WriteSavesToDataDir()
-        self:SetStatus("Saved to DataDir")
-    end)
-    menuItem(fileItem, "Save To TableFile", function()
-        self:WriteSavesToTableFile()
-        self:SetStatus("Saved to TableFile")
-    end)
-    menuItem(fileItem, "-", nil)
-    menuItem(fileItem, "Close", function()
-        if self.UiState and self.UiState.Form then
-            self.UiState.Form.close()
-        end
-    end)
-    local savesItem = createMenuItem(menu)
-    savesItem.Caption = "&Saves"
-    menu.Items.add(savesItem)
-    menuItem(savesItem, "Add Current Position", function() self:AddSave() end)
-    menuItem(savesItem, "Update Selected", function() self:UpdateSelectedSaveFromEditor() end)
-    menuItem(savesItem, "Duplicate Selected", function() self:DuplicateSelectedSave() end)
-    menuItem(savesItem, "Rename Selected", function() self:RenameSave() end)
-    menuItem(savesItem, "Delete Selected", function() self:DeleteSave() end)
-    local toolsItem = createMenuItem(menu)
-    toolsItem.Caption = "&Tools"
-    menu.Items.add(toolsItem)
-    menuItem(toolsItem, "Teleport To Selected Save", function()
-        local name = self:GetSelectedSaveName()
-        if name then self:TeleportToSave(name) end
-    end)
-    if self.Waypoint and self.Waypoint.Symbol ~= nil and self.Waypoint.Symbol ~= "" then
-        menuItem(toolsItem, "Teleport To Waypoint", function() self:TeleportToWaypoint() end)
-    end
-    menuItem(toolsItem, "Save Current Runtime Position", function()
-        self:SaveCurrentPosition()
-        self:SetStatus("Runtime position saved")
-    end)
-    menuItem(toolsItem, "Load Runtime Position", function() self:LoadSavedPosition() end)
 end
 
 --
@@ -2064,39 +2269,34 @@ function Teleporter:CreateHeader(parent)
     local ui = self:EnsureUiState()
     local theme = BUILD_THEME
     local header = forms:CreatePanel(parent, {
-        align = "alTop",
-        height = 30,
-        color = theme.COLOR_PANEL,
-        role = "panel"
+        align = "alTop", height = 30, color = theme.COLOR_PANEL, role = "panel",
+        bevelOuter = "bvNone",
+        borderSpacing = { Left = 6, Right = 6, Top = 6, Bottom = 3 },
     })
-    header.BevelOuter = "bvNone"
-    header.BorderSpacing.Left = 6
-    header.BorderSpacing.Right = 6
-    header.BorderSpacing.Top = 6
-    header.BorderSpacing.Bottom = 3
     local buttons = forms:CreatePanel(header, {
-        align = "alClient",
-        color = theme.COLOR_PANEL,
-        role = "panel"
+        align = "alClient", color = theme.COLOR_PANEL, role = "panel",
     })
-    local addButton = forms:CreateButton(buttons, { caption = "Add Current", width = 108, theme = theme, onClick = function() self:AddSave() end })
-    local duplicateButton = forms:CreateButton(buttons, { caption = "Duplicate", width = 92, theme = theme, onClick = function() self:DuplicateSelectedSave() end })
-    local deleteButton = forms:CreateButton(buttons, { caption = "Delete", width = 80, theme = theme, onClick = function() self:DeleteSave() end })
-    local waypointButton = forms:CreateButton(buttons, { caption = "Teleport", width = 86, theme = theme, onClick = function()
-        local name = self:GetSelectedSaveName()
-        if name then self:TeleportToSave(name) end
-    end })
-    local updateButton = forms:CreateButton(buttons, { caption = "Update", width = 84, theme = theme, onClick = function() self:UpdateSelectedSaveFromEditor() end })
+    -- Left to right, in creation order. ButtonKeys is what the theming walks,
+    -- so a button added here needs no second edit anywhere else.
+    local toolbar = {
+        { "Add",       "Add Current", 108, function() self:AddSave() end },
+        { "Duplicate", "Duplicate",    92, function() self:DuplicateSelectedSave() end },
+        { "Delete",    "Delete",       80, function() self:DeleteSave() end },
+        { "Teleport",  "Teleport",     86, function()
+            local name = self:GetSelectedSaveName()
+            if name then self:TeleportToSave(name) end
+        end },
+        { "Update",    "Update",       84, function() self:UpdateSelectedSaveFromEditor() end },
+    }
+    ui.ButtonKeys = ui.ButtonKeys or {}
+    for _, entry in ipairs(toolbar) do
+        local key, caption, width, handler = entry[1], entry[2], entry[3], entry[4]
+        ui[key .. "Button"] = forms:CreateButton(buttons, {
+            caption = caption, width = width, theme = theme, onClick = handler,
+        })
+        ui.ButtonKeys[#ui.ButtonKeys + 1] = key .. "Button"
+    end
     ui.ToolbarPanel = header
-    ui.AddButton = addButton
-    ui.DuplicateButton = duplicateButton
-    ui.DeleteButton = deleteButton
-    ui.TeleportButton = waypointButton
-    ui.UpdateButton = updateButton
-    ui.SaveButton = addButton
-    ui.LoadButton = duplicateButton
-    ui.WaypointButton = waypointButton
-    ui.RefreshButton = updateButton
     return header
 end
 
@@ -2109,34 +2309,20 @@ end
 function Teleporter:CreateStatusBar(parent)
     local ui = self:EnsureUiState()
     local theme = BUILD_THEME
-    local statusPanel = forms:CreatePanel(parent, {
-        align = "alBottom",
-        height = 26,
-        color = theme.COLOR_BORDER,
-        role = "border"
+    ui.StatusPanel = forms:CreatePanel(parent, {
+        align = "alBottom", height = 26, color = theme.COLOR_BORDER, role = "border",
+        bevelOuter = "bvNone", borderSpacing = { Around = 6 },
     })
-    statusPanel.BevelOuter = "bvNone"
-    statusPanel.BorderSpacing.Around = 6
-    local statusInnerPanel = forms:CreatePanel(statusPanel, {
-        align = "alClient",
-        color = theme.COLOR_PANEL,
-        role = "panel"
+    ui.StatusInnerPanel = forms:CreatePanel(ui.StatusPanel, {
+        align = "alClient", color = theme.COLOR_PANEL, role = "panel",
+        bevelOuter = "bvNone", borderSpacing = { Around = 1 },
     })
-    statusInnerPanel.BevelOuter = "bvNone"
-    statusInnerPanel.BorderSpacing.Around = 1
-    local label = forms:CreateLabel(statusInnerPanel, {
-        align = "alLeft",
-        caption = "Ready",
-        theme = theme,
-        role = "label"
+    ui.StatusLabel = forms:CreateLabel(ui.StatusInnerPanel, {
+        align = "alLeft", caption = "Ready", theme = theme, role = "label",
+        borderSpacing = { Left = 8, Top = 3 },
     })
-    label.BorderSpacing.Left = 8
-    label.BorderSpacing.Top = 3
-    forms:ApplyFont(label, theme.COLOR_TEXT, 10)
-    ui.StatusPanel = statusPanel
-    ui.StatusInnerPanel = statusInnerPanel
-    ui.StatusLabel = label
-    return statusPanel
+    forms:ApplyFont(ui.StatusLabel, theme.COLOR_TEXT, 10)
+    return ui.StatusPanel
 end
 
 --
@@ -2148,113 +2334,70 @@ end
 function Teleporter:CreateTreePanel(parent)
     local theme = BUILD_THEME
     local ui = self:EnsureUiState()
-    local outer, inner, header, content, headerLabel = forms:CreateCard(parent, {
-        align = "alClient",
-        size = 330,
-        theme = theme,
-        title = "SAVED LOCATIONS"
+    ui.LeftPanel, ui.LeftInnerPanel, ui.LeftHeaderPanel, ui.LeftContentPanel, ui.TreeHeaderLabel =
+        forms:CreateCard(parent, {
+            align = "alClient", size = 330, theme = theme, title = "SAVED LOCATIONS",
+            width = 530,
+        })
+    ui.TreePanel = ui.LeftPanel
+    ui.TreeStatsLabel = forms:CreateLabel(ui.LeftHeaderPanel, {
+        align = "alRight", caption = string.format("%d saves", self:CountSaves()),
+        theme = theme, role = "mutedLabel", fontSize = 9, transparent = true,
+        borderSpacing = { Right = 8, Top = 4 },
     })
-    outer.Width = 530
-    local hint = forms:CreateLabel(header, {
-        align = "alRight",
-        caption = string.format("%d saves", self:CountSaves()),
-        theme = theme,
-        role = "mutedLabel",
-        fontSize = 9
+    forms:ApplyFont(ui.TreeStatsLabel, theme.COLOR_MUTED, 9)
+    -- Search box. Border, fill and inner are the same three panel nest a field
+    -- row uses, kept apart here because this one carries no label.
+    ui.SearchPanel = forms:CreatePanel(ui.LeftContentPanel, {
+        align = "alTop", height = 32, color = theme.COLOR_BORDER, role = "border",
+        bevelOuter = "bvRaised", bevelWidth = 1, bevelColor = theme.COLOR_BORDER,
+        borderSpacing = { Bottom = 6 },
     })
-    hint.BorderSpacing.Right = 8
-    hint.BorderSpacing.Top = 4
-    hint.Transparent = true
-    forms:ApplyFont(hint, theme.COLOR_MUTED, 9)
-    ui.TreeHeaderLabel = headerLabel
-    local searchBorder = forms:CreatePanel(content, {
-        align = "alTop",
-        height = 32,
-        color = theme.COLOR_BORDER,
-        role = "border"
+    ui.SearchFillPanel = forms:CreatePanel(ui.SearchPanel, {
+        align = "alClient", color = theme.COLOR_INPUT, role = "inputPanel",
+        borderSpacing = { Around = 1 },
     })
-    searchBorder.BevelOuter = "bvRaised"
-    searchBorder.BevelWidth = 1
-    searchBorder.BevelColor = theme.COLOR_BORDER
-    searchBorder.BorderSpacing.Bottom = 6
-    local searchFill = forms:CreatePanel(searchBorder, {
-        align = "alClient",
-        color = theme.COLOR_INPUT,
-        role = "inputPanel"
+    ui.SearchInnerPanel = forms:CreatePanel(ui.SearchFillPanel, {
+        align = "alClient", color = theme.COLOR_INPUT, role = "inputPanel",
+        borderSpacing = { Left = 8, Right = 8, Top = 4 },
     })
-    searchFill.BorderSpacing.Around = 1
-    local searchInner = forms:CreatePanel(searchFill, {
-        align = "alClient",
-        color = theme.COLOR_INPUT,
-        role = "inputPanel"
+    ui.SearchEdit = forms:CreateTextBox(ui.SearchInnerPanel, {
+        align = "alClient", parentColor = false, color = theme.COLOR_INPUT,
+        borderStyle = "bsNone", theme = theme, role = "input",
+        textHint = "Search saves...",
     })
-    searchInner.BorderSpacing.Left = 8
-    searchInner.BorderSpacing.Right = 8
-    searchInner.BorderSpacing.Top = 4
-    local searchEdit = forms:CreateTextBox(searchInner, {
-        align = "alClient",
-        parentColor = false,
-        color = theme.COLOR_INPUT,
-        borderStyle = "bsNone",
-        theme = theme,
-        role = "input"
+    ui.SearchEdit.OnChange = function() self:RefreshUi(true) end
+
+    ui.TreeBorderPanel = forms:CreatePanel(ui.LeftContentPanel, {
+        align = "alClient", color = theme.COLOR_BORDER, role = "border",
+        bevelOuter = "bvRaised", bevelWidth = 1, bevelColor = theme.COLOR_BORDER,
     })
-    searchEdit.TextHint = "Search saves..."
-    searchEdit.OnChange = function()
-        self:RefreshUi(true)
-    end
-    local treeBorder = forms:CreatePanel(content, {
-        align = "alClient",
-        color = theme.COLOR_BORDER,
-        role = "border"
+    ui.TreeHostPanel = forms:CreatePanel(ui.TreeBorderPanel, {
+        align = "alClient", color = theme.COLOR_PANEL, role = "panel",
+        borderSpacing = { Around = 1 },
     })
-    treeBorder.BevelOuter = "bvRaised"
-    treeBorder.BevelWidth = 1
-    treeBorder.BevelColor = theme.COLOR_BORDER
-    local treeHost = forms:CreatePanel(treeBorder, {
-        align = "alClient",
-        color = theme.COLOR_PANEL,
-        role = "panel"
-    })
-    treeHost.BorderSpacing.Around = 1
-    local tree = forms:CreateTreeView(treeHost, {
-        align = "alClient",
-        readOnly = true,
-        autoExpand = true,
-        borderStyle = "bsNone",
-        scrollBars = "ssAutoBoth",
-        role = "tree"
+    local tree = forms:CreateTreeView(ui.TreeHostPanel, {
+        align = "alClient", readOnly = true, autoExpand = true,
+        borderStyle = "bsNone", scrollBars = "ssAutoBoth", role = "tree",
     })
     forms:ApplyFont(tree, theme.COLOR_INPUT_TEXT, 10)
-    ui.LeftPanel = outer
-    ui.LeftInnerPanel = inner
-    ui.LeftHeaderPanel = header
-    ui.LeftContentPanel = content
-    ui.TreePanel = outer
-    ui.SearchPanel = searchBorder
-    ui.SearchFillPanel = searchFill
-    ui.SearchInnerPanel = searchInner
-    ui.SearchEdit = searchEdit
-    ui.TreeBorderPanel = treeBorder
-    ui.TreeHostPanel = treeHost
     ui.TreeView = tree
-    ui.TreeStatsLabel = hint
-    tree.OnClick = function()
-        local saveKey = self:GetSaveKeyFromTreeNode(tree.Selected)
-        if saveKey then
-            self:SetSelectedSaveName(saveKey)
-            self:LoadSaveIntoEditor(saveKey)
-            self:SetStatus("Selected: " .. saveKey)
+    -- Single click selects and loads, double click jumps.
+    local function onNode(action)
+        return function()
+            local saveKey = self:GetSaveKeyFromTreeNode(tree.Selected)
+            if saveKey then
+                self:SetSelectedSaveName(saveKey)
+                action(saveKey)
+            end
         end
     end
-    tree.OnDblClick = function()
-        local saveKey = self:GetSaveKeyFromTreeNode(tree.Selected)
-        if saveKey then
-            self:SetSelectedSaveName(saveKey)
-            self:TeleportToSave(saveKey)
-        end
-    end
-    return outer
+    tree.OnClick = onNode(function(saveKey)
+        self:LoadSaveIntoEditor(saveKey)
+        self:SetStatus("Selected: " .. saveKey)
+    end)
+    tree.OnDblClick = onNode(function(saveKey) self:TeleportToSave(saveKey) end)
+    return ui.LeftPanel
 end
 
 --
@@ -2265,153 +2408,96 @@ end
 --
 function Teleporter:CreateEditorPanel(parent)
     local theme = BUILD_THEME
-    local outer, inner, header, content, headerLabel = forms:CreateCard(parent, {
-        align = "alClient",
-        theme = theme,
-        title = "SAVE EDITOR"
+    local ui = self:EnsureUiState()
+    ui.RightPanel, ui.RightInnerPanel, ui.RightHeaderPanel, ui.RightContentPanel,
+        ui.EditorHeaderLabel = forms:CreateCard(parent, {
+            align = "alClient", theme = theme, title = "SAVE EDITOR",
+        })
+    ui.EditorPanel = ui.RightPanel
+    local content = ui.RightContentPanel
+    ui.FooterPanel = forms:CreatePanel(content, {
+        align = "alBottom", height = 36, color = theme.COLOR_PANEL, role = "panel",
+        bevelOuter = "bvLowered", bevelWidth = 1, bevelColor = theme.COLOR_BORDER,
+        borderSpacing = { Top = 6 },
     })
-    local footer = forms:CreatePanel(content, {
-        align = "alBottom",
-        height = 36,
-        color = theme.COLOR_PANEL,
-        role = "panel"
-    })
-    footer.BevelOuter = "bvLowered"
-    footer.BevelWidth = 1
-    footer.BevelColor = theme.COLOR_BORDER
-    footer.BorderSpacing.Top = 6
-    local clearButton = forms:CreateButton(footer, {
-        caption = "Clear",
-        width = 72,
-        theme = theme,
-        onClick = function()
+    ui.ButtonKeys = ui.ButtonKeys or {}
+    local footerButtons = {
+        { "Clear",              "Clear",                72, function()
             self:ClearEditor()
             self:SetStatus("Editor cleared")
-        end
-    })
-    local renameButton = forms:CreateButton(footer, {
-        caption = "Rename",
-        width = 84,
-        theme = theme,
-        onClick = function()
-            self:RenameSave()
-        end
-    })
-    local currentPositionButton = forms:CreateButton(footer, {
-        caption = "Use Current Position",
-        width = 148,
-        theme = theme,
-        onClick = function()
+        end },
+        { "Rename",             "Rename",               84, function() self:RenameSave() end },
+        { "UseCurrentPosition", "Use Current Position", 148, function()
             local pos = self:GetCurrentPosition()
-            local ui = self:EnsureUiState()
-            if pos then
-                ui.XEdit.Text = tostring(pos[1])
-                ui.YEdit.Text = tostring(pos[2])
-                ui.ZEdit.Text = tostring(pos[3])
-                self:SetStatus("Editor filled with current position")
+            if not pos then return end
+            for index, axis in ipairs(self:GetAxes()) do
+                local edit = ui[axis .. "Edit"]
+                if edit then edit.Text = tostring(pos[index]) end
             end
+            self:SetStatus("Editor filled with current position")
+        end },
+    }
+    for _, entry in ipairs(footerButtons) do
+        ui[entry[1] .. "Button"] = forms:CreateButton(ui.FooterPanel, {
+            caption = entry[2], width = entry[3], theme = theme, onClick = entry[4],
+        })
+        ui.ButtonKeys[#ui.ButtonKeys + 1] = entry[1] .. "Button"
+    end
+    ui.MemoBorderPanel = forms:CreatePanel(content, {
+        align = "alClient", color = theme.COLOR_BORDER, role = "border",
+        bevelOuter = "bvRaised", bevelWidth = 1, bevelColor = theme.COLOR_BORDER,
+        borderSpacing = { Top = 6, Bottom = 6 },
+    })
+    ui.DescriptionEdit, ui.MemoPanel, ui.MemoInnerPanel =
+        forms:CreateMemoFrame(ui.MemoBorderPanel, {
+            theme = theme, align = "alClient",
+            borderSpacing = { Around = 1 },
+            innerSpacing = { Left = 6, Right = 6, Top = 6, Bottom = 6 },
+        })
+    -- The coordinate group is sized from the number of axes rather than fixed
+    -- at three rows, so a 2D table gets a shorter panel and the description
+    -- box below it grows into the space instead of leaving a gap.
+    local axes = self:GetAxes()
+    local ROW_HEIGHT = 40
+    local coordinateHeight = math.max(ROW_HEIGHT, #axes * ROW_HEIGHT - 2)
+    local identityHeight = 3 * ROW_HEIGHT - 2
+    ui.FieldsHostPanel = forms:CreatePanel(content, {
+        align = "alTop", height = identityHeight + coordinateHeight + 8,
+        color = theme.COLOR_PANEL, role = "panel",
+    })
+    ui.BottomGroupPanel = forms:CreatePanel(ui.FieldsHostPanel, {
+        align = "alTop", height = coordinateHeight, color = theme.COLOR_PANEL, role = "panel",
+    })
+    ui.TopGroupPanel = forms:CreatePanel(ui.FieldsHostPanel, {
+        align = "alTop", height = identityHeight, color = theme.COLOR_PANEL, role = "panel",
+    })
+    -- Every row is built the same way, identity and coordinates alike, and
+    -- registers its six controls under its own name.
+    --
+    -- Both groups are built back to front. These are alTop rows and a control
+    -- created later ends up above the ones before it, so the reversed order
+    -- leaves them on screen as listed here.
+    local identityRows = {
+        { "Name",     { caption = "Name" } },
+        { "Author",   { caption = "Author" } },
+        { "Category", { caption = "Category Path", labelWidth = 108,
+                        textHint = "World / Region / Room" } },
+    }
+    local function buildRows(parentPanel, rows)
+        for index = #rows, 1, -1 do
+            local key, options = rows[index][1], rows[index][2]
+            options.theme = theme
+            registerFieldRow(ui, key, forms:CreateFieldRow(parentPanel, options))
         end
-    })
-    local memoBorder = forms:CreatePanel(content, {
-        align = "alClient",
-        color = theme.COLOR_BORDER,
-        role = "border"
-    })
-    memoBorder.BevelOuter = "bvRaised"
-    memoBorder.BevelWidth = 1
-    memoBorder.BevelColor = theme.COLOR_BORDER
-    memoBorder.BorderSpacing.Top = 6
-    memoBorder.BorderSpacing.Bottom = 6
-    local description, memoPanel, memoInnerPanel = forms:CreateMemoFrame(memoBorder, {
-        theme = theme,
-        align = "alClient",
-        borderSpacing = { Around = 1 },
-        innerSpacing = { Left = 6, Right = 6, Top = 6, Bottom = 6 }
-    })
-    local fieldsHost = forms:CreatePanel(content, {
-        align = "alTop",
-        height = 244,
-        color = theme.COLOR_PANEL,
-        role = "panel"
-    })
-    local bottomGroup = forms:CreatePanel(fieldsHost, {
-        align = "alTop",
-        height = 118,
-        color = theme.COLOR_PANEL,
-        role = "panel"
-    })
-    local topGroup = forms:CreatePanel(fieldsHost, {
-        align = "alTop",
-        height = 118,
-        color = theme.COLOR_PANEL,
-        role = "panel"
-    })
-    local categoryEdit, categoryRow, categoryLabel, categoryBorder, categoryFill, categoryInner = forms:CreateFieldRow(topGroup, {
-        caption = "Category Path",
-        labelWidth = 108,
-        textHint = "World / Region / Room",
-        theme = theme
-    })
-    local authorEdit, authorRow, authorLabel, authorBorder, authorFill, authorInner = forms:CreateFieldRow(topGroup, { caption = "Author", theme = theme })
-    local nameEdit, nameRow, nameLabel, nameBorder, nameFill, nameInner = forms:CreateFieldRow(topGroup, { caption = "Name", theme = theme })
-    local zEdit, zRow, zLabel, zBorder, zFill, zInner = forms:CreateFieldRow(bottomGroup, { caption = "Z", theme = theme })
-    local yEdit, yRow, yLabel, yBorder, yFill, yInner = forms:CreateFieldRow(bottomGroup, { caption = "Y", theme = theme })
-    local xEdit, xRow, xLabel, xBorder, xFill, xInner = forms:CreateFieldRow(bottomGroup, { caption = "X", theme = theme })
-    local ui = self:EnsureUiState()
-    ui.RightPanel = outer
-    ui.RightInnerPanel = inner
-    ui.RightHeaderPanel = header
-    ui.RightContentPanel = content
-    ui.EditorPanel = outer
-    ui.EditorHeaderLabel = headerLabel
-    ui.FooterPanel = footer
-    ui.MemoBorderPanel = memoBorder
-    ui.MemoPanel = memoPanel
-    ui.MemoInnerPanel = memoInnerPanel
-    ui.FieldsHostPanel = fieldsHost
-    ui.TopGroupPanel = topGroup
-    ui.BottomGroupPanel = bottomGroup
-    ui.NameRow = nameRow
-    ui.NameBorder = nameBorder
-    ui.NameFill = nameFill
-    ui.NameInner = nameInner
-    ui.NameLabel = nameLabel
-    ui.NameEdit = nameEdit
-    ui.AuthorRow = authorRow
-    ui.AuthorBorder = authorBorder
-    ui.AuthorFill = authorFill
-    ui.AuthorInner = authorInner
-    ui.AuthorLabel = authorLabel
-    ui.AuthorEdit = authorEdit
-    ui.CategoryRow = categoryRow
-    ui.CategoryBorder = categoryBorder
-    ui.CategoryFill = categoryFill
-    ui.CategoryInner = categoryInner
-    ui.CategoryLabel = categoryLabel
-    ui.CategoryEdit = categoryEdit
-    ui.XRow = xRow
-    ui.XBorder = xBorder
-    ui.XFill = xFill
-    ui.XInner = xInner
-    ui.XLabel = xLabel
-    ui.XEdit = xEdit
-    ui.YRow = yRow
-    ui.YBorder = yBorder
-    ui.YFill = yFill
-    ui.YInner = yInner
-    ui.YLabel = yLabel
-    ui.YEdit = yEdit
-    ui.ZRow = zRow
-    ui.ZBorder = zBorder
-    ui.ZFill = zFill
-    ui.ZInner = zInner
-    ui.ZLabel = zLabel
-    ui.ZEdit = zEdit
-    ui.DescriptionEdit = description
-    ui.ClearButton = clearButton
-    ui.RenameButton = renameButton
-    ui.UseCurrentPositionButton = currentPositionButton
-    return outer
+    end
+    buildRows(ui.TopGroupPanel, identityRows)
+    local coordinateRows = {}
+    for index, axis in ipairs(axes) do
+        coordinateRows[index] = { axis, { caption = axis } }
+    end
+    buildRows(ui.BottomGroupPanel, coordinateRows)
+    ui.AxisFieldKeys = axes
+    return ui.RightPanel
 end
 
 -- ∑ Creates the context menu for the tree view, providing options to teleport to a save, load it into the editor, update it from the editor, duplicate it, rename it, or delete it.
@@ -2423,25 +2509,14 @@ function Teleporter:CreateTreeContextMenu()
     end
     local menu = createPopupMenu(ui.TreeView)
     ui.TreeView.PopupMenu = menu
-    local function addItem(caption, handler)
-        local item = createMenuItem(menu)
-        item.Caption = caption
-        item.OnClick = handler
-        menu.Items.add(item)
-        return item
-    end
-    addItem("Teleport", function()
-        local name = self:GetSelectedSaveName()
-        if name then self:TeleportToSave(name) end
-    end)
-    addItem("Load Into Editor", function()
-        local name = self:GetSelectedSaveName()
-        if name then self:LoadSaveIntoEditor(name) end
-    end)
-    addItem("Update From Editor", function() self:UpdateSelectedSaveFromEditor() end)
-    addItem("Duplicate", function() self:DuplicateSelectedSave() end)
-    addItem("Rename", function() self:RenameSave() end)
-    addItem("Delete", function() self:DeleteSave() end)
+    addMenuItems(menu, menu.Items, {
+        { "Teleport",           onSelectedSave(self, function(name) self:TeleportToSave(name) end) },
+        { "Load Into Editor",   onSelectedSave(self, function(name) self:LoadSaveIntoEditor(name) end) },
+        { "Update From Editor", function() self:UpdateSelectedSaveFromEditor() end },
+        { "Duplicate",          function() self:DuplicateSelectedSave() end },
+        { "Rename",             function() self:RenameSave() end },
+        { "Delete",             function() self:DeleteSave() end },
+    })
 end
 
 --
@@ -2545,57 +2620,42 @@ function Teleporter:InitTeleporterUI()
         width = 1120,
         height = 720,
         position = "poScreenCenter",
-        role = "form"
+        role = "form",
+        borderStyle = "bsSizeable",
+        constraints = { MinWidth = 980, MinHeight = 620 },
     })
-    form.BorderStyle = "bsSizeable"
     form.Font.Name = "Consolas"
     form.Font.Size = 10
-    form.Constraints.MinWidth = 980
-    form.Constraints.MinHeight = 620
     form.show()
     uiState.Form = form
     self:CreateMenuStrip(form)
-    local root = forms:CreatePanel(form, {
-        align = "alClient",
-        color = theme.COLOR_BG,
-        role = "background"
+    -- Three nested backgrounds: the whole client area, then the part below the
+    -- toolbar and above the status bar, then the two halves either side of the
+    -- splitter. The tree is alLeft and the editor takes what is left.
+    local function background(parent, opts)
+        opts.color, opts.role = theme.COLOR_BG, "background"
+        return forms:CreatePanel(parent, opts)
+    end
+    uiState.RootPanel = background(form, { align = "alClient" })
+    self:CreateStatusBar(uiState.RootPanel)
+    self:CreateHeader(uiState.RootPanel)
+    uiState.BodyPanel = background(uiState.RootPanel, {
+        align = "alClient", borderSpacing = { Left = 6, Right = 6, Bottom = 6 },
     })
-    uiState.RootPanel = root
-    self:CreateStatusBar(root)
-    self:CreateHeader(root)
-    local body = forms:CreatePanel(root, {
-        align = "alClient",
-        color = theme.COLOR_BG,
-        role = "background"
+    uiState.EditorHost = background(uiState.BodyPanel, {
+        align = "alClient", width = form.Width / 2, constraints = { MinWidth = 400 },
     })
-    uiState.BodyPanel = body
-    body.BorderSpacing.Left = 6
-    body.BorderSpacing.Right = 6
-    body.BorderSpacing.Bottom = 6
-    local editorHost = forms:CreatePanel(body, {
-        align = "alClient",
-        color = theme.COLOR_BG,
-        role = "background"
-    })
-    uiState.EditorHost = editorHost
-    editorHost.Constraints.MinWidth = 400
-    editorHost.Width = form.Width / 2
-    local splitter = createSplitter(body)
+    local splitter = createSplitter(uiState.BodyPanel)
     uiState.Splitter = splitter
     splitter.Align = "alLeft"
     splitter.Width = 6
     splitter.MinSize = 250
     splitter.ResizeStyle = "rsUpdate"
-    local treeHost = forms:CreatePanel(body, {
-        align = "alLeft",
-        color = theme.COLOR_BG,
-        role = "background"
+    uiState.TreeHost = background(uiState.BodyPanel, {
+        align = "alLeft", width = form.Width / 2, constraints = { MinWidth = 250 },
     })
-    uiState.TreeHost = treeHost
-    treeHost.Width = form.Width / 2
-    treeHost.Constraints.MinWidth = 250
-    self:CreateEditorPanel(editorHost)
-    self:CreateTreePanel(treeHost)
+    self:CreateEditorPanel(uiState.EditorHost)
+    self:CreateTreePanel(uiState.TreeHost)
     self:CreateTreeContextMenu()
     form.OnClose = function()
         self:SetStatus("Closed")
@@ -2607,23 +2667,20 @@ function Teleporter:InitTeleporterUI()
     self:ClearEditor()
     self:SetStatus("Teleporter ready")
     form.centerScreen()
-    if _G.ui then
-        local activeTheme = nil
-        local ok = false
-        if type(ui.GetActiveThemeData) == "function" then
-            ok, activeTheme = pcall(function()
+    -- Adopt the cheat table's theme if one is loaded. The window is built in
+    -- BUILD_THEME either way, so it is never unstyled while this is decided.
+    if _G.ui and type(ui.ApplyThemeToTeleporter) == "function" then
+        local ok, activeTheme = pcall(function()
+            if type(ui.GetActiveThemeData) == "function" then
                 return ui:GetActiveThemeData()
-            end)
-        elseif type(ui.GetTheme) == "function" and ui.ActiveTheme then
-            ok, activeTheme = pcall(function()
+            elseif type(ui.GetTheme) == "function" and ui.ActiveTheme then
                 return ui:GetTheme(ui.ActiveTheme)
-            end)
-        end
-        if ok and type(activeTheme) == "table" and type(ui.ApplyThemeToTeleporter) == "function" then
+            end
+        end)
+        if ok and type(activeTheme) == "table" then
             ui:ApplyThemeToTeleporter(self, activeTheme)
         end
     end
-
     return form
 end
 registerLuaFunctionHighlight('InitTeleporterUI')
