@@ -1,9 +1,13 @@
 local NAME        = "Manifold.Json.lua"
 local AUTHOR      = {"Leunsel", "LeFiXER"}
-local VERSION     = "1.0.1"
+local VERSION     = "1.0.2"
 local DESCRIPTION = "Manifold Framework JSON Encoder / Decoder"
 
 --[[
+    ∂ v1.0.2 (2026-09-01)
+        PrintModuleInfo is one block, and keeps its print fallback
+        for use without a logger.
+
     ∂ v1.0.1 (2026-08-23)
         Optional Manifold.Logger integration. Encode and decode failures are
         reported through the framework logger when the Cheat Table has created
@@ -56,7 +60,6 @@ if type(debug) == "table" and type(debug.getinfo) == "function" then
     local info = debug.getinfo(1, "S")
     if info and info.short_src then SOURCE = info.short_src end
 end
-
 
 --
 --- Local alias so the module stays usable outside of Cheat Engine.
@@ -141,25 +144,26 @@ registerLuaFunctionHighlight('GetModuleInfo')
 
 --
 --- ∑ Prints module details in a readable formatted block.
----   The two branches are written out rather than routed through a shared emit
----   helper, so every line is a direct logger call at a visible level. The
----   print branch is what keeps this module usable standalone: the sibling
----   bodies address the global "logger" unconditionally and throw without one.
+---   Same shape as every other module, with one difference that keeps this
+---   module usable standalone. The sibling bodies address the global "logger"
+---   unconditionally and throw without one, this one falls back to print.
 --
 function Json:PrintModuleInfo()
-    local info = { name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION }
+    local info = self:GetModuleInfo()
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    if logger and logger.Info then
-        logger:Info("Module Info : "  .. tostring(info.name))
-        logger:Info("\tVersion:     " .. tostring(info.version))
-        logger:Info("\tAuthor:      " .. author)
-        logger:Info("\tDescription: " .. description .. "\n")
-    else
-        print("Module Info : "  .. tostring(info.name))
-        print("\tVersion:     " .. tostring(info.version))
-        print("\tAuthor:      " .. author)
-        print("\tDescription: " .. description .. "\n")
+    local title = "Module Info : " .. tostring(info.name)
+    local rows = {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }
+    if logger and logger.InfoBlock then
+        logger:InfoBlock(title, rows, { indent = "\t" })
+        return
+    end
+    print(title)
+    for _, row in ipairs(rows) do
+        print("\t" .. row[1] .. " : " .. tostring(row[2]))
     end
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
