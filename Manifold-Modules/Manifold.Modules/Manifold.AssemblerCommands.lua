@@ -1,10 +1,14 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.7"
+local VERSION = "1.2.8"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
-    v1.2.7 (2026-08-23)
+    ∂ v1.2.8 (2026-09-01)
+        Log messages carry the module prefix by concatenation,
+        matching the rest of the framework.
+
+    ∂ v1.2.7 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
 ]]--
@@ -264,7 +268,7 @@ end
 --- @return string
 --
 function AssemblerCommands:_commandError(commandName, message)
-    logger:Error(string.format("%s %s Error", MODULE_PREFIX, commandName))
+    logger:ErrorF("%s %s Error", MODULE_PREFIX, commandName)
     logger:ErrorF("%s   Reason: %s", MODULE_PREFIX, tostring(message))
     return nil, message
 end
@@ -1049,7 +1053,7 @@ function AssemblerCommands:_registerCommand(commandName, handler)
         return false
     end
     reg(commandName, handler)
-    logger:InfoF("%s Registered Assembler Command: %s", MODULE_PREFIX, commandName)
+    logger:InfoF(MODULE_PREFIX .. " Registered Assembler Command: %s", commandName)
     return true
 end
 
