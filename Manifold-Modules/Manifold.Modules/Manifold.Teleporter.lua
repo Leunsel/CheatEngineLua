@@ -1,9 +1,16 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.1"
+local VERSION = "1.3.0"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
+    ∂ v1.3.0 (2026-09-01)
+        A jump is one entry: origin, destination, distance and
+        whether the backup was stored. Settings.LogVerbose, off by
+        default, brings back the per step lines. An unresolvable
+        symbol is reported once, by ResolveAddress, instead of
+        twice.
+
     ∂ v1.2.1 (2026-08-26)
         PrintSaves() renders one tree in a single log entry instead of
         a line per save. Descriptions are wrapped and indented inside
@@ -46,6 +53,12 @@ Teleporter = {
     Settings = {
         ValueType = vtSingle,
         PauseWhileTeleporting = true,
+        --- Per-step logging during a jump. OFF by default, same reasoning as
+        --- Memory.LogSuccessfulOperations: one teleport walked through pause,
+        --- three address resolutions, three writes and a resume, and every one
+        --- of those lines is a file write because the log writes the file
+        --- before it applies the level filter. Turn it on to trace a jump.
+        LogVerbose = false,
         --- Y Coordinate Adjustment Settings ---
         AdjustYCoordinate = true,
         YCoordinateIndex = 1,
@@ -117,12 +130,16 @@ function Teleporter:New(config)
     local instance = setmetatable({}, self)
     self:CheckDependencies()
     instance.Name = NAME or "Unnamed Module"
+    local rejected = {}
     for key, value in pairs(config or {}) do
         if self[key] ~= nil then
             instance[key] = value
         else
-            logger:WarningF("Invalid property: '%s'", key)
+            rejected[#rejected + 1] = { tostring(key), type(value) }
         end
+    end
+    if #rejected > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " Ignored " .. #rejected .. " unknown config properties", rejected)
     end
     return BOOTSTRAP.Ready(MODULE, instance)
 end
@@ -142,16 +159,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Teleporter:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -294,10 +307,8 @@ end
 --
 function Teleporter:PauseGame()
     if not self.Settings.PauseWhileTeleporting then
-        logger:Debug(MODULE_PREFIX .. " PauseWhileTeleporting is disabled; skipping pause.")
         return
     end
-    logger:Debug(MODULE_PREFIX .. " Pausing game for teleportation...")
     pause()
 end
 
@@ -306,10 +317,8 @@ end
 --
 function Teleporter:ResumeGame()
     if not self.Settings.PauseWhileTeleporting then
-        logger:Debug(MODULE_PREFIX .. " PauseWhileTeleporting is disabled; skipping resume.")
         return
     end
-    logger:Debug(MODULE_PREFIX .. " Resuming game after teleportation...")
     unpause()
 end
 
@@ -329,7 +338,9 @@ function Teleporter:ResolveAddress(addressStr, isPointer)
         logger:ForceWarningF(MODULE_PREFIX .. " Failed to resolve address '%s' (Pointer: %s)", addressStr, tostring(isPointer))
         return nil
     end
-    logger:DebugF(MODULE_PREFIX .. " Resolved address '%s' (Pointer: %s) -> 0x%X", addressStr, tostring(isPointer), resolvedAddress)
+    if self.Settings.LogVerbose then
+        logger:DebugF(MODULE_PREFIX .. " Resolved address '%s' (Pointer: %s) -> 0x%X", addressStr, tostring(isPointer), resolvedAddress)
+    end
     return resolvedAddress
 end
 
@@ -338,13 +349,16 @@ end
 --
 function Teleporter:SetValueType(valueType)
     local typeName = valueTypeMap[valueType] or "Unknown"
-    logger:DebugF(MODULE_PREFIX .. " Attempting to set ValueType: %s (ID: %d)", typeName, valueType)
     if readFunctions[valueType] and writeFunctions[valueType] then
         self.Settings.ValueType = valueType
-        logger:InfoF(MODULE_PREFIX .. " Set Teleporter Value Type To %s (ID: %d)", typeName, valueType)
+        logger:InfoF(MODULE_PREFIX .. " Value type set to %s (ID: %d).", typeName, valueType)
     else
-        logger:ErrorF(MODULE_PREFIX .. " Invalid Value Type for Teleporter: %s (ID: %d)", typeName, valueType)
-        logger:Debug(MODULE_PREFIX .. " Available Value Types: " .. table.concat(valueTypeMap, ", "))
+        -- The rejection and what would have been accepted, together. Split
+        -- over two lines the reader had to scroll to find the answer.
+        logger:ErrorBlock(MODULE_PREFIX .. " Invalid value type", {
+            { "Requested", typeName .. " (ID: " .. tostring(valueType) .. ")" },
+            { "Available", table.concat(valueTypeMap, ", ") },
+        })
     end
 end
 registerLuaFunctionHighlight('SetValueType')
@@ -365,9 +379,10 @@ function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead, value
         logger:Error(MODULE_PREFIX .. " Invalid or empty offsets for position read.")
         return nil
     end
+    -- ResolveAddress reports an unresolvable symbol itself, in the same
+    -- words. Repeating it here wrote the same line twice per failure.
     local baseAddress = self:ResolveAddress(symbol, isPointerRead)
     if not baseAddress then
-        logger:Warning(string.format(MODULE_PREFIX .. " Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerRead)))
         return nil
     end
     local readFunc = readFunctions[valueType]
@@ -383,7 +398,9 @@ function Teleporter:ReadPositionFromMemory(symbol, offsets, isPointerRead, value
             return nil
         end
     end
-    logger:Debug(string.format(MODULE_PREFIX .. " Read position from '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3]))
+    if self.Settings.LogVerbose then
+        logger:DebugF(MODULE_PREFIX .. " Read position from '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
+    end
     return position
 end
 registerLuaFunctionHighlight('ReadPositionFromMemory')
@@ -409,9 +426,9 @@ function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWr
         logger:Error(MODULE_PREFIX .. " Mismatched offsets and position values.")
         return false
     end
+    -- See ReadPositionFromMemory. ResolveAddress owns this message.
     local baseAddress = self:ResolveAddress(symbol, isPointerWrite)
     if not baseAddress then
-        logger:WarningF(MODULE_PREFIX .. " Failed to resolve address '%s' (Pointer: %s)", symbol, tostring(isPointerWrite))
         return false
     end
     local writeFunc = writeFunctions[valueType]
@@ -425,7 +442,9 @@ function Teleporter:WritePositionToMemory(symbol, offsets, position, isPointerWr
             return false
         end
     end
-    logger:InfoF(MODULE_PREFIX .. " Wrote position to '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
+    if self.Settings.LogVerbose then
+        logger:DebugF(MODULE_PREFIX .. " Wrote position to '0x%08X' -> {%.3f, %.3f, %.3f}", baseAddress, position[1], position[2], position[3])
+    end
     return true
 end
 registerLuaFunctionHighlight('WritePositionToMemory')
@@ -458,21 +477,70 @@ end
 registerLuaFunctionHighlight('GetBackupPosition')
 
 --
+--- ∑ Formats a position as one readable value.
+--- @param position table|nil # {x, y, z}
+--- @return string
+--
+function Teleporter:FormatPosition(position)
+    if type(position) ~= "table" or #position < 3 then
+        return "unknown"
+    end
+    return string.format("{%.3f, %.3f, %.3f}", position[1], position[2], position[3])
+end
+registerLuaFunctionHighlight('FormatPosition')
+
+--
+--- ∑ The straight line distance between two positions.
+--- @param oldPosition table # {x, y, z}
+--- @param newPosition table # {x, y, z}
+--- @return number|nil
+--
+function Teleporter:GetDistance(oldPosition, newPosition)
+    if type(oldPosition) ~= "table" or type(newPosition) ~= "table" then
+        return nil
+    end
+    local dx = newPosition[1] - oldPosition[1]
+    local dy = newPosition[2] - oldPosition[2]
+    local dz = newPosition[3] - oldPosition[3]
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+registerLuaFunctionHighlight('GetDistance')
+
+--
 --- ∑ Logs the distance traveled when teleporting.
+--- @deprecated Kept for callers outside this module. A jump is reported by
+---   _ReportJump now, which puts the distance in the same entry as the
+---   destination instead of on a line of its own.
 --- @param oldPosition # The previous position {x, y, z}.
 --- @param newPosition # The new position {x, y, z}.
 --
 function Teleporter:LogDistanceTraveled(oldPosition, newPosition)
-    if not oldPosition or not newPosition then
-        logger:Warning(MODULE_PREFIX .. " Cannot log distance traveled: missing position data.")
+    local distance = self:GetDistance(oldPosition, newPosition)
+    if not distance then
+        logger:Warning(MODULE_PREFIX .. " Cannot log distance traveled, a position is missing.")
         return
     end
-    local function calculateDistance(pos1, pos2)
-        local dx, dy, dz = pos2[1] - pos1[1], pos2[2] - pos1[2], pos2[3] - pos1[3]
-        return math.sqrt(dx * dx + dy * dy + dz * dz)
-    end
-    local distance = calculateDistance(oldPosition, newPosition)
     logger:InfoF(MODULE_PREFIX .. " Distance traveled: %.3f Units", distance)
+end
+
+--
+--- ∑ Reports one completed jump as a single entry.
+---   Every teleport used to write three to four separate lines, plus the
+---   per-step lines underneath it, so a jump cost around a dozen file writes
+---   and read as a paragraph. One block, one write, one place to look.
+--- @param what string # What kind of jump this was.
+--- @param fromPosition table|nil # Where the jump started.
+--- @param toPosition table # Where it ended.
+--- @param backupStored boolean|nil # Whether the previous position was kept.
+--
+function Teleporter:_ReportJump(what, fromPosition, toPosition, backupStored)
+    local distance = self:GetDistance(fromPosition, toPosition)
+    logger:InfoBlock(MODULE_PREFIX .. " " .. what, {
+        { "From",     self:FormatPosition(fromPosition) },
+        { "To",       self:FormatPosition(toPosition) },
+        distance and { "Distance", string.format("%.3f Units", distance) } or false,
+        { "Backup",   backupStored and "stored" or "not stored" },
+    })
 end
 
 --
@@ -487,7 +555,7 @@ function Teleporter:SaveCurrentPosition()
     end
     local success = self:WritePositionToMemory(self.Symbols.Saved, self:CalculateSymbolOffsets(), currentPosition, false, self.Transform.ValueType)
     if success then
-        logger:InfoF(MODULE_PREFIX .. " Saved position -> {%.3f, %.3f, %.3f}", currentPosition[1], currentPosition[2], currentPosition[3])
+        logger:Info(MODULE_PREFIX .. " Saved position " .. self:FormatPosition(currentPosition) .. ".")
     end
     return success
 end
@@ -514,8 +582,10 @@ function Teleporter:GetAdjustedTargetPosition(position)
         return adjusted
     end
     adjusted[coordinateIndex] = adjusted[coordinateIndex] + adjustmentAmount
-    logger:DebugF(MODULE_PREFIX .. " Adjusted coordinate index %d by %.3f -> {%.3f, %.3f, %.3f}",
-        coordinateIndex, adjustmentAmount, adjusted[1], adjusted[2], adjusted[3])
+    if self.Settings.LogVerbose then
+        logger:DebugF(MODULE_PREFIX .. " Adjusted coordinate index %d by %.3f -> {%.3f, %.3f, %.3f}",
+                      coordinateIndex, adjustmentAmount, adjusted[1], adjusted[2], adjusted[3])
+    end
     return adjusted
 end
 registerLuaFunctionHighlight('GetAdjustedTargetPosition')
@@ -542,13 +612,11 @@ function Teleporter:LoadSavedPosition()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF(MODULE_PREFIX .. " Loaded saved position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
-        self:LogDistanceTraveled(currentPosition, targetPosition)
+        local backupStored = false
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
-        else
-            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
+            backupStored = self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType) == true
         end
+        self:_ReportJump("Loaded saved position", currentPosition, targetPosition, backupStored)
     else
         logger:Error(MODULE_PREFIX .. " Something went wrong when loading the saved position.")
     end
@@ -578,13 +646,11 @@ function Teleporter:LoadBackupPosition()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF(MODULE_PREFIX .. " Loaded backup position -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
-        self:LogDistanceTraveled(currentPosition, targetPosition)
+        local backupStored = false
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
-        else
-            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
+            backupStored = self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType) == true
         end
+        self:_ReportJump("Loaded backup position", currentPosition, targetPosition, backupStored)
     else
         logger:Error(MODULE_PREFIX .. " Something went wrong when loading the backup position.")
     end
@@ -618,13 +684,11 @@ function Teleporter:TeleportToCoordinates(position)
     end
     self:ResumeGame()
     if success then
-        logger:InfoF(MODULE_PREFIX .. " Teleported to coordinates -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
-        self:LogDistanceTraveled(currentPosition, targetPosition)
+        local backupStored = false
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
-        else
-            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
+            backupStored = self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType) == true
         end
+        self:_ReportJump("Teleported to coordinates", currentPosition, targetPosition, backupStored)
     else
         logger:Error(MODULE_PREFIX .. " Teleportation failed.")
     end
@@ -654,13 +718,11 @@ function Teleporter:TeleportToWaypoint()
     end
     self:ResumeGame()
     if success then
-        logger:InfoF(MODULE_PREFIX .. " Teleported to waypoint -> {%.3f, %.3f, %.3f}", targetPosition[1], targetPosition[2], targetPosition[3])
-        self:LogDistanceTraveled(currentPosition, targetPosition)
+        local backupStored = false
         if self.Symbols and self.Symbols.Backup then
-            self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType)
-        else
-            logger:Warning(MODULE_PREFIX .. " Backup symbol not found. Unable to store previous position.")
+            backupStored = self:WritePositionToMemory(self.Symbols.Backup, self:CalculateSymbolOffsets(), currentPosition, false, self.Settings.ValueType) == true
         end
+        self:_ReportJump("Teleported to waypoint", currentPosition, targetPosition, backupStored)
     end
     return success
 end
@@ -1124,13 +1186,15 @@ function Teleporter:EnsureTeleporterDir()
         return nil
     end
     if not exists then
-        logger:Warning(MODULE_PREFIX .. " Teleporter Dir missing; creating it...")
-        local ok, err = customIO:CreateDirectory(teleporterDir)
+        local ok, createErr = customIO:CreateDirectory(teleporterDir)
         if not ok then
-            logger:Error(MODULE_PREFIX .. " Create Teleporter Dir failed: " .. (err or "Unknown error"))
+            logger:ErrorBlock(MODULE_PREFIX .. " Teleporter directory unavailable", {
+                { "Directory", teleporterDir },
+                { "Reason",    createErr or "unknown error" },
+            })
             return nil
         end
-        logger:Info(MODULE_PREFIX .. " Teleporter Dir created.")
+        logger:Debug(MODULE_PREFIX .. " Created directory: " .. teleporterDir)
     end
     return teleporterDir
 end
@@ -1148,7 +1212,8 @@ function Teleporter:GetSaveFilePath()
         return nil, nil
     end
     local saveFilePath = string.format(self.SaveFileName, utils:GetTargetNoExt())
-    logger:Info(MODULE_PREFIX .. " Save file path: " .. saveFilePath)
+    -- Called by every read and every write. SaveLookup names the file it
+    -- actually used, so announcing the path here said it twice.
     return teleporterDir .. "\\" .. saveFilePath, saveFilePath
 end
 registerLuaFunctionHighlight('GetSaveFilePath')
@@ -1161,41 +1226,45 @@ registerLuaFunctionHighlight('GetSaveFilePath')
 --
 function Teleporter:SaveLookup()
     local saveFilePath, saveFileName = self:GetSaveFilePath()
-    if saveFilePath then
-        logger:Info(MODULE_PREFIX .. " Attempting to load Teleporter save file from '" .. saveFilePath .. "'")
-        local data, err = customIO:ReadFromFileAsJson(saveFilePath)
-        if data then
-            self.Saves = data
-            if (self:EnsureAuthorsAndCategories() or 0) > 0 then
-                self:PersistSaves(true)
-            end
-            local saveCount = 0
-            for _, _ in pairs(self.Saves) do
-                saveCount = saveCount + 1
-            end
-            logger:Info(MODULE_PREFIX .. " Successfully loaded save data with " .. tostring(saveCount) .. " saves.")
-            return self.Saves
-        elseif err then
-            logger:Warning(MODULE_PREFIX .. " Error loading save file: " .. err)
-        end
-    end
-    logger:Info(MODULE_PREFIX .. " Attempting to load Teleporter data from TableFiles ('" .. saveFileName .. "')")
-    local tableData, tableErr = customIO:ReadFromTableFileAsJson(saveFileName)
-    if tableData then
-        self.Saves = tableData
+    -- Both sources are tried in order and the outcome is reported once, at the
+    -- end. Narrating each attempt meant a successful load from the first
+    -- source still wrote three lines, and a fallback wrote five.
+    local dataDirError, tableFileError
+    local function adopt(data)
+        self.Saves = data
         if (self:EnsureAuthorsAndCategories() or 0) > 0 then
             self:PersistSaves(true)
         end
-        local saveCount = 0
-        for _, _ in pairs(self.Saves) do
-            saveCount = saveCount + 1
-        end
-        logger:Info(MODULE_PREFIX .. " Successfully loaded table data with " .. tostring(saveCount) .. " saves.")
-        return self.Saves
-    elseif tableErr then
-        logger:Warning(MODULE_PREFIX .. " Error loading from TableFiles: " .. tableErr)
+        return self:CountSaves()
     end
-    logger:Warning(MODULE_PREFIX .. " No valid Teleporter save data found.")
+    if saveFilePath then
+        local data, err = customIO:ReadFromFileAsJson(saveFilePath)
+        if data then
+            logger:InfoBlock(MODULE_PREFIX .. " Loaded saves", {
+                { "Source", "data directory" },
+                { "File",   saveFilePath },
+                { "Saves",  adopt(data) },
+            })
+            return self.Saves
+        end
+        dataDirError = err
+    end
+    local tableData, tableErr = customIO:ReadFromTableFileAsJson(saveFileName)
+    if tableData then
+        logger:InfoBlock(MODULE_PREFIX .. " Loaded saves", {
+            { "Source", "table file" },
+            { "File",   saveFileName },
+            { "Saves",  adopt(tableData) },
+        })
+        return self.Saves
+    end
+    tableFileError = tableErr
+    logger:WarningBlock(MODULE_PREFIX .. " No save data found", {
+        { "Data directory", saveFilePath or "unavailable" },
+        dataDirError and { "Reason", tostring(dataDirError) } or false,
+        { "Table file",     saveFileName or "unavailable" },
+        tableFileError and { "Reason", tostring(tableFileError) } or false,
+    })
     return nil
 end
 registerLuaFunctionHighlight('SaveLookup')
@@ -1212,12 +1281,14 @@ function Teleporter:WriteSavesToTableFile()
     end
     local success, err = customIO:WriteToTableFileAsJson(saveFileName, self.Saves)
     if success then
-        logger:Info(MODULE_PREFIX .. " Successfully saved Teleporter data to TableFiles.")
+        logger:Info(MODULE_PREFIX .. " Saved " .. self:CountSaves() .. " saves to the table file.")
         return true
-    else
-        logger:Error(MODULE_PREFIX .. " Failed to save Teleporter data to TableFiles: " .. (err or "Unknown error"))
-        return false
     end
+    logger:ErrorBlock(MODULE_PREFIX .. " Could not save to the table file", {
+        { "File",   tostring(saveFileName) },
+        { "Reason", err or "unknown error" },
+    })
+    return false
 end
 registerLuaFunctionHighlight('WriteSavesToTableFile')
 
@@ -1233,12 +1304,14 @@ function Teleporter:WriteSavesToDataDir()
     end
     local success, err = customIO:WriteToFileAsJson(saveFilePath, self.Saves)
     if success then
-        logger:Info(MODULE_PREFIX .. " Successfully saved Teleporter data to DataDir.")
+        logger:Info(MODULE_PREFIX .. " Saved " .. self:CountSaves() .. " saves to the data directory.")
         return true
-    else
-        logger:Error(MODULE_PREFIX .. " Failed to save Teleporter data to DataDir: " .. (err or "Unknown error"))
-        return false
     end
+    logger:ErrorBlock(MODULE_PREFIX .. " Could not save to the data directory", {
+        { "File",   tostring(saveFilePath) },
+        { "Reason", err or "unknown error" },
+    })
+    return false
 end
 registerLuaFunctionHighlight('WriteSavesToDataDir')
 
@@ -1250,7 +1323,6 @@ function Teleporter:CreateTeleporterSaves()
         synchronize(function() self:CreateTeleporterSaves() end)
         return
     end
-    logger:Info(MODULE_PREFIX .. " Starting creation of Teleporter Saves...")
     local addressList = getAddressList()
     if not addressList then
         logger:Error(MODULE_PREFIX .. " AddressList not available.")
@@ -1333,7 +1405,7 @@ utils:AutoDisable(memrec.ID)
             authorHeader.IsAddressGroupHeader = false
             createCategoryRecords(authorHeader, grouped[author], author)
         end
-        logger:InfoF(MODULE_PREFIX .. " Successfully created %d Teleporter Saves (grouped by Author and Category Path).", totalSaves)
+        logger:InfoF(MODULE_PREFIX .. " Created %d save records, grouped by author and category path.", totalSaves)
     end)
     if didBeginUpdate then
         if addressList.endUpdate then
