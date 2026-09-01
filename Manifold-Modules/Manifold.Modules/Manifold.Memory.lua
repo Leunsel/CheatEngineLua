@@ -1,9 +1,14 @@
 local NAME = "Manifold.Memory.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local DESCRIPTION = "Manifold Framework Memory"
 
 --[[
+    ∂ v1.1.1 (2026-09-01)
+        The argument validators tag their lines [Memory] instead of
+        the calling function's name, so every line in the module is
+        attributable to it.
+
     ∂ v1.1.0 (2026-08-23)
         Gained ResolvePointerPath from Manifold.Utils. It resolves an address
         and reads pointers, which is this module's goal.
@@ -120,16 +125,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Memory:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("Module Info : " .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -177,7 +178,7 @@ end
 --- @param address integer
 --
 function Memory:_LogReadFailure(typeInfo, address)
-    logger:ErrorF("%s Unable to read %s at address '%s'", MODULE_PREFIX, typeInfo.label, self:_FormatAddress(address))
+    logger:ErrorF(MODULE_PREFIX .. " Unable to read %s at address '%s'", typeInfo.label, self:_FormatAddress(address))
 end
 
 --
@@ -187,7 +188,8 @@ end
 --- @param value number
 --
 function Memory:_LogWriteFailure(typeInfo, address, value)
-    logger:ErrorF("%s Unable to write %s " .. typeInfo.format .. " to address '%s'", MODULE_PREFIX, typeInfo.label, value, self:_FormatAddress(address))
+    logger:ErrorF(MODULE_PREFIX .. " Unable to write %s " .. typeInfo.format .. " to address '%s'",
+                  typeInfo.label, value, self:_FormatAddress(address))
 end
 
 --
@@ -211,7 +213,7 @@ function Memory:SafeGetAddress(addressOrSymbol, isLocal)
     local valueType = type(addressOrSymbol)
     if valueType == "number" then
         if addressOrSymbol < 0 then
-            logger:ErrorF("%s SafeGetAddress failed: invalid numeric address %d", MODULE_PREFIX, addressOrSymbol)
+            logger:ErrorF(MODULE_PREFIX .. " SafeGetAddress failed: invalid numeric address %d", addressOrSymbol)
             return nil
         end
         return addressOrSymbol
@@ -263,60 +265,50 @@ registerLuaFunctionHighlight('SafeGetAddress')
 --
 function Memory:ResolvePointerPath(baseAddress, offsets, isLocal)
     if type(baseAddress) ~= "string" and type(baseAddress) ~= "number" then
-        logger:ErrorF("%s ResolvePointerPath: base address must be a string or number, got %s",
-                      MODULE_PREFIX, type(baseAddress))
+        logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath: base address must be a string or number, got %s", type(baseAddress))
         return nil
     end
     if type(offsets) ~= "table" then
-        logger:ErrorF("%s ResolvePointerPath: offsets must be a table, got %s",
-                      MODULE_PREFIX, type(offsets))
+        logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath: offsets must be a table, got %s", type(offsets))
         return nil
     end
     if not self:_IsOptionalBoolean(isLocal) then
-        logger:ErrorF("%s ResolvePointerPath: isLocal must be a boolean or nil, got %s",
-                      MODULE_PREFIX, type(isLocal))
+        logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath: isLocal must be a boolean or nil, got %s", type(isLocal))
         return nil
     end
-
     local address = self:SafeGetAddress(baseAddress, isLocal)
     if not address then
-        logger:ErrorF("%s ResolvePointerPath: base '%s' could not be resolved.",
-                      MODULE_PREFIX, tostring(baseAddress))
+        logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath: base '%s' could not be resolved.", tostring(baseAddress))
         return nil
     end
-
     -- The walk so far, rendered only if something goes wrong.
     local trace = { self:_FormatAddress(address) }
     local function walked()
         return table.concat(trace, " -> ")
     end
-
     for index = 1, #offsets do
         local offset = offsets[index]
         if not self:_IsNumber(offset) or offset ~= math.floor(offset) then
-            logger:ErrorF("%s ResolvePointerPath: offset %d must be an integer, got %s.",
-                          MODULE_PREFIX, index, tostring(offset))
+            logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath: offset %d must be an integer, got %s.",
+                          index, tostring(offset))
             return nil
         end
-
         local value = readPointer(address)
         if not self:_IsNumber(value) then
-            logger:ErrorF("%s ResolvePointerPath: could not read a pointer at hop %d of %d. Walked: %s",
-                          MODULE_PREFIX, index, #offsets, walked())
+            logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath: could not read a pointer at hop %d of %d. Walked: %s",
+                          index, #offsets, walked())
             return nil
         end
         if value == 0 then
             -- The original added the offset to zero and kept going, handing back
             -- a low garbage address that looked resolved.
-            logger:ErrorF("%s ResolvePointerPath: null pointer at hop %d of %d - the target is not allocated yet. Walked: %s",
-                          MODULE_PREFIX, index, #offsets, walked())
+            logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath: null pointer at hop %d of %d, the target is not allocated yet. Walked: %s",
+                          index, #offsets, walked())
             return nil
         end
-
         address = value + offset
         trace[#trace + 1] = self:_FormatAddress(address)
     end
-
     return address
 end
 registerLuaFunctionHighlight('ResolvePointerPath')
@@ -330,7 +322,7 @@ registerLuaFunctionHighlight('ResolvePointerPath')
 function Memory:_RequireAddress(address, functionName)
     local resolved = self:SafeGetAddress(address)
     if not self:_IsNumber(resolved) then
-        logger:Error("[" .. tostring(functionName) .. "] Invalid address")
+        logger:Error(MODULE_PREFIX .. " " .. tostring(functionName) .. ": invalid address.")
         return nil
     end
     return resolved
@@ -345,7 +337,7 @@ end
 --
 function Memory:_RequireNumber(value, functionName, paramName)
     if not self:_IsNumber(value) then
-        logger:Error("[" .. tostring(functionName) .. "] " .. tostring(paramName) .. " must be a number")
+        logger:Error(MODULE_PREFIX .. " " .. tostring(functionName) .. ": " .. tostring(paramName) .. " must be a number.")
         return false
     end
     return true
@@ -359,7 +351,7 @@ end
 --
 function Memory:_RequireSignedFlag(signed, functionName)
     if not self:_IsOptionalBoolean(signed) then
-        logger:Error("[" .. tostring(functionName) .. "] signed must be a boolean or nil")
+        logger:Error(MODULE_PREFIX .. " " .. tostring(functionName) .. ": signed must be a boolean or nil.")
         return false
     end
     return true
@@ -409,8 +401,8 @@ function Memory:_SafeReadValue(address, typeInfo, signed)
         return nil
     end
     if self.LogSuccessfulOperations then
-        logger:DebugF("%s Read %s from '%s': " .. typeInfo.format,
-                      MODULE_PREFIX, typeInfo.label, self:_FormatAddress(resolved), value)
+        logger:DebugF(MODULE_PREFIX .. " Read %s from '%s': " .. typeInfo.format,
+                      typeInfo.label, self:_FormatAddress(resolved), value)
     end
     return value
 end
@@ -432,8 +424,8 @@ function Memory:_SafeWriteValue(address, value, typeInfo)
         return false
     end
     if self.LogSuccessfulOperations then
-        logger:DebugF("%s Wrote %s " .. typeInfo.format .. " to '%s'",
-                      MODULE_PREFIX, typeInfo.label, value, self:_FormatAddress(resolved))
+        logger:DebugF(MODULE_PREFIX .. " Wrote %s " .. typeInfo.format .. " to '%s'",
+                      typeInfo.label, value, self:_FormatAddress(resolved))
     end
     return true
 end
@@ -456,18 +448,18 @@ function Memory:_SafeAddValue(address, value, typeInfo, signed)
     end
     local currentValue = self:_ReadResolvedValue(resolved, typeInfo, signed)
     if not self:_IsNumber(currentValue) then
-        logger:ErrorF("%s Unable to add %s due to read failure at address '%s'", MODULE_PREFIX, typeInfo.label, self:_FormatAddress(resolved))
+        logger:ErrorF(MODULE_PREFIX .. " Unable to add %s due to read failure at address '%s'", typeInfo.label, self:_FormatAddress(resolved))
         return false
     end
     local newValue = currentValue + value
     local success = self:_WriteResolvedValue(resolved, newValue, typeInfo)
     if not success then
-        logger:ErrorF("%s Unable to write new %s to address '%s'", MODULE_PREFIX, typeInfo.label, self:_FormatAddress(resolved))
+        logger:ErrorF(MODULE_PREFIX .. " Unable to write new %s to address '%s'", typeInfo.label, self:_FormatAddress(resolved))
         return false
     end
     if self.LogSuccessfulOperations then
-        logger:DebugF("%s Added " .. typeInfo.format .. " to %s at '%s', now " .. typeInfo.format,
-                      MODULE_PREFIX, value, typeInfo.label, self:_FormatAddress(resolved), newValue)
+        logger:DebugF(MODULE_PREFIX .. " Added " .. typeInfo.format .. " to %s at '%s', now " .. typeInfo.format,
+                      value, typeInfo.label, self:_FormatAddress(resolved), newValue)
     end
     return true
 end
