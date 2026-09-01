@@ -1,17 +1,20 @@
 local NAME = "Manifold.Logger.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.2.0"
 local DESCRIPTION = "Manifold Framework Logger"
 
 --[[
+    ∂ v1.2.0 (2026-09-01)
+        The file half no longer goes through customIO, which is
+        what closed the logger to customIO recursion. A failed
+        write now switches disk logging off for the session
+        instead of being retried on every line, and the
+        directory check is cached rather than run twice per line.
+
     ∂ v1.1.0 (2026-08-26)
         Added BuildBlock() and the <Level>Block() helpers, so a
         multi-row report is one log entry with aligned labels
         instead of one prefixed line per row.
-
-    ∂ v1.0.3 (2026-08-23)
-        Implemented the Bootstrap handshake so this module
-        can be loaded on its own or through the framework.
 ]]--
 
 Logger = {
@@ -44,9 +47,7 @@ local MODULE = BOOTSTRAP.Declare({
     class = "Logger", global = "logger",
     name = NAME, version = VERSION, author = AUTHOR, description = DESCRIPTION,
     prefix = MODULE_PREFIX,
-    deps = {
-        -- no dependencies: this module is a framework leaf
-    },
+    deps = {},
 })
 
 function Logger:New()
@@ -56,6 +57,12 @@ function Logger:New()
     instance.Output = print
     instance.DataDir = os.getenv("USERPROFILE") .. "\\AppData\\Local\\Manifold"
     instance.LogFileName = "Manifold.Runtime.Unknown.log"
+    -- Disk state. FileLogging is the switch a caller owns, the two underscore
+    -- fields are bookkeeping for the write path and documented there.
+    instance.FileLogging = true
+    instance.FileLogError = nil
+    instance._DirReady = false
+    instance._InFileWrite = false
     return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
@@ -74,16 +81,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Logger:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    self:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -128,6 +131,8 @@ function Logger:SetLogFileName(name)
     else
         self.LogFileName = "Manifold.Runtime.".. name ..".log"
     end
+    -- A new target is a new chance for a directory that was not there before.
+    self._DirReady = false
     self:Info(MODULE_PREFIX .. " Log file set to: " .. self.LogFileName)
 end
 registerLuaFunctionHighlight('SetLogFileName')
@@ -185,28 +190,137 @@ end
 registerLuaFunctionHighlight('_GetLogFilePath')
 
 --
---- ∑ Ensures the logger data and log directories exist.
+--- ∑ Creates a directory when it is missing, using lfs directly.
+---   Deliberately not customIO. This module is declared a framework leaf and
+---   customIO reports its own failures through this logger, so borrowing
+---   customIO here is what closed the loop:
+---     _WriteToLogFile -> customIO:CreateDirectory -> logger:Error -> _WriteToLogFile
+---   Going straight to lfs removes the cycle instead of guarding it.
+--- @param path string
+--- @return boolean
+--
+local function _ensureDirectory(path)
+    local fs = rawget(_G, "lfs")
+    if type(fs) ~= "table" or type(path) ~= "string" or path == "" then
+        return false
+    end
+    local attributes = fs.attributes(path)
+    if attributes and attributes.mode == "directory" then
+        return true
+    end
+    fs.mkdir(path)
+    attributes = fs.attributes(path)
+    return attributes ~= nil and attributes.mode == "directory"
+end
+
+--
+--- ∑ Confirms the log directories exist.
+---   The answer is cached. The previous version ran two lfs.attributes calls
+---   for every single line, which on a table load meant several hundred
+---   directory lookups to write a file whose path never changes.
+---   _DirReady is cleared by SetLogFileName, EnableFileLogging and by a failed
+---   write, so a folder that disappears mid-session is still noticed.
 --- @return boolean
 --
 function Logger:_EnsureLogDirectories()
-    if not customIO or not self.DataDir then
+    if self._DirReady then
+        return true
+    end
+    if not _ensureDirectory(self.DataDir) then
         return false
     end
-    if not (customIO:DirectoryExists(self.DataDir) or customIO:CreateDirectory(self.DataDir)) then
+    if not _ensureDirectory(self:_GetLogsDirectory()) then
         return false
     end
-    local logsDir = self:_GetLogsDirectory()
-    return customIO:DirectoryExists(logsDir) or customIO:CreateDirectory(logsDir)
+    self._DirReady = true
+    return true
 end
 registerLuaFunctionHighlight('_EnsureLogDirectories')
 
 --
---- ∑ Appends a formatted message to the active log file when customIO is available.
+--- ∑ Switches disk logging off for the rest of the session.
+---   Called from the write path, so it must not write. The flag is set before
+---   the report, which keeps that report on the Output function only.
+---   The console and print keep working. Only the file stops.
+--- @param reason any # What went wrong, kept on the instance as FileLogError.
+--
+function Logger:DisableFileLogging(reason)
+    if self.FileLogging == false then
+        return
+    end
+    self.FileLogging = false
+    self.FileLogError = tostring(reason or "unknown")
+    self._DirReady = false
+    self:ForceWarning(MODULE_PREFIX .. " Disk logging disabled for this session: " .. self.FileLogError)
+end
+registerLuaFunctionHighlight('DisableFileLogging')
+
+--
+--- ∑ Turns disk logging back on and forgets the cached directory state, so the
+---   next line re-checks the path. The way back after DisableFileLogging, for
+---   a caller that has fixed the cause.
+--
+function Logger:EnableFileLogging()
+    self.FileLogging = true
+    self.FileLogError = nil
+    self._DirReady = false
+end
+registerLuaFunctionHighlight('EnableFileLogging')
+
+--
+--- ∑ Reports whether the file half of the logger is alive.
+--- @return boolean, string|nil # Enabled, and the reason it was switched off.
+--
+function Logger:GetFileLoggingState()
+    return self.FileLogging ~= false, self.FileLogError
+end
+registerLuaFunctionHighlight('GetFileLoggingState')
+
+--
+--- ∑ The append itself. Raises on failure so the caller can react once.
+---   The second attempt re-checks the directories, which covers the Logs
+---   folder being removed while Cheat Engine is running. That is the one
+---   failure worth a retry, and one retry is where it ends.
+--- @param formattedMessage string
+--
+function Logger:_AppendToLogFile(formattedMessage)
+    local path = self:_GetLogFilePath()
+    local file
+    for _ = 1, 2 do
+        if self:_EnsureLogDirectories() then
+            file = io.open(path, "a")
+            if file then break end
+        end
+        self._DirReady = false
+    end
+    if not file then
+        error("cannot open '" .. path .. "' for appending", 0)
+    end
+    file:write(formattedMessage, "\n")
+    file:close()
+end
+registerLuaFunctionHighlight('_AppendToLogFile')
+
+--
+--- ∑ Appends a formatted message to the active log file.
+---   Three guards, each for a different failure:
+---     FileLogging   the switch a caller owns, and the one a failed write flips
+---     _InFileWrite  a log call raised from inside this write cannot re-enter
+---     the pcall      a raise here must never escape into the caller's code
+---   A failed write disables the file for the session rather than being
+---   retried on every following line, which is what made an unwritable data
+---   directory cost one open attempt per log call.
 --- @param formattedMessage string
 --
 function Logger:_WriteToLogFile(formattedMessage)
-    if self:_EnsureLogDirectories() then
-        customIO:AppendToFile(self:_GetLogFilePath(), formattedMessage)
+    if self.FileLogging == false or self._InFileWrite then
+        return
+    end
+    self._InFileWrite = true
+    local ok, err = pcall(self._AppendToLogFile, self, formattedMessage)
+    self._InFileWrite = false
+    if not ok then
+        self:DisableFileLogging(err)
     end
 end
 registerLuaFunctionHighlight('_WriteToLogFile')
@@ -220,7 +334,9 @@ function Logger:_ResolveLevel(level)
     local levelName = type(level) == "number" and self.LevelNames[level] or level
     local levelId = self.Levels[levelName]
     if not levelId then
-        print("[Logger Error]: Invalid log level - " .. tostring(level))
+        -- print, not self:Error. A bad level cannot be reported through the
+        -- machinery that just rejected it.
+        print(MODULE_PREFIX .. " Invalid log level: " .. tostring(level))
         return nil, nil
     end
     return levelName, levelId
@@ -258,8 +374,10 @@ function Logger:_DispatchLog(level, message, forced)
     end
     local success, err = pcall(self.Output, formattedMessage)
     if not success then
+        -- Same reason as _ResolveLevel. The Output function is what failed,
+        -- so the report cannot go through it.
         local failureKind = forced == true and "forced log" or "log"
-        print("[Logger Error]: Failed to output " .. failureKind .. " - " .. tostring(err))
+        print(MODULE_PREFIX .. " Output failed for a " .. failureKind .. " line: " .. tostring(err))
     end
 end
 registerLuaFunctionHighlight('_DispatchLog')
@@ -270,27 +388,26 @@ registerLuaFunctionHighlight('_DispatchLog')
 --- @return boolean # True if the file was cleared successfully, false if there was an error.
 --
 function Logger:ClearLogFile()
-    local logsDir = self:_GetLogsDirectory()
-    local fullFilePath = self:_GetLogFilePath()
+    local path = self:_GetLogFilePath()
     if not self:_EnsureLogDirectories() then
-        logger:Error(MODULE_PREFIX .. " Failed to create 'Logs' directory: " .. logsDir)
+        self:ErrorBlock(MODULE_PREFIX .. " Clear log file failed", {
+            { "Directory", self:_GetLogsDirectory() },
+            { "Reason",    "missing and not creatable" },
+        })
         return false
     end
-    local success, err = pcall(function()
-        local file = io.open(fullFilePath, "w")
-        if file then
-            file:close()
-            logger:Info(MODULE_PREFIX .. " Log file cleared: " .. fullFilePath)
-            return true
-        else
-            logger:Error(MODULE_PREFIX .. " Failed to clear log file: " .. fullFilePath)
-            return false
-        end
+    local ok, err = pcall(function()
+        local file = assert(io.open(path, "w"))
+        file:close()
     end)
-    if not success then
-        logger:Error(MODULE_PREFIX .. " Error clearing log file: " .. tostring(err))
+    if not ok then
+        self:ErrorBlock(MODULE_PREFIX .. " Clear log file failed", {
+            { "File",   path },
+            { "Reason", tostring(err) },
+        })
         return false
     end
+    self:Info(MODULE_PREFIX .. " Log file cleared: " .. path)
     return true
 end
 registerLuaFunctionHighlight('ClearLogFile')
