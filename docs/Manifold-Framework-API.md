@@ -46,7 +46,7 @@ Conventions used here:
 
 ## Manifold.Bootstrap
 
-`Bootstrap`, version 1.0.0. It requires nothing and declares nothing, because it is the framework
+`Bootstrap`, version 1.0.2. It requires nothing and declares nothing, because it is the framework
 root and sits below `Manifold.Json`. It is a namespace rather than a class, so its functions are
 dot-called and there is no instance to create. The published table lives in the global
 `ManifoldBootstrap`.
@@ -121,7 +121,7 @@ explicit lookups and always load.
 
 ## Manifold.Json
 
-`Json`, version 1.0.1. Self-contained encoder and decoder written for the framework. It replaced
+`Json`, version 1.0.2. Self-contained encoder and decoder written for the framework. It replaced
 the vendored Jeffrey Friedl implementation in 1.0.0. The logger is declared as a runtime
 dependency, not a load-time one, because this module is position 1 in `Bootstrap.ORDER` and is
 built before any logger can exist. Every log site in the file is guarded and resolves the global
@@ -232,16 +232,19 @@ module reload keeps working
 
 ## Manifold.Logger
 
-`Logger`, version 1.1.0. A framework leaf with no declared dependencies. Writing to the log file
-needs `customIO`, and the module degrades to console output only when it is absent.
+`Logger`, version 1.2.0. A framework leaf with no declared dependencies, and since 1.2.0 that is
+true of the file half as well: it reaches `lfs` and `io` directly rather than borrowing `customIO`.
+That is what removed the mutual recursion
+([TODO T23](TODO.md#t23-logger-and-customio-can-recurse-without-bound), resolved). Without `lfs`
+the module degrades to console output only.
 
 ### Construction and metadata
 
 | Function | Returns | Description |
 |---|---|---|
-| `Logger:New()` | `Logger` | Sets `Level = Levels.ERROR`, `Output = print`, `DataDir = %USERPROFILE%\AppData\Local\Manifold` and `LogFileName = "Manifold.Runtime.Unknown.log"`. |
+| `Logger:New()` | `Logger` | Sets `Level = Levels.ERROR`, `Output = print`, `DataDir = %USERPROFILE%\AppData\Local\Manifold`, `LogFileName = "Manifold.Runtime.Unknown.log"` and `FileLogging = true`. |
 | `logger:GetModuleInfo()` | `table` | `{ name, version, author, description }` |
-| `logger:PrintModuleInfo()` | | Prints the metadata through `logger:Info`. |
+| `logger:PrintModuleInfo()` | | One `InfoBlock`. Every module in the framework uses this same shape. |
 
 ### Fields
 
@@ -253,6 +256,8 @@ needs `customIO`, and the module degrades to console output only when it is abse
 | `Output` | `print` | Target function for console output |
 | `DataDir` | `%USERPROFILE%\AppData\Local\Manifold` | Its own copy, independent of `customIO.DataDir` |
 | `LogFileName` | `Manifold.Runtime.Unknown.log` | Relative to `DataDir\Logs` |
+| `FileLogging` | `true` | While `false` nothing touches the disk. A failed write sets it. |
+| `FileLogError` | `nil` | Why disk logging was switched off, when it was. |
 
 ### Configuration
 
@@ -262,6 +267,29 @@ needs `customIO`, and the module degrades to console output only when it is abse
 | `logger:SetLogFileName(name)` | Produces `Manifold.Runtime.<name>.log`. An empty or `nil` name gives `Manifold.Runtime.Unknown.log`. |
 | `logger:SetOutput(fn)` | Passing `nil` restores `print`. |
 | `logger:ClearLogFile()` | Truncates the file by opening it with `"w"` and closing it immediately. |
+
+### Disk failures
+
+The file half switches itself off rather than retrying. The first failed write, whether the data
+directory cannot be created or the file cannot be opened, sets `FileLogging = false`, records the
+reason in `FileLogError` and reports it once through `ForceWarning`. Nothing after that touches the
+disk. The console and `Output` keep working.
+
+That matters because the failure case is an end-user machine where
+`%USERPROFILE%\AppData\Local\Manifold\Logs` cannot be written. Without the switch every log line
+paid for a directory check and an open attempt, and `customIO` reported each failure through this
+same logger, which tried to write it to the file that could not be written
+([TODO T23](TODO.md#t23-logger-and-customio-can-recurse-without-bound)).
+
+| Function | Returns | Description |
+|---|---|---|
+| `logger:DisableFileLogging(reason)` | | Switches the disk off for the session and reports it once. |
+| `logger:EnableFileLogging()` | | Switches it back on and forgets the cached directory state. |
+| `logger:GetFileLoggingState()` | `boolean, string\|nil` | Whether the disk is live, and why it is not. |
+
+One retry sits inside the write itself: an open that fails re-checks the directories once and tries
+again, which covers the log folder being deleted while Cheat Engine is running. The second failure
+is the one that switches the disk off.
 
 ### Output
 
@@ -320,15 +348,16 @@ Format: `[HH:MM:SS] [LEVEL] [FORCED] <message>`
 |---|---|
 | `logger:_GetLogsDirectory()` | `DataDir\Logs` |
 | `logger:_GetLogFilePath()` | `DataDir\Logs\<LogFileName>` |
-| `logger:_EnsureLogDirectories()` | Creates `DataDir` and `Logs` on demand. Requires `customIO`. |
-| `logger:_WriteToLogFile(text)` | Appends one line. |
+| `logger:_EnsureLogDirectories()` | Creates `DataDir` and `Logs` through `lfs`, once. The answer is cached in `_DirReady`, which `SetLogFileName`, `EnableFileLogging` and a failed write clear. |
+| `logger:_AppendToLogFile(text)` | The append itself. Raises on failure. |
+| `logger:_WriteToLogFile(text)` | Appends one line, guarded by `FileLogging`, the `_InFileWrite` reentrancy latch and a `pcall`. A raise here switches the disk off rather than escaping to the caller. |
 | `logger:_ResolveLevel(level)` | Turns a level into `name, id`. |
 | `logger:_FormatLogMessage(name, msg, forced)` | Builds the output line. |
-| `logger:_DispatchLog(level, msg, forced)` | Central output. It writes to the file first and filters afterwards, so every emitted line costs file access whatever level it carries. |
+| `logger:_DispatchLog(level, msg, forced)` | Central output. It writes to the file first and filters afterwards, so every emitted line costs file access whatever level it carries. That is deliberate ([TODO T10](TODO.md)), and it is the reason a module reports once with a block rather than several times with lines. |
 
 ## Manifold.CustomIO
 
-`CustomIO`, version 1.0.3. Dependencies: `logger` and `json`, both required.
+`CustomIO`, version 1.0.5. Dependencies: `logger` and `json`, both required.
 
 | Function | Returns | Description |
 |---|---|---|
@@ -385,7 +414,7 @@ exceed Lua's stack limits ([TODO T12](TODO.md#t12-reading-table-files-does-not-s
 
 ## Manifold.Helper
 
-`Helper`, version 1.1.0. It declares `logger` as an optional dependency. Since 1.1.0 the module is
+`Helper`, version 1.1.1. It declares `logger` as an optional dependency. Since 1.1.0 the module is
 narrowed to one goal, read-only facts about the target process's main loaded module, and
 everything it says is derived from `enumModules()[1]`.
 
@@ -415,7 +444,7 @@ will be removed in Helper 2.0.0.
 
 ## Manifold.Utils
 
-`Utils`, version 1.1.0. `logger` is required. `customIO`, `helper`, `memory` and `ui` are runtime
+`Utils`, version 1.1.1. `logger` is required. `customIO`, `helper`, `memory` and `ui` are runtime
 dependencies, so a table is entitled not to load them.
 
 ### Configuration fields
@@ -600,7 +629,7 @@ rather than tearing the table down every few seconds. A session that lasted long
 
 ## Manifold.Memory
 
-`Memory`, version 1.1.0. `logger` is required.
+`Memory`, version 1.1.1. `logger` is required.
 
 `Memory.LogSuccessfulOperations` defaults to `false`. Every read, write and add used to emit an
 Info line, and because the logger writes the file before it applies the level filter, a script
@@ -659,7 +688,7 @@ multi-value context.
 
 ## Manifold.State
 
-`State`, version 1.0.6. `logger` and `customIO` are required, and `processHandler` is a runtime
+`State`, version 1.1.1. `logger` and `customIO` are required, and `processHandler` is a runtime
 dependency. Since 1.0.5 every Cheat Engine access is main-thread synchronized.
 
 | Function | Returns | Description |
@@ -719,7 +748,7 @@ Outcome object from `_SetMemoryRecordStateOnMainThread`:
 
 ## Manifold.AutoAssembler
 
-`AutoAssembler`, version 2.0.7. `logger` is required, `customIO` is an optional dependency, and
+`AutoAssembler`, version 2.0.8. `logger` is required, `customIO` is an optional dependency, and
 `processHandler` and `trampolines` are runtime dependencies.
 
 | Function | Returns | Description |
@@ -787,7 +816,7 @@ files.
 
 ## Manifold.Callbacks
 
-`Callbacks`, version 1.0.6. It is a singleton, so `Callbacks:New()` always returns the same
+`Callbacks`, version 1.0.7. It is a singleton, so `Callbacks:New()` always returns the same
 instance. `logger` is required and `ui` is a runtime dependency.
 
 ### Options
@@ -829,7 +858,7 @@ Per option: `callbacks:Get<Option>()`, `callbacks:Set<Option>(bool)` and
 
 ## Manifold.AssemblerCommands
 
-`AssemblerCommands`, version 1.2.7. `logger` and `trampolines` are both required.
+`AssemblerCommands`, version 1.2.8. `logger` and `trampolines` are both required.
 
 | Function | Returns | Description |
 |---|---|---|
@@ -1022,7 +1051,7 @@ exactly MSVC's inter-function padding, so without it a relay could land in `.tex
 
 ## Manifold.Forms
 
-`Forms`, version 1.0.2. It declares `logger` as an optional dependency. `New(config)` copies
+`Forms`, version 1.0.3. It declares `logger` as an optional dependency. `New(config)` copies
 recognised keys from `config` onto the instance and warns about the rest.
 
 ### Control factory
@@ -1092,7 +1121,7 @@ Plus: `borderSpacing` (`{Left, Top, Right, Bottom, Around}`), `constraints`, `ro
 
 ## Manifold.UI
 
-`UI`, version 1.0.6. `logger`, `customIO` and `forms` are required, `json` is an optional
+`UI`, version 1.1.0. `logger`, `customIO` and `forms` are required, `json` is an optional
 dependency, and `teleporter` is a runtime dependency.
 
 ### Configuration
@@ -1147,10 +1176,10 @@ creator.
 | Function | Returns | Description |
 |---|---|---|
 | `ui:LoadThemes()` | | Loads from the data directory and from table files. |
-| `ui:LoadTheme(themeFile, isExternal)` | | A single theme. External ones get `" (External)"`. |
-| `ui:LoadJsonThemesFromDataDir(list)` | | Scans `DataDir\Themes`. |
+| `ui:LoadTheme(themeFile, isExternal)` | `boolean` | A single theme. External ones get `" (External)"`. Debug on success, an `ErrorBlock` naming the file and the reason on failure. |
+| `ui:LoadJsonThemesFromDataDir(list)` | `number` | Scans `DataDir\Themes` and returns how many usable files it found. Unreadable files are one `WarningBlock`, not one warning each. |
 | `ui:GetJsonThemesFromTableMenu()` | `table\|nil` | Reads `.json` entries from `miTable`. |
-| `ui:FinalizeThemes(list)` | | Loads all collected files. |
+| `ui:FinalizeThemes(list)` | `number, number` | Loads all collected files. Returns loaded and failed. |
 | `ui:GetTheme(name)` | `table\|nil` | Reloads once on a miss. |
 | `ui:ProcessThemeData(raw, name)` | `table` | Converts tokens to BGR and collects the missing and invalid ones. |
 | `ui:GetThemeTokens()` | `table` | `UI.ThemeTokens` |
@@ -1168,13 +1197,13 @@ creator.
 | `ui:ApplyThemeObject(themeObj)` | `boolean` | For `{Name, Author, Description, Tokens}`, used by the theme creator. |
 | `ui:ApplyThemeToTreeView(theme)` | | |
 | `ui:ApplyThemeToAddressList(theme)` | | Including `Header.Canvas.OnChange`. |
-| `ui:ApplyThemeToMainForm(theme)` | | |
-| `ui:ApplyThemeToAddressRecords(theme)` | | One colour per record. |
-| `ui:ApplyThemeToLuaEngine(theme)` | | Calls the control function twice. |
+| `ui:ApplyThemeToMainForm(theme)` | `boolean` | Whether the slogan label was there to colour. |
+| `ui:ApplyThemeToAddressRecords(theme)` | `number, number` | One colour per record. Returns recoloured and unchanged. |
+| `ui:ApplyThemeToLuaEngine(theme)` | `boolean` | Whether the window was open. Calls the control function twice. |
 | `ui:ApplyThemeToLuaEngineControls(le, theme)` | | Sets the caption to `"[Manifold] Logger"`. |
 | `ui:CreateOrUpdateLuaEngineExecutePanel(...)` | | Replaces `btnExecute` with a colourable panel. |
 | `ui:ApplyThemeToForms(theme, includeHidden)` | `table\|nil` | Delegates to `Manifold.Forms`. |
-| `ui:ApplyThemeToTeleporter(teleporter, theme)` | | |
+| `ui:ApplyThemeToTeleporter(teleporter, theme)` | `boolean` | Whether the Teleporter window was open. |
 | `ui:SetTeleporterControlColors(uiState, theme)` | | The central place for every teleporter colour. |
 | `ui:GetRecordColor(record, theme, str, int, flt)` | `number` | Decision order below. |
 | `ui:AcquireThemeApplyLock(name)` | `string\|nil, table` | |
@@ -1271,7 +1300,7 @@ ui:StartTextAnimation("MANIFOLD", {
 
 ## Manifold.Teleporter
 
-`Teleporter`, version 1.1.6. `logger` and `forms` are required, and `memory` and `customIO` are
+`Teleporter`, version 1.3.0. `logger` and `forms` are required, and `memory` and `customIO` are
 optional dependencies. `ui` is a runtime dependency. The module also calls `utils` at runtime, for
 `GetTargetNoExt` and `AutoDisable`, without declaring it.
 
@@ -1283,7 +1312,7 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `Waypoint` | `Symbol = "WaypointPtr"`, `Offsets = {0x00, 0x04, 0x08}`, `ValueType = vtSingle` |
 | `Additional` | `Symbol = nil`, `Offsets = {0x00, 0x04, 0x08}`, `ValueType = vtSingle` |
 | `Symbols` | `Saved = "SavedPositionFlt"`, `Backup = "BackupPositionFlt"` |
-| `Settings` | `ValueType`, `PauseWhileTeleporting`, `AdjustYCoordinate`, `YCoordinateIndex`, `AdjustmentAmount` |
+| `Settings` | `ValueType`, `PauseWhileTeleporting`, `AdjustYCoordinate`, `YCoordinateIndex`, `AdjustmentAmount`, `LogVerbose` |
 | other | `Saves = {}`, `SaveFileName = "Teleporter.%s.Saves.txt"`, `SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"` |
 
 ### Memory access
@@ -1310,7 +1339,10 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `teleporter:TeleportToWaypoint()` | `boolean` |
 | `teleporter:TeleportToSave(keyOrName)` | `boolean` | Full key, or a display name while unambiguous |
 | `teleporter:GetAdjustedTargetPosition(pos)` | `table\|nil` |
-| `teleporter:LogDistanceTraveled(old, new)` | |
+| `teleporter:FormatPosition(position)` | `"{x, y, z}"` to three decimals, or `"unknown"`. |
+| `teleporter:GetDistance(old, new)` | `number\|nil`, the straight line distance. |
+| `teleporter:_ReportJump(what, from, to, backupStored)` | One `InfoBlock` for a completed jump. |
+| `teleporter:LogDistanceTraveled(old, new)` | Kept for outside callers. `_ReportJump` puts the distance in the same entry as the destination. |
 | `teleporter:PauseGame()` / `ResumeGame()` | |
 
 ### Categories

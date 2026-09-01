@@ -703,17 +703,35 @@ ui:ApplyTheme(themeName [, allowReapply])
   ├─ GetTheme(themeName)          reloads all themes if needed
   ├─ ApplyThemeToTreeView
   ├─ ApplyThemeToAddressList      including the Header.Canvas.OnChange hook
-  ├─ ApplyThemeToMainForm
+  ├─ ApplyThemeToMainForm         → whether the slogan label exists
   ├─ ApplyThemeToAddressRecords   colour per record type (GetRecordColor)
+  │                               → recoloured, unchanged
   ├─ ApplyThemeToLuaEngine        controls + execute panel (twice, deliberately)
+  │                               → whether the window was open
   ├─ ApplyThemeToForms            every control registered through Manifold.Forms
-  ├─ ApplyThemeToTeleporter       if the teleporter is loaded
+  ├─ ApplyThemeToTeleporter       if the teleporter is loaded → whether it was
+  ├─ one InfoBlock                the whole apply, reported once
   └─ ReleaseThemeApplyLock()
 ```
 
 `ApplyTheme` synchronizes itself into the main thread when it is called from anywhere else. The
 lock deliberately lives in `_G` rather than on the instance. If the table Lua script is executed
 again and a new `UI` instance is created, the lock still applies.
+
+The `ApplyThemeTo*` functions return what they did instead of logging it, so the whole apply is one
+entry:
+
+```
+[19:48:29] [INFO] [UI] Theme applied
+   Theme      : Bearded-Arc
+   Memrecs    : 37 recoloured, 3 unchanged
+   Lua Engine : themed
+   Slogan     : themed
+   Teleporter : not open
+```
+
+`ApplyThemeObject`, which the theme creator uses, emits the same block. A theme applied by name and
+a theme applied from the editor therefore read identically in the log.
 
 ### 5.4 Theme format
 
@@ -980,8 +998,23 @@ teleporter:TeleportToSave("Boss Arena")   -- also fine while the name is unambig
 ```
 
 Every jump runs the same chain: `PauseGame()` → `GetAdjustedTargetPosition()` →
-`WritePositionToMemory(Transform)` → optionally `Additional` → `ResumeGame()` →
-`LogDistanceTraveled()` → write backup.
+`WritePositionToMemory(Transform)` → optionally `Additional` → `ResumeGame()` → write backup →
+`_ReportJump()`.
+
+`_ReportJump` is the whole jump in one entry:
+
+```
+[19:48:29] [INFO] [Teleporter] Loaded saved position
+   From     : {1204.500, 88.000, -310.250}
+   To       : {980.000, 64.000, 1120.750}
+   Distance : 1467.318 Units
+   Backup   : stored
+```
+
+The per-step lines (address resolution, each coordinate write, pause and resume) are behind
+`teleporter.Settings.LogVerbose`, off by default. The reasoning is the same as
+`Memory.LogSuccessfulOperations`: the log writes the file before it applies the level filter, so a
+Debug line on a hot path is a real disk write. Turn it on to trace one jump, not to leave on.
 
 ### 8.3 Persistent saves
 
@@ -1176,6 +1209,63 @@ why tables can be logged directly:
 logger:Info({ hp = 100, pos = { 1, 2, 3 } })
 --> { hp = 100, pos = { 1 = 1, 2 = 2, 3 = 3 } }
 ```
+
+### 12.1 Blocks, and why they are not optional
+
+There is a fifth variant, `<Level>Block`, and inside the framework it is the default for anything
+that reports more than one fact:
+
+```lua
+logger:InfoBlock(MODULE_PREFIX .. " Themes loaded", {
+    { "Table files", 8 },
+    { "Data folder", 2 },
+    { "Available",   10 },
+    failed > 0 and { "Failed", failed } or false,
+})
+```
+
+```
+[19:48:29] [INFO] [UI] Themes loaded
+   Table files : 8
+   Data folder : 2
+   Available   : 10
+```
+
+Rows are `{ label, value }` or a plain string. `false` skips a row, a bare `nil` cuts the block
+short because the walk is an `ipairs`. `logger:BuildBlock` renders without logging.
+
+This is not only about how it reads. `Logger:_DispatchLog` writes the file **before** it applies the
+level filter, deliberately, so that a user's bug report contains everything. The consequence is that
+every emitted line is a disk write whatever its level, so N lines is N writes and one block is one.
+
+### 12.2 Conventions
+
+Every module in the framework follows the same five rules.
+
+1. **Every line starts with `MODULE_PREFIX`, concatenated.** `logger:Info(MODULE_PREFIX .. " ...")`
+   and `logger:InfoF(MODULE_PREFIX .. " %s", x)`. Not `logger:InfoF("%s ...", MODULE_PREFIX, x)`,
+   which used to appear in five modules and shifts every argument position by one.
+2. **More than one fact is one block.** A report split over several lines repeats the timestamp and
+   the prefix on each, which is most of the line width, and costs a write per line.
+3. **A loop reports once, after it.** Collect the interesting items and emit one block naming them.
+   One warning per bad token or per skipped file buries whatever else happened.
+4. **A failure names its subject and its reason**, as a two row block when either is long:
+   `{ "File", path }, { "Reason", err }`. A caller that already reports a failure is not reported
+   again by its callee.
+5. **Levels mean something.**
+
+   | Level | For |
+   |---|---|
+   | `Info` | A completed operation and its result. What a user reading their own log wants. |
+   | `Debug` | Internal steps and successful housekeeping, for example a created directory. |
+   | `Warning` | Something the table has worked around and the user may want to fix. |
+   | `Error` | An operation that did not happen. |
+
+   Announcing an operation before doing it is not a level, it is a line to delete. `Loading theme
+   X` followed by `Theme X loaded` is one entry's worth of information written twice.
+
+A hot path that genuinely wants per-step detail gets an explicit switch rather than a level:
+`Memory.LogSuccessfulOperations` and `Teleporter.Settings.LogVerbose`, both `false` by default.
 
 ## 13. Utils
 
