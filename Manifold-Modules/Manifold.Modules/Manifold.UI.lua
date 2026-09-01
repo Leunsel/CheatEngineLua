@@ -1,10 +1,16 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.6"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
 --[[
+    ∂ v1.1.0 (2026-09-01)
+        Applying a theme is one entry instead of seven, and loading
+        themes one entry instead of roughly four per theme. The
+        ApplyThemeTo* functions return what they did rather than
+        logging it. Every line uses MODULE_PREFIX.
+
     ∂ v1.0.6 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
@@ -116,12 +122,18 @@ function UI:New(config)
     self:CheckDependencies()
     self:EnsureThemeDirectory()
     instance.Name = NAME or "Unnamed Module"
+    local rejected = {}
     for key, value in pairs(config or {}) do
         if self[key] ~= nil then
             instance[key] = value
         else
-            logger:WarningF("Invalid property: '%s'", key)
+            rejected[#rejected + 1] = { tostring(key), type(value) }
         end
+    end
+    -- One report for the whole config rather than one line per bad key. A
+    -- typo in a config table usually comes with company.
+    if #rejected > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " Ignored " .. #rejected .. " unknown config properties", rejected)
     end
     return BOOTSTRAP.Ready(MODULE, instance)
 end
@@ -141,16 +153,12 @@ registerLuaFunctionHighlight("GetModuleInfo")
 --
 function UI:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info("[UI] Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -247,23 +255,26 @@ registerLuaFunctionHighlight('CheckDependencies')
 --
 function UI:EnsureThemeDirectory()
     if not customIO:EnsureDataDirectory() then
-        logger:Error("[UI] Data directory missing, can't create theme directory.")
+        logger:ErrorBlock(MODULE_PREFIX .. " Theme directory unavailable", {
+            { "Data directory", tostring(customIO and customIO.DataDir) },
+            { "Reason",         "the data directory is missing and could not be created" },
+        })
         return nil
     end
     local themeDir = customIO.DataDir .. "\\Themes"
     if customIO:DirectoryExists(themeDir) then
-        logger:Info("[UI] Theme directory exists.")
         return themeDir
     end
-    logger:Warning("[UI] Theme directory missing, creating...")
     local success, err = customIO:CreateDirectory(themeDir)
     if not success then
-        logger:Error("[UI] Failed to create theme directory: " .. (err or "Unknown error"))
+        logger:ErrorBlock(MODULE_PREFIX .. " Theme directory unavailable", {
+            { "Directory", themeDir },
+            { "Reason",    err or "unknown error" },
+        })
         return nil
-    else
-        logger:Info("[UI] Theme directory created.")
-        return themeDir
     end
+    logger:Debug(MODULE_PREFIX .. " Created theme directory: " .. themeDir)
+    return themeDir
 end
 registerLuaFunctionHighlight("EnsureThemeDirectory")
 
@@ -278,15 +289,15 @@ function UI:InitializeTableMenu()
         function()
             local tableMenu = MainForm.findComponentByName("miTable")
             if not tableMenu then
-                logger:Critical("[UI] Missing 'miTable' component. Can't load themes.")
+                logger:Critical(MODULE_PREFIX .. " Missing 'miTable' component. Cannot load themes.")
                 return
             end
             tableMenu.doClick()
-            logger:Info("[UI] 'miTable' content loaded.")
+            logger:Debug(MODULE_PREFIX .. " Loaded 'miTable' content.")
         end
     )
     if not success then
-        logger:Error("[UI] Error in InitializeTableMenu: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " InitializeTableMenu failed: " .. tostring(err))
     end
 end
 registerLuaFunctionHighlight("InitializeTableMenu")
@@ -303,28 +314,32 @@ function UI:GetJsonThemesFromTableMenu()
             self:InitializeTableMenu()
             local tableMenu = MainForm.findComponentByName("miTable")
             if not tableMenu then
-                logger:Error("[UI] 'miTable' component not found.")
+                logger:Error(MODULE_PREFIX .. " 'miTable' component not found.")
                 return
             end
 
             local count = tableMenu.getCount()
             if count == 0 then
-                logger:Error("[UI] No items found in 'miTable' component.")
+                logger:Error(MODULE_PREFIX .. " No items found in 'miTable' component.")
                 return
             end
-            logger:Info("[UI] Found " .. count .. " items in 'miTable'.")
 
+            -- The per-file lines are Debug. The count that matters is in the
+            -- summary block LoadThemes emits at the end.
             for i = 0, count - 1 do
                 local caption = tableMenu[i].Caption
                 if caption:find("%.json$") then
                     table.insert(jsonThemes, caption)
-                    logger:Debug("[UI] JSON file found: '" .. caption .. "'")
                 end
             end
+            logger:DebugBlock(MODULE_PREFIX .. " Scanned 'miTable'", {
+                { "Items",       count },
+                { "JSON themes", #jsonThemes > 0 and table.concat(jsonThemes, ", ") or "none" },
+            })
         end
     )
     if not success then
-        logger:Error("[UI] Error in GetJsonThemesFromTableMenu: " .. tostring(err))
+        logger:Error(MODULE_PREFIX .. " GetJsonThemesFromTableMenu failed: " .. tostring(err))
     end
     return #jsonThemes > 0 and jsonThemes or nil
 end
@@ -429,21 +444,18 @@ function UI:ProcessThemeData(rawData, themeName)
         end
         processed[token] = color
     end
-    if #missing > 0 then
-        logger:Warning(
-            ("[UI] Theme '%s' is missing %d tokens: %s"):format(themeName, #missing, table.concat(missing, ", "))
-        )
-    end
-    if #invalid > 0 then
-        for _, entry in ipairs(invalid) do
-            logger:Warning(
-                ("[UI] Invalid token in theme '%s': '%s' -> '%s' (Expected number)"):format(
-                    themeName,
-                    entry.token,
-                    entry.value
-                )
-            )
+    -- Both complaints are about the same theme, so they are one report.
+    -- The invalid list used to be one warning per token, which for a theme
+    -- written by hand meant a screen of near identical lines.
+    if #missing > 0 or #invalid > 0 then
+        local rows = { { "Theme", themeName } }
+        if #missing > 0 then
+            rows[#rows + 1] = { "Missing (" .. #missing .. ")", table.concat(missing, ", ") }
         end
+        for _, entry in ipairs(invalid) do
+            rows[#rows + 1] = { "Invalid", entry.token .. " -> " .. entry.value .. " (expected a number)" }
+        end
+        logger:WarningBlock(MODULE_PREFIX .. " Theme tokens need attention", rows)
     end
     return processed
 end
@@ -461,14 +473,14 @@ registerLuaFunctionHighlight("ProcessThemeData")
 --
 function UI:LoadTheme(themeFile, isExternal)
     if not themeFile or themeFile == "" then
-        logger:Error("[UI] Invalid file path passed.")
-        return
+        logger:Error(MODULE_PREFIX .. " LoadTheme called without a file path.")
+        return false
     end
     local themeName = extractFileNameWithoutExt(themeFile:match("([^\\]+)$"))
     if isExternal then
         themeName = themeName .. " (External)"
     end
-    logger:Info("[UI] Loading theme: '" .. themeName .. "'")
+    local loaded = false
     local success, err =
         pcall(
         function()
@@ -481,17 +493,27 @@ function UI:LoadTheme(themeFile, isExternal)
             end
 
             if not rawData then
-                logger:Error("[UI] Failed to load theme: '" .. themeName .. "' - " .. (err or "Unknown error"))
+                logger:ErrorBlock(MODULE_PREFIX .. " Theme could not be read", {
+                    { "Theme",  themeName },
+                    { "File",   themeFile },
+                    { "Reason", err or "unknown error" },
+                })
                 return
             end
-            local processedData = self:ProcessThemeData(rawData, themeName)
-            self.ThemeList[themeName] = processedData
-            logger:Info("[UI] Theme '" .. themeName .. "' loaded successfully.")
+            self.ThemeList[themeName] = self:ProcessThemeData(rawData, themeName)
+            loaded = true
+            logger:Debug(MODULE_PREFIX .. " Loaded theme '" .. themeName .. "'.")
         end
     )
     if not success then
-        logger:Error("[UI] Error in LoadTheme for '" .. themeFile .. "': " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Theme could not be read", {
+            { "Theme",  themeName },
+            { "File",   themeFile },
+            { "Reason", tostring(err) },
+        })
+        return false
     end
+    return loaded
 end
 registerLuaFunctionHighlight("LoadTheme")
 
@@ -503,7 +525,7 @@ registerLuaFunctionHighlight("LoadTheme")
 --
 function UI:LoadJsonThemesFromDataDir(jsonThemes)
     local dataDir = customIO.DataDir .. "\\Themes"
-    local foundFiles = false
+    local found, skipped = 0, {}
     local success, err =
         pcall(
         function()
@@ -511,24 +533,29 @@ function UI:LoadJsonThemesFromDataDir(jsonThemes)
                 if file:match("%.json$") and file ~= "." and file ~= ".." then
                     local filePath = dataDir .. "\\" .. file
                     local themeData, readErr = customIO:ReadFromFileAsJson(filePath)
-                    local trimmedPath = filePath:match("[\\/](Manifold[\\/].*)") or filePath
                     if themeData then
                         table.insert(jsonThemes, {file = filePath, source = "external"})
-                        logger:Info("[UI] Found external JSON theme in Data Directory: '...\\" .. trimmedPath .. "'")
-                        foundFiles = true
+                        found = found + 1
                     else
-                        logger:Warning("[UI] Skipped invalid JSON file '" .. trimmedPath .. "': " .. tostring(readErr))
+                        skipped[#skipped + 1] = { file, tostring(readErr) }
                     end
                 end
             end
         end
     )
     if not success then
-        logger:Error("[UI] Error in LoadJsonThemesFromDataDir: " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Data directory scan failed", {
+            { "Directory", dataDir },
+            { "Reason",    tostring(err) },
+        })
     end
-    if not foundFiles then
-        logger:Warning("[UI] No JSON files found in Data Directory.")
+    -- A file that cannot be read is worth a line each, because each one names
+    -- a different mistake. Files that loaded are counted, not listed.
+    if #skipped > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " Skipped " .. #skipped .. " invalid theme files in " .. dataDir, skipped)
     end
+    logger:Debug(MODULE_PREFIX .. " Data directory holds " .. found .. " usable theme files.")
+    return found
 end
 registerLuaFunctionHighlight("LoadJsonThemesFromDataDir")
 
@@ -539,26 +566,28 @@ registerLuaFunctionHighlight("LoadJsonThemesFromDataDir")
 --- @note Loads themes from valid JSON files and logs success or failure.
 --
 function UI:FinalizeThemes(jsonThemes)
-    if #jsonThemes == 0 then
-        logger:Error("[UI] No valid JSON files found.")
-        return
-    end
-    logger:Info("[UI] Found " .. #jsonThemes .. " valid themes.")
+    local loaded, failed = 0, 0
     for _, theme in ipairs(jsonThemes) do
         local themeFile = theme.file
-        local isExternal = theme.source == "external"
-        local success, err =
+        local success, result =
             pcall(
             function()
-                self:LoadTheme(themeFile, isExternal)
+                return self:LoadTheme(themeFile, theme.source == "external")
             end
         )
-        if not success then
-            logger:Error(
-                "[UI] Failed to load theme: '" .. extractFileNameWithoutExt(themeFile) .. "' - " .. tostring(err)
-            )
+        if success and result then
+            loaded = loaded + 1
+        else
+            failed = failed + 1
+            if not success then
+                logger:ErrorBlock(MODULE_PREFIX .. " Theme could not be read", {
+                    { "Theme",  extractFileNameWithoutExt(themeFile) },
+                    { "Reason", tostring(result) },
+                })
+            end
         end
     end
+    return loaded, failed
 end
 registerLuaFunctionHighlight("FinalizeThemes")
 
@@ -570,23 +599,44 @@ registerLuaFunctionHighlight("FinalizeThemes")
 function UI:LoadThemes()
     self.ThemeList = {}
     local jsonThemes = {}
+    local external, internal, loaded, failed = 0, 0, 0, 0
     local success, err =
         pcall(
         function()
             if customIO:EnsureDataDirectory() then
-                self:LoadJsonThemesFromDataDir(jsonThemes)
+                external = self:LoadJsonThemesFromDataDir(jsonThemes) or 0
             end
             local tableMenuThemes = self:GetJsonThemesFromTableMenu()
             if tableMenuThemes then
                 for _, theme in ipairs(tableMenuThemes) do
                     table.insert(jsonThemes, {file = theme, source = "internal"})
+                    internal = internal + 1
                 end
             end
-            self:FinalizeThemes(jsonThemes)
+            loaded, failed = self:FinalizeThemes(jsonThemes)
         end
     )
     if not success then
-        logger:Error("[UI] Error in LoadThemes: " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Theme loading failed", {
+            { "Reason", tostring(err) },
+        })
+        return
+    end
+    -- The whole load reported once. It used to be roughly four lines per
+    -- theme plus five for the scan, which for a table with ten themes was
+    -- forty five lines saying the same thing this block says in five.
+    -- A table with no usable theme at all is a warning, because everything
+    -- downstream will fall back to Cheat Engine's own colours.
+    local rows = {
+        { "Table files", internal },
+        { "Data folder", external },
+        { "Available",   loaded },
+        failed > 0 and { "Failed", failed } or false,
+    }
+    if loaded > 0 then
+        logger:InfoBlock(MODULE_PREFIX .. " Themes loaded", rows)
+    else
+        logger:WarningBlock(MODULE_PREFIX .. " No usable themes found", rows)
     end
 end
 registerLuaFunctionHighlight("LoadThemes")
@@ -599,7 +649,7 @@ registerLuaFunctionHighlight("LoadThemes")
 function UI:GetTheme(themeName)
     local theme = self.ThemeList[themeName]
     if not theme then
-        logger:Warning("[UI] Theme '" .. tostring(themeName) .. "' not found. Attempting to reload.")
+        logger:Warning(MODULE_PREFIX .. " Theme '" .. tostring(themeName) .. "' not found. Attempting to reload.")
         local success, err =
             pcall(
             function()
@@ -607,12 +657,12 @@ function UI:GetTheme(themeName)
             end
         )
         if not success then
-            logger:Error("[UI] Error while reloading themes: " .. tostring(err))
+            logger:Error(MODULE_PREFIX .. " Error while reloading themes: " .. tostring(err))
             return nil
         end
         theme = self.ThemeList[themeName]
         if not theme then
-            logger:Error("[UI] Theme '" .. tostring(themeName) .. "' could not be found after reload.")
+            logger:Error(MODULE_PREFIX .. " Theme '" .. tostring(themeName) .. "' could not be found after reload.")
             return nil
         end
     end
@@ -633,7 +683,6 @@ function UI:ApplyThemeToTreeView(theme)
     font.Name = "Consolas"
     font.Color = theme["TreeView.Font.Color"] or font.Color
     treeView.Font = font
-    logger:Info("[UI] Updated TreeView background color and font.")
 end
 
 --
@@ -656,7 +705,6 @@ function UI:ApplyThemeToAddressList(theme)
         self.pen.Color = theme["AddressList.Header.Canvas.Pen.Color"] or self.pen.Color
     end
     MainForm.repaint()
-    logger:Info("[UI] Updated Address List Checkbox and List colors.")
 end
 
 --
@@ -759,13 +807,15 @@ local o_LuaEngine_btnExecute_OnClick = getLuaEngine().btnExecute.OnClick
 --
 function UI:ApplyThemeToLuaEngine(theme)
     if not inMainThread() then
-        synchronize(function() self:ApplyThemeToLuaEngine(theme) end)
-        return
+        local applied
+        synchronize(function() applied = self:ApplyThemeToLuaEngine(theme) end)
+        return applied
     end
     local luaEngine = getLuaEngine()
     if not luaEngine then
-        logger:Warning("[UI] Lua Engine not initialized. Cannot apply theme.")
-        return
+        -- Not a warning. A closed Lua Engine window is the normal state, and
+        -- ApplyTheme reports it as a fact in its summary instead.
+        return false
     end
     local mainColor = theme["MainForm.Color"] or luaEngine.Color
     local headerFontColor = theme["AddressList.Header.Font.Color"] or luaEngine.mOutput.Font.Color
@@ -776,6 +826,7 @@ function UI:ApplyThemeToLuaEngine(theme)
     -- We need to apply the theme a second time!
     self:ApplyThemeToLuaEngineControls(luaEngine, theme)
     self:CreateOrUpdateLuaEngineExecutePanel(luaEngine, foundlistColor, headerFontColor, mainColor, o_LuaEngine_btnExecute_OnClick)
+    return true
 end
 
 --
@@ -793,9 +844,8 @@ function UI:ApplyThemeToMainForm(theme)
     local sloganStr = MainForm.findComponentByName("SLOGAN_STR")
     if sloganStr then
         sloganStr.Font.Color = theme["MainForm.SLOGAN_STR.Font.Color"] or sloganStr.Font.Color
-        logger:Info("[UI] Updated 'SLOGAN_STR' font color.")
     end
-    logger:Info("[UI] Updated Main Form colors.")
+    return sloganStr ~= nil
 end
 
 --
@@ -866,9 +916,7 @@ function UI:ApplyThemeToAddressRecords(theme)
             skippedCount = skippedCount + 1
         end
     end
-    logger:Info(
-        "[UI] Memrec Color Update complete: " .. updatedCount .. " updated, " .. skippedCount .. " (identical) skipped."
-    )
+    return updatedCount, skippedCount
 end
 
 --
@@ -1037,15 +1085,16 @@ registerLuaFunctionHighlight("SetTeleporterControlColors")
 --- @param theme table # The processed theme token table.
 --
 function UI:ApplyThemeToTeleporter(teleporter, theme)
-    if not teleporter or type(teleporter.EnsureUiState) ~= "function" then return end
+    if not teleporter or type(teleporter.EnsureUiState) ~= "function" then return false end
     local uiState = teleporter:EnsureUiState()
-    if not uiState or not uiState.Form then return end
+    if not uiState or not uiState.Form then return false end
     self:SetTeleporterControlColors(uiState, theme)
     if uiState.Form.repaint then
         uiState.Form:repaint()
     elseif uiState.Form.Repaint then
         uiState.Form:Repaint()
     end
+    return true
 end
 registerLuaFunctionHighlight("ApplyThemeToTeleporter")
 
@@ -1087,7 +1136,7 @@ function UI:AcquireThemeApplyLock(themeName)
             return nil, THEME_APPLY_LOCK
         end
         if logger and logger.WarningF then
-            logger:WarningF("[UI] Theme apply lock for '%s' is stale after %d ms. Releasing it.", tostring(THEME_APPLY_LOCK.ThemeName), elapsed)
+            logger:WarningF(MODULE_PREFIX .. " Theme apply lock for '%s' is stale after %d ms. Releasing it.", tostring(THEME_APPLY_LOCK.ThemeName), elapsed)
         end
     end
     local token = tostring(self) .. ":" .. tostring(themeName or "<unknown>") .. ":" .. tostring(now)
@@ -1132,7 +1181,7 @@ function UI:ApplyTheme(themeName, allowReapply)
     local token, activeLock = self:AcquireThemeApplyLock(themeName)
     if not token then
         local activeName = activeLock and activeLock.ThemeName or "<unknown>"
-        logger:WarningF("[UI] A theme is already being applied: '%s'. Skipping theme '%s'.", tostring(activeName), tostring(themeName))
+        logger:WarningF(MODULE_PREFIX .. " Busy applying '%s'. Skipped '%s'.", tostring(activeName), tostring(themeName))
         return false
     end
     local ok, result = pcall(function()
@@ -1141,28 +1190,40 @@ function UI:ApplyTheme(themeName, allowReapply)
             return false
         end
         if self.ActiveTheme == themeName and not allowReapply then
-            logger:Warning("[UI] Theme '" .. themeName .. "' is already applied.")
+            logger:Debug(MODULE_PREFIX .. " Theme '" .. themeName .. "' is already applied.")
             return false
         end
-        logger:Info("[UI] Applying theme: '" .. themeName .. "'")
         MainForm.Show()
         self:ApplyThemeToTreeView(theme)
         self:ApplyThemeToAddressList(theme)
-        self:ApplyThemeToMainForm(theme)
-        self:ApplyThemeToAddressRecords(theme)
-        self:ApplyThemeToLuaEngine(theme)
+        local slogan = self:ApplyThemeToMainForm(theme)
+        local updated, unchanged = self:ApplyThemeToAddressRecords(theme)
+        local luaEngine = self:ApplyThemeToLuaEngine(theme)
         MainForm.repaint()
         self.ActiveTheme = themeName
         self:ApplyThemeToForms(theme, false)
+        local teleporterThemed = false
         if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
-            self:ApplyThemeToTeleporter(teleporter, theme)
+            teleporterThemed = self:ApplyThemeToTeleporter(teleporter, theme)
         end
-        logger:Info("[UI] Theme '" .. themeName .. "' applied.")
+        -- One entry for the whole apply. The six functions above used to log
+        -- a line each, so switching a theme wrote seven lines that together
+        -- said what these five rows say, and said none of it in one place.
+        logger:InfoBlock(MODULE_PREFIX .. " Theme applied", {
+            { "Theme",       themeName },
+            { "Memrecs",     updated .. " recoloured, " .. unchanged .. " unchanged" },
+            { "Lua Engine",  luaEngine and "themed" or "not open" },
+            { "Slogan",      slogan and "themed" or "absent" },
+            { "Teleporter",  teleporterThemed and "themed" or "not open" },
+        })
         return true
     end)
     self:ReleaseThemeApplyLock(token)
     if not ok then
-        logger:Error("[UI] Failed to apply theme '" .. tostring(themeName) .. "': " .. tostring(result))
+        logger:ErrorBlock(MODULE_PREFIX .. " Theme apply failed", {
+            { "Theme",  tostring(themeName) },
+            { "Reason", tostring(result) },
+        })
         return false
     end
     return result == true
@@ -1227,13 +1288,13 @@ registerLuaFunctionHighlight("UpdateThemeSelector")
 --
 function UI:RunInMainThread(func)
     if type(func) ~= "function" then
-        logger:ErrorF("[UI] Invalid parameter for 'RunInMainThread'. Expected a function, got '%s'.", type(func))
+        logger:ErrorF(MODULE_PREFIX .. " Invalid parameter for 'RunInMainThread'. Expected a function, got '%s'.", type(func))
         return
     end
     if inMainThread() then
         local success, result = pcall(func)
         if not success then
-            logger:ErrorF("[UI] Error while executing function in main thread: %s", result)
+            logger:ErrorF(MODULE_PREFIX .. " Error while executing function in main thread: %s", result)
         end
     else
         local success, result =
@@ -1243,7 +1304,7 @@ function UI:RunInMainThread(func)
             end
         )
         if not success then
-            logger:ErrorF("[UI] Failed to synchronize function execution in main thread: %s", result)
+            logger:ErrorF(MODULE_PREFIX .. " Failed to synchronize function execution in main thread: %s", result)
         end
     end
 end
@@ -1747,12 +1808,13 @@ function UI:InitializeForm()
     self:CreateSloganStr(self.SloganStr)
     self:CreateSignatureStr(self.SignatureStr)
     -- ........................
+    -- ApplyTheme reports the result. Saying here that it is about to happen
+    -- adds a line and no information.
     if self.ActiveTheme ~= self.Theme then
-        logger:Info("[UI] Active theme '" .. tostring(self.ActiveTheme) .. "' does not match configured theme '" .. tostring(self.Theme) .. "'. Applying configured theme.")
         self:LoadThemes()
         self:ApplyTheme(self.Theme)
     else
-        logger:Info("[UI] Active theme '" .. tostring(self.ActiveTheme) .. "' matches configured theme. No need to apply.")
+        logger:Debug(MODULE_PREFIX .. " Active theme already matches '" .. tostring(self.Theme) .. "'.")
     end 
 end
 
@@ -1990,12 +2052,12 @@ end
 function UI:GetActiveThemeData()
     local activeThemeName = self.ActiveTheme
     if not activeThemeName then
-        logger:Warning("[UI] No active theme set.")
+        logger:Warning(MODULE_PREFIX .. " No active theme set.")
         return nil
     end
     local activeTheme = self.ThemeList[activeThemeName]
     if not activeTheme then
-        logger:Warning("[UI] Active theme not found in ThemeList: " .. activeThemeName)
+        logger:Warning(MODULE_PREFIX .. " Active theme not found in ThemeList: " .. activeThemeName)
         return nil
     end
     return activeTheme
@@ -2318,7 +2380,7 @@ function UI:SetupLoadButton(loadBtn, tokenInputs, nameEdit, authorEdit, descEdit
                 self.PreviewPanel.Color = (b << 16) | (g << 8) | r
             end
         end
-        logger:Info("[UI] Theme loaded and applied successfully!")
+        logger:Info(MODULE_PREFIX .. " Theme loaded and applied successfully!")
         self:SetThemeCreatorStatus("Theme loaded")
     end)
 end
@@ -2344,14 +2406,20 @@ end
 function UI:LoadThemeData(path)
     local file, err = io.open(path, "r")
     if not file then
-        logger:Error("[UI] Failed to open theme file: " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not open theme file", {
+            { "File",   tostring(path) },
+            { "Reason", tostring(err) },
+        })
         return nil
     end
     local content = file:read("*a")
     file:close()
     local ok, result = pcall(function() return json:decode(content) end)
     if not ok then
-        logger:Error("[UI] Failed to parse theme JSON: " .. tostring(result))
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not parse theme file", {
+            { "File",   tostring(path) },
+            { "Reason", tostring(result) },
+        })
         return nil
     end
     return result
@@ -2394,6 +2462,10 @@ function UI:PopulateThemeUI(themeData, tokenInputs, nameEdit, authorEdit, descEd
     nameEdit.Text = themeData.name or ""
     authorEdit.Text = themeData.author or ""
     descEdit.Text = themeData.description or ""
+    -- A theme file written for a newer token list names elements this build
+    -- has no input for. Collected and reported once, because a file that is
+    -- ahead by one token is usually ahead by several.
+    local unknown = {}
     for _, token in ipairs(themeData.tokenColors or {}) do
         local element = token.element
         local color = token.setting and token.setting.color
@@ -2401,13 +2473,14 @@ function UI:PopulateThemeUI(themeData, tokenInputs, nameEdit, authorEdit, descEd
             local input = tokenInputs[element]
             if input then
                 input.Caption = color
-                if logger and logger.DebugF then
-                    logger:DebugF("[UI] Setting token: %s to color: %s", element, color)
-                end
             else
-                logger:Warning("[UI] Token input not found for element: " .. element)
+                unknown[#unknown + 1] = tostring(element)
             end
         end
+    end
+    if #unknown > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " The theme names " .. #unknown ..
+            " tokens this build has no input for", unknown)
     end
     local listView = self.ThemeCreatorListView
     if listView then
@@ -2422,50 +2495,64 @@ end
 --
 function UI:ApplyThemeObject(themeObj)
     if not themeObj or not themeObj.Tokens then
-        logger:Warning("[UI] Invalid theme object.")
+        logger:Warning(MODULE_PREFIX .. " Invalid theme object.")
         return false
     end
     local lockName = themeObj.Name or "Theme Object"
     local lockToken, activeLock = self:AcquireThemeApplyLock(lockName)
     if not lockToken then
         local activeName = activeLock and activeLock.ThemeName or "<unknown>"
-        logger:WarningF("[UI] A theme is already being applied: '%s'. Skipping theme object '%s'.", tostring(activeName), tostring(lockName))
+        logger:WarningF(MODULE_PREFIX .. " Busy applying '%s'. Skipped theme object '%s'.", tostring(activeName), tostring(lockName))
         return false
     end
 
     local ok, result = pcall(function()
         local builtTheme = {}
+        local rejected = {}
         for token, colorHex in pairs(themeObj.Tokens) do
-            if type(colorHex) == "string" and colorHex:match("^#%x%x%x%x%x%x$") then
-                local rgbColor = tonumber(colorHex:sub(2), 16)
-                if rgbColor then
-                    builtTheme[token] = self:RGB2BGR(rgbColor)
-                else
-                    logger:Warning(
-                        string.format(
-                            "[UI] Failed to convert color for token '%s': '%s' (parsed: %s)",
-                            token, colorHex, tostring(rgbColor)))
-                end
+            local rgbColor = type(colorHex) == "string" and colorHex:match("^#%x%x%x%x%x%x$")
+                and tonumber(colorHex:sub(2), 16) or nil
+            if rgbColor then
+                builtTheme[token] = self:RGB2BGR(rgbColor)
             else
-                logger:Warning(string.format("[UI] Invalid color format for token '%s': %s", token, tostring(colorHex)))
+                rejected[#rejected + 1] = { token, tostring(colorHex) }
             end
         end
-        logger:Info("[UI] Applying theme object: '" .. tostring(lockName) .. "'")
+        -- One report for every token the object could not supply. A theme
+        -- object built by hand tends to get several wrong at once, and a
+        -- warning each buried the good news underneath them.
+        if #rejected > 0 then
+            logger:WarningBlock(MODULE_PREFIX .. " Theme object has " .. #rejected ..
+                " unusable colours, expected #RRGGBB", rejected)
+        end
         self:ApplyThemeToTreeView(builtTheme)
         self:ApplyThemeToAddressList(builtTheme)
-        self:ApplyThemeToMainForm(builtTheme)
-        self:ApplyThemeToAddressRecords(builtTheme)
-        self:ApplyThemeToLuaEngine(builtTheme)
+        local slogan = self:ApplyThemeToMainForm(builtTheme)
+        local updated, unchanged = self:ApplyThemeToAddressRecords(builtTheme)
+        local luaEngine = self:ApplyThemeToLuaEngine(builtTheme)
         self:ApplyThemeToForms(builtTheme, false)
+        local teleporterThemed = false
         if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
-            self:ApplyThemeToTeleporter(teleporter, builtTheme)
+            teleporterThemed = self:ApplyThemeToTeleporter(teleporter, builtTheme)
         end
+        -- Same block as ApplyTheme, so a theme applied from the creator and a
+        -- theme applied by name read identically in the log.
+        logger:InfoBlock(MODULE_PREFIX .. " Theme object applied", {
+            { "Theme",      tostring(lockName) },
+            { "Memrecs",    updated .. " recoloured, " .. unchanged .. " unchanged" },
+            { "Lua Engine", luaEngine and "themed" or "not open" },
+            { "Slogan",     slogan and "themed" or "absent" },
+            { "Teleporter", teleporterThemed and "themed" or "not open" },
+        })
         return true
     end)
 
     self:ReleaseThemeApplyLock(lockToken)
     if not ok then
-        logger:Error("[UI] Failed to apply theme object '" .. tostring(lockName) .. "': " .. tostring(result))
+        logger:ErrorBlock(MODULE_PREFIX .. " Theme object apply failed", {
+            { "Theme",  tostring(lockName) },
+            { "Reason", tostring(result) },
+        })
         return false
     end
     return result == true
@@ -2531,7 +2618,7 @@ function UI:SetupExportButton(exportBtn, nameEdit, authorEdit, descEdit, tokenIn
             return json:encode_pretty(themeData, { indent = true })
         end)
         if not success or not jsonStr then
-            return logger:Error("[UI] Failed to serialize theme data.")
+            return logger:Error(MODULE_PREFIX .. " Failed to serialize theme data.")
         end
         local dlg = createSaveDialog(self.ThemeCreatorForm)
         dlg.DefaultExt = "json"
@@ -2545,10 +2632,10 @@ function UI:SetupExportButton(exportBtn, nameEdit, authorEdit, descEdit, tokenIn
         if file then
             file:write(jsonStr)
             file:close()
-            logger:Info("[UI] Theme exported successfully!")
+            logger:Info(MODULE_PREFIX .. " Theme exported successfully!")
             self:SetThemeCreatorStatus("Theme exported")
         else
-            logger:Error("[UI] Failed to write file.")
+            logger:Error(MODULE_PREFIX .. " Failed to write file.")
         end
     end)
 end
