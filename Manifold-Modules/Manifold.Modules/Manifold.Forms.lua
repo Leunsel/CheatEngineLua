@@ -1,10 +1,13 @@
 local NAME = "Manifold.Forms.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.2"
+local VERSION = "1.0.3"
 local DESCRIPTION = "Manifold Framework Forms"
 
 --[[
-    v1.0.2 (2026-06-17)
+    ∂ v1.0.3 (2026-09-01)
+        Unknown config keys are one report, not one line each.
+
+    ∂ v1.0.2 (2026-06-17)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
 ]]--
@@ -98,12 +101,16 @@ function Forms:New(config)
     local instance = setmetatable({}, self)
     instance.Name = NAME or "Unnamed Module"
     instance.Registry = { Controls = {}, Keys = {} }
+    local rejected = {}
     for key, value in pairs(config or {}) do
         if self[key] ~= nil then
             instance[key] = value
-        elseif logger and logger.WarningF then
-            logger:WarningF("Invalid property: '%s'", key)
+        else
+            rejected[#rejected + 1] = { tostring(key), type(value) }
         end
+    end
+    if #rejected > 0 and logger and logger.WarningBlock then
+        logger:WarningBlock(MODULE_PREFIX .. " Ignored " .. #rejected .. " unknown config properties", rejected)
     end
     return BOOTSTRAP.Ready(MODULE, instance)
 end
@@ -123,16 +130,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Forms:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
