@@ -1,9 +1,14 @@
 local NAME = "Manifold.Utils.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local DESCRIPTION = "Manifold Framework Utils"
 
 --[[
+    ∂ v1.1.1 (2026-09-01)
+        VerifyFileHash and RemoveTableFilesByExtension report once
+        with the evidence under the verdict. Every line uses
+        MODULE_PREFIX.
+
     ∂ v1.1.0 (2026-08-23)
         ResolvePointerPath moved to Manifold.Memory; the name here forwards and
         is deprecated. GetTitleComponents no longer reaches for `helper`
@@ -69,12 +74,18 @@ local MODULE = BOOTSTRAP.Declare({
 function Utils:New(config)
     local instance = setmetatable({}, self)
     instance.Name = NAME or "Unnamed Module"
+    local rejected = {}
     for key, value in pairs(config or {}) do
         if self[key] ~= nil then
             instance[key] = value
         else
-            logger:WarningF("Invalid property: '%s'", key)
+            rejected[#rejected + 1] = { tostring(key), type(value) }
         end
+    end
+    -- One report for the whole config rather than one line per bad key. A
+    -- typo in a config table usually comes with company.
+    if #rejected > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " Ignored " .. #rejected .. " unknown config properties", rejected)
     end
     return BOOTSTRAP.Ready(MODULE, instance)
 end
@@ -94,16 +105,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function Utils:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info("[Utils] Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -178,8 +185,7 @@ function Utils:AutoDisable(id, customInterval)
         local mr = AddressList.getMemoryRecordByID(id)
         if mr ~= nil and mr.Active then
             if not waitForAsync(mr, false) then
-                logger:WarningF("%s AutoDisable timed out waiting for record %s to finish processing; disabling anyway.",
-                                MODULE_PREFIX, tostring(id))
+                logger:WarningF(MODULE_PREFIX .. " AutoDisable timed out waiting for record %s to finish processing; disabling anyway.", tostring(id))
             end
             mr.Active = false
             waitForAsync(mr, true)
@@ -198,24 +204,29 @@ registerLuaFunctionHighlight('AutoDisable')
 --- @return true | false # true is a match, false is a mismatch or error.
 --
 function Utils:VerifyFileHash()
-    logger:Debug("[Utils] Starting file hash verification...")
     local filePath = helper:GetGameModulePathToFile()
-    logger:Debug("[Utils] Retrieving file hash for: " .. tostring(filePath))
     if filePath == nil then
-        logger:Warning("[Utils] File Path is nil. Hash Verification stopped!")
+        logger:Warning(MODULE_PREFIX .. " Hash verification stopped, the game module path is nil.")
         return false
     end
     local fileHash = md5file(filePath)
-    logger:Debug("[Utils] Calculated file hash: " .. tostring(fileHash))
-    logger:Debug("[Utils] Expected file hash: " .. tostring(self.MD5Hash))
-    if self.MD5Hash ~= fileHash then
-        logger:Warning("[Utils] File hash mismatch detected!")
-        self:ShowWarning("[Utils] File Hash Mismatch!\n\nExpected: " .. self.MD5Hash .. "\nReceived: " .. fileHash .. "\n\nThe Cheat Table might not be compatible with the current game version. Use at your own risk.")
-        return false
-    else
-        logger:Debug("[Utils] File hash matched. The table 'should' work as expected.")
+    local matched = self.MD5Hash == fileHash
+    -- One verdict with the evidence under it. Six lines to say whether two
+    -- strings are equal was six file writes and a scroll to read.
+    local rows = {
+        { "File",     filePath },
+        { "Expected", tostring(self.MD5Hash) },
+        { "Found",    tostring(fileHash) },
+    }
+    if matched then
+        logger:DebugBlock(MODULE_PREFIX .. " File hash matched", rows)
         return true
     end
+    logger:WarningBlock(MODULE_PREFIX .. " File hash mismatch", rows)
+    self:ShowWarning(MODULE_PREFIX .. " File Hash Mismatch!\n\nExpected: " .. tostring(self.MD5Hash) ..
+        "\nReceived: " .. tostring(fileHash) ..
+        "\n\nThe Cheat Table might not be compatible with the current game version. Use at your own risk.")
+    return false
 end
 registerLuaFunctionHighlight('VerifyFileHash')
 
@@ -348,11 +359,11 @@ function Utils:EnsureCompatibleCEVersion(requiredVersion, closeOnFail)
         return
     end
     if type(requiredVersion) ~= 'number' then
-        logger:Error('[Utils] EnsureCompatibleCEVersion: requiredVersion must be a number')
+        logger:Error(MODULE_PREFIX .. " EnsureCompatibleCEVersion: requiredVersion must be a number.")
         return
     end
     local currentVersion = getCEVersion()
-    logger:Debug(string.format('[Utils] Detected Cheat Engine version: %.1f', currentVersion))
+    logger:DebugF(MODULE_PREFIX .. " Detected Cheat Engine version %.1f.", currentVersion)
     if currentVersion ~= requiredVersion then
         local msg = string.format(
             "— Cheat Engine Version Mismatch\n\n" ..
@@ -486,34 +497,35 @@ function Utils:RemoveTableFilesByExtension(extension)
     extension = extension or ".lua"
     local miTable = MainForm.findComponentByName("miTable")
     if not miTable then
-        logger:Error("[Utils] Menu item 'miTable' not found.")
+        logger:Error(MODULE_PREFIX .. " Menu item 'miTable' not found.")
         return
     end
-    logger:Info("[Utils] Opening the 'miTable' menu...")
     miTable.doClick()  -- Ensure the table menu is opened
-    logger:Info("[Utils] 'miTable' menu opened successfully.")
     if miTable.Count == 0 then
-        logger:Info("[Utils] No table files found in the menu.")
+        logger:Debug(MODULE_PREFIX .. " The table menu holds no files.")
         return
     end
+    -- Three lines per deleted file became one row per deleted file, in one
+    -- entry. Files that do not match the extension are not news at all.
+    local deleted, missing = {}, {}
     for i = miTable.Count, 1, -1 do
         local item = miTable.Item[i - 1]
         local tableFileName = item.Caption:match("^%s*(.-)%s*$")  -- Trim leading/trailing spaces
         if tableFileName:find(extension, 1, true) then
-            logger:Info("[Utils] Attempting to remove file: '" .. tableFileName .. "'...")
             local tableFile = findTableFile(tableFileName)
             if tableFile then
-                logger:Info("[Utils] Found file: '" .. tableFileName .. "'. Deleting...")
                 tableFile.delete()
-                logger:Info("[Utils] File '" .. tableFileName .. "' deleted successfully.")
+                deleted[#deleted + 1] = tableFileName
             else
-                logger:Warning("[Utils] File '" .. tableFileName .. "' not found for deletion.")
+                missing[#missing + 1] = tableFileName
             end
-        else
-            logger:Debug("[Utils] Skipping file without '" .. extension .. "' in its name: '" .. tableFileName .. "'.")
         end
     end
-    logger:Info("[Utils] All files with '" .. extension .. "' processed.")
+    logger:InfoBlock(MODULE_PREFIX .. " Removed " .. #deleted .. " table files matching '" .. extension .. "'",
+                     deleted)
+    if #missing > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " Listed in the menu but not found", missing)
+    end
 end
 registerLuaFunctionHighlight('RemoveTableFilesByExtension')
 
@@ -536,15 +548,15 @@ function Utils:ExecuteTableLuaScript()
         end
     end
     if not form then
-        logger:Error("[Utils] Failed to find the Table Lua Form.")
+        logger:Error(MODULE_PREFIX .. " Failed to find the Table Lua Form.")
         return false
     end
     local executeButton = form.findComponentByName("btnExecute")
     if not executeButton or not executeButton.OnClick then
-        logger:Error("[Utils] Failed to find the Execute button in the Table Lua Form.")
+        logger:Error(MODULE_PREFIX .. " Failed to find the Execute button in the Table Lua Form.")
         return false
     end
-    logger:Info("[Utils] Triggering the Table Lua Script execution...")
+    logger:Debug(MODULE_PREFIX .. " Triggering the table Lua script.")
     executeButton.OnClick(executeButton) -- Simulates button press
     return true
 end
@@ -565,8 +577,7 @@ registerLuaFunctionHighlight('ExecuteTableLuaScript')
 --
 function Utils:ResolvePointerPath(baseAddress, offsets, isLocal)
     if type(memory) ~= "table" or type(memory.ResolvePointerPath) ~= "function" then
-        logger:ErrorF("%s ResolvePointerPath needs Manifold.Memory, which this table has not loaded.",
-                      MODULE_PREFIX)
+        logger:ErrorF(MODULE_PREFIX .. " ResolvePointerPath needs Manifold.Memory, which this table has not loaded.")
         return nil
     end
     return memory:ResolvePointerPath(baseAddress, offsets, isLocal)
@@ -587,7 +598,7 @@ function Utils:OpenLuaEngineWindow()
     if luaEngine then
         luaEngine.Show()
     else
-        logger:Warning("[Utils] Failed to open Lua Engine!")
+        logger:Warning(MODULE_PREFIX .. " Failed to open Lua Engine!")
     end
 end
 registerLuaFunctionHighlight('OpenLuaEngineWindow')
@@ -612,7 +623,7 @@ function Utils:SetTitle()
         getMainForm().Caption = titleStr
     else
         getMainForm().Caption = "Error: Failed to Set Title"
-        logger:Error("[Utils] Failed to set title: " .. titleStr)
+        logger:Error(MODULE_PREFIX .. " Failed to set title: " .. titleStr)
     end
 end
 registerLuaFunctionHighlight('SetTitle')
