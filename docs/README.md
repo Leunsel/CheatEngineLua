@@ -1,12 +1,11 @@
 # Manifold Documentation
 
-Documentation for the six segments of the
+Documentation for the five segments of the
 [`Leunsel/CheatEngineLua`](https://github.com/Leunsel/CheatEngineLua) repository.
 
 | Segment | Directory | Runs where | Purpose |
 |---|---|---|---|
 | Manifold CE Utility | `Manifold-CE-Utility/` | Cheat Engine `autorun` | Quality of life menu for the Cheat Engine UI itself |
-| Manifold Exception Handler | `Manifold-ExceptionHandler/` | Cheat Engine `autorun` + native DLL | Attributes every exception raised in the process |
 | Manifold Framework | `Manifold-Modules/` | Inside a Cheat Table (`luaFiles` or table files) | Modular runtime library for Cheat Tables |
 | Manifold Logger | `Manifold-Logger/` | Cheat Engine `autorun` | Canvas-drawn log console any script can side-load |
 | Manifold Table Files | `Manifold-TableFiles/` | Cheat Engine `autorun` | Editable window over the files attached to a Cheat Table |
@@ -16,9 +15,6 @@ Documentation for the six segments of the
 
 [Manifold CE Utility](Manifold-CE-Utility.md) covers installation, the menu reference and
 configuration.
-
-[Manifold Exception Handler](Manifold-ExceptionHandler.md) covers installation, building the
-native half, the report anatomy and what is and is not catchable.
 
 [Manifold Framework](Manifold-Framework.md) covers the architecture, bootstrapping, the data
 directory and an overview of the modules.
@@ -48,15 +44,10 @@ Cheat Engine starts
 ├─ autorun/Manifold-CE-Utility.lua            Segment 1, the "[— Manifold —]" menu
 │    └─ hooks into MainForm.Menu
 │
-├─ autorun/Manifold-ExceptionHandler.lua      Segment 5, the exception recorder
-│    └─ package.loadlib → ManifoldExceptionHandler.dll
-│         └─ AddVectoredExceptionHandler(first)
-│              sees every exception in the process, before Cheat Engine does
-│
 ├─ autorun/Manifold-TableFiles.lua            Segment 4, the Table Files window
 │    └─ publishes ManifoldTableFiles, registers no menu of its own
 │
-├─ autorun/Manifold-Logger.lua                Segment 6, the log console
+├─ autorun/Manifold-Logger.lua                Segment 5, the log console
 │    ├─ publishes ManifoldLogger, adds a "Logger" main-menu entry
 │    ├─ bridges onto Manifold.Logger and the Template Loader when present
 │    └─ hands any script its own channel: ManifoldLogger:Channel("Name")
@@ -104,18 +95,12 @@ shadowing its `_DispatchLog` funnel on the instance, the Template Loader through
 and `print` on request. Because autorun runs long before any Cheat Table is opened, the framework
 tap is polled by a watch that attaches when a table's logger appears, re-attaches when another
 table replaces it, and detaches when it goes away. Every tap is idempotent, reversible and
-non-owning, so nothing it attaches to notices when the console is closed or was never installed. It carries its own copy of the design framework and reads
-`forms.ActiveDesignTheme` read-only, exactly as the Template Loader and Table Files do.
+non-owning, so nothing it attaches to notices when the console is closed or was never installed.
+It carries its own copy of the design framework and reads `forms.ActiveDesignTheme` read-only,
+exactly as the Template Loader and Table Files do.
 
-The Exception Handler is coupled to nothing at all, deliberately. It is the segment that has to
-keep working when the rest is broken, so it depends on no Manifold module, loads before the
-Framework exists, and degrades to a warning if its native half is missing. The Framework may call
-`ManifoldExceptionHandler.Note(...)` when the global happens to be there; nothing requires it to
-be.
-
-The data directories do not collide. The Framework uses `%LOCALAPPDATA%\Manifold\`, the
-Template Loader uses `%LOCALAPPDATA%\Manifold\TemplateLoader\`, and the Exception Handler writes
-to `%LOCALAPPDATA%\Manifold\Crashes\`. The Logger shares the Framework's
+The data directories do not collide. The Framework uses `%LOCALAPPDATA%\Manifold\` and the
+Template Loader uses `%LOCALAPPDATA%\Manifold\TemplateLoader\`. The Logger shares the Framework's
 `%LOCALAPPDATA%\Manifold\Logs\` folder on purpose - one folder to open, one to clean out - and
 the file names do not collide: the Framework writes `Manifold.Runtime.<table>.log`, the Logger
 writes `Manifold.Console.log` plus its numbered generations.
