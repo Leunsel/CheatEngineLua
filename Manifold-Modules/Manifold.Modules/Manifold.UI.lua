@@ -1,10 +1,21 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.1.2"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
 --[[
+    ∂ v1.1.2 (2026-09-01)
+        SetTeleporterControlColors themes the buttons the
+        Teleporter declares in UiState.ButtonKeys, and its panel
+        wall is one spec table. setMemo is gone, it was byte for
+        byte the same function as setEdit.
+
+    ∂ v1.1.1 (2026-09-01)
+        SetTeleporterControlColors themes the coordinate rows the
+        Teleporter actually built, read from UiState.AxisFieldKeys,
+        rather than assuming X, Y and Z.
+
     ∂ v1.1.0 (2026-09-01)
         Applying a theme is one entry instead of seven, and loading
         themes one entry instead of roughly four per theme. The
@@ -973,15 +984,9 @@ function UI:SetTeleporterControlColors(uiState, theme)
         applyFont(control, color, size, style)
         repaintControl(control)
     end
+    -- One function for both. A memo and an edit were themed identically, and
+    -- the two bodies were byte for byte the same.
     local function setEdit(control)
-        if not control then return end
-        control.ParentColor = false
-        control.Color = inputBg or control.Color
-        control.BorderStyle = "bsNone"
-        applyFont(control, inputText, 10)
-        repaintControl(control)
-    end
-    local function setMemo(control)
         if not control then return end
         control.ParentColor = false
         control.Color = inputBg or control.Color
@@ -1007,41 +1012,41 @@ function UI:SetTeleporterControlColors(uiState, theme)
         end
         repaintControl(control)
     end
-    setPanel(uiState.Form, mainBg)
-    setPanel(uiState.RootPanel, mainBg)
-    setPanel(uiState.ToolbarPanel, panelBg)
-    setPanel(uiState.StatusPanel, borderColor)
-    setPanel(uiState.StatusInnerPanel, panelBg)
-    setPanel(uiState.LeftPanel, borderColor)
-    setPanel(uiState.LeftInnerPanel, panelBg)
-    setPanel(uiState.LeftHeaderPanel, headerBg)
-    setBevel(uiState.LeftHeaderPanel, "bvLowered", borderColor, 1)
-    setPanel(uiState.LeftContentPanel, panelBg)
-    setPanel(uiState.RightPanel, borderColor)
-    setPanel(uiState.RightInnerPanel, panelBg)
-    setPanel(uiState.RightHeaderPanel, headerBg)
-    setBevel(uiState.RightHeaderPanel, "bvLowered", borderColor, 1)
-    setPanel(uiState.RightContentPanel, panelBg)
-    setPanel(uiState.EditorPanel, borderColor)
-    setPanel(uiState.TreePanel, borderColor)
-    setPanel(uiState.SearchPanel, borderColor)
-    setBevel(uiState.SearchPanel, "bvRaised", borderColor, 1)
-    setPanel(uiState.SearchFillPanel, inputBg)
-    setPanel(uiState.SearchInnerPanel, inputBg)
-    setPanel(uiState.TreeBorderPanel, borderColor)
-    setBevel(uiState.TreeBorderPanel, "bvRaised", borderColor, 1)
-    setPanel(uiState.TreeHostPanel, inputBg)
-    setPanel(uiState.FieldsHostPanel, panelBg)
-    setPanel(uiState.TopGroupPanel, panelBg)
-    setPanel(uiState.BottomGroupPanel, panelBg)
-    setPanel(uiState.FooterPanel, panelBg)
-    setBevel(uiState.FooterPanel, "bvLowered", borderColor, 1)
-    setPanel(uiState.MemoBorderPanel, borderColor)
-    setBevel(uiState.MemoBorderPanel, "bvRaised", borderColor, 1)
-    setPanel(uiState.MemoPanel, inputBg)
-    setBevel(uiState.MemoPanel, "bvLowered", borderColor, 1)
-    setPanel(uiState.MemoInnerPanel, inputBg)
-    for _, key in ipairs({"Name","Author","Category","X","Y","Z"}) do
+    -- Every fixed panel in the window: which control, what it is filled with,
+    -- and the bevel it carries if it has one. Reading down the second column
+    -- is the window's depth order, which was hard to see as forty calls.
+    for _, entry in ipairs({
+        { "Form", mainBg },              { "RootPanel", mainBg },
+        { "ToolbarPanel", panelBg },     { "StatusPanel", borderColor },
+        { "StatusInnerPanel", panelBg },
+        { "LeftPanel", borderColor },    { "LeftInnerPanel", panelBg },
+        { "LeftHeaderPanel", headerBg, "bvLowered" },
+        { "LeftContentPanel", panelBg }, { "TreePanel", borderColor },
+        { "RightPanel", borderColor },   { "RightInnerPanel", panelBg },
+        { "RightHeaderPanel", headerBg, "bvLowered" },
+        { "RightContentPanel", panelBg },{ "EditorPanel", borderColor },
+        { "SearchPanel", borderColor, "bvRaised" },
+        { "SearchFillPanel", inputBg },  { "SearchInnerPanel", inputBg },
+        { "TreeBorderPanel", borderColor, "bvRaised" },
+        { "TreeHostPanel", inputBg },    { "FieldsHostPanel", panelBg },
+        { "TopGroupPanel", panelBg },    { "BottomGroupPanel", panelBg },
+        { "FooterPanel", panelBg, "bvLowered" },
+        { "MemoBorderPanel", borderColor, "bvRaised" },
+        { "MemoPanel", inputBg, "bvLowered" },
+        { "MemoInnerPanel", inputBg },
+    }) do
+        local control = uiState[entry[1]]
+        setPanel(control, entry[2])
+        if entry[3] then setBevel(control, entry[3], borderColor, 1) end
+    end
+    -- The coordinate rows are one per axis, and a 2D table has two of them.
+    -- AxisFieldKeys says which were built. The fallback covers a Teleporter
+    -- older than this function, which always had exactly X, Y and Z.
+    local fieldKeys = { "Name", "Author", "Category" }
+    for _, axis in ipairs(uiState.AxisFieldKeys or { "X", "Y", "Z" }) do
+        fieldKeys[#fieldKeys + 1] = axis
+    end
+    for _, key in ipairs(fieldKeys) do
         setPanel(uiState[key .. "Row"], panelBg)
         setPanel(uiState[key .. "Border"], borderColor)
         setBevel(uiState[key .. "Border"], "bvRaised", borderColor, 1)
@@ -1052,21 +1057,20 @@ function UI:SetTeleporterControlColors(uiState, theme)
     setLabel(uiState.TreeStatsLabel, mutedText, 9)
     setLabel(uiState.TreeHeaderLabel, labelText, 10, "[fsBold]")
     setLabel(uiState.EditorHeaderLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.NameLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.AuthorLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.CategoryLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.XLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.YLabel, labelText, 10, "[fsBold]")
-    setLabel(uiState.ZLabel, labelText, 10, "[fsBold]")
-    setEdit(uiState.NameEdit)
-    setEdit(uiState.AuthorEdit)
-    setEdit(uiState.CategoryEdit)
-    setEdit(uiState.XEdit)
-    setEdit(uiState.YEdit)
-    setEdit(uiState.ZEdit)
+    for _, key in ipairs(fieldKeys) do
+        setLabel(uiState[key .. "Label"], labelText, 10, "[fsBold]")
+        setEdit(uiState[key .. "Edit"])
+    end
     setEdit(uiState.SearchEdit)
-    setMemo(uiState.DescriptionEdit)
-    for _, key in ipairs({"SaveButton","LoadButton","DeleteButton","RefreshButton","WaypointButton","AddButton","DuplicateButton","TeleportButton","UpdateButton","ClearButton","RenameButton","UseCurrentPositionButton"}) do
+    setEdit(uiState.DescriptionEdit)
+    -- ButtonKeys lists what the Teleporter built, the same way AxisFieldKeys
+    -- does for the coordinate rows. The fallback is the fixed set an older
+    -- Teleporter registered, four of which were aliases for the same controls.
+    for _, key in ipairs(uiState.ButtonKeys or {
+        "SaveButton", "LoadButton", "DeleteButton", "RefreshButton", "WaypointButton",
+        "AddButton", "DuplicateButton", "TeleportButton", "UpdateButton",
+        "ClearButton", "RenameButton", "UseCurrentPositionButton",
+    }) do
         setButton(uiState[key])
     end
     if uiState.TreeView then
