@@ -42,7 +42,10 @@ The coloured circle in front of an item is its priority.
   `Utils:GetTitleComponents` does a real emptiness check so the `AppVersion` fallback is actually
   reachable.
 - [ ] [T9. State IDs collide with "Normalize Cheat Table IDs"](#t9-state-ids-collide-with-normalize-cheat-table-ids) · cross-segment
-- [ ] [T23. `Logger` and `CustomIO` can recurse without bound](#t23-logger-and-customio-can-recurse-without-bound) · Framework
+- [X] T23. Resolved 2026-09-01 in Logger 1.2.0, deeper than the proposed latch. The logger no
+  longer borrows `customIO` at all for its own file writes, so the cycle is gone rather than
+  guarded. The latch is in as well, and a failed write now switches disk logging off for the
+  session instead of being retried on every following line.
 
 ### 🟡 Medium
 
@@ -64,9 +67,11 @@ The coloured circle in front of an item is its priority.
 
 ### 🔵 Documentation and tests
 
-- [ ] [T21. Documentation and version drift](#t21-documentation-and-version-drift) · all. 2 of 4
-  rows fixed, the `Manifold.Utils` VERSION now matches its changelog and the `Manifold-Modules`
-  README no longer names `Manifold.CustomIO.GetDataDir()`. The other two and the CI check remain.
+- [ ] [T21. Documentation and version drift](#t21-documentation-and-version-drift) · all. 3 of 4
+  rows fixed. The `Manifold.Utils` VERSION matches its changelog, the `Manifold-Modules` README no
+  longer names `Manifold.CustomIO.GetDataDir()`, and on 2026-09-01 every version claim in
+  `Manifold-Framework-API.md` was synced against the modules, which corrected twelve of them. The
+  CI check that would keep them in step still does not exist.
 - [X] T22. No fix required. Unit tests are not relevant in this context.
 - [ ] [T24. Teleporter assigns to a `for` control variable](#t24-teleporter-assigns-to-a-for-control-variable) · Framework. The Template Loader occurrences are all fixed. What remains is `Manifold.Teleporter`, with one occurrence rather than two, and `Manifold.Dev/Manifold.Patcher.lua` with two more.
 - [ ] [T25. Three game-specific custom types live in Utils](#t25-three-game-specific-custom-types-live-in-utils) · Framework
@@ -582,6 +587,26 @@ Rename `_checkProcessChangedOrThrow` to `_checkProcessChanged` accordingly and d
 `_processChangedMsg`.
 
 ## T23. `Logger` and `CustomIO` can recurse without bound
+
+> ✅ Resolved 2026-09-01 in Logger 1.2.0. Three changes, in order of what they fix.
+>
+> 1. **The cycle is gone, not guarded.** `Logger` declares itself a framework leaf with no
+>    dependencies, but its write path reached for the global `customIO`, which reports its own
+>    failures through `logger`. It now uses `lfs` and `io` directly, so the declared dependency
+>    graph and the real one agree.
+> 2. **The latch is in anyway**, as `_InFileWrite`, because a caller can still route a log line
+>    back into the write path, and because the `pcall`s in `Manifold.Json` and `Manifold.Bootstrap`
+>    should be belt and braces rather than load bearing.
+> 3. **A failed write switches disk logging off for the session.** `FileLogging = false`,
+>    `FileLogError` records why, and it is reported once through `ForceWarning`. On the machine
+>    this bug was about, an end-user box where the data directory cannot be written, the old code
+>    paid two `lfs.attributes` calls and one open attempt for every log line, forever.
+>    `EnableFileLogging()` is the way back. One retry, which re-checks the directories, sits inside
+>    the write, so the log folder being deleted while Cheat Engine runs recovers rather than
+>    latching.
+>
+> `_EnsureLogDirectories` also caches its answer, which was the other half of the cost: it ran two
+> directory lookups per line for a path that never changes.
 
 🟠 [`Manifold.Logger.lua:202`](../Manifold-Modules/Manifold.Modules/Manifold.Logger.lua) and
 [`Manifold.CustomIO.lua:204`](../Manifold-Modules/Manifold.Modules/Manifold.CustomIO.lua)
