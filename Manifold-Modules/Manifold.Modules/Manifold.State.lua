@@ -1,9 +1,14 @@
 local NAME = "Manifold.State.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local DESCRIPTION = "Manifold Framework State"
 
 --[[
+    ∂ v1.1.1 (2026-09-01)
+        The restore report goes through Logger:BuildBlock rather
+        than a hand built string. A failed record state is one
+        block carrying all three flags.
+
     ∂ v1.1.0 (2026-08-27)
         RestoreState reports the whole run as one log entry with
         aligned columns, grouped by outcome, instead of one prefixed
@@ -72,16 +77,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function State:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -188,13 +189,15 @@ function State:EnsureStateDirectory()
     end
     local stateDir = customIO.DataDir .. "\\State"
     if not customIO:DirectoryExists(stateDir) then
-        logger:Warning(MODULE_PREFIX .. " State Dir missing; creating it...")
         local ok, err = customIO:CreateDirectory(stateDir)
         if not ok then
-            logger:Error(MODULE_PREFIX .. " Create State Dir failed: " .. (err or "Unknown error"))
+            logger:ErrorBlock(MODULE_PREFIX .. " State directory unavailable", {
+                { "Directory", stateDir },
+                { "Reason",    err or "unknown error" },
+            })
             return nil
         end
-        logger:Info(MODULE_PREFIX .. " State Dir created.")
+        logger:Debug(MODULE_PREFIX .. " Created directory: " .. stateDir)
     end
     return stateDir
 end
@@ -414,7 +417,13 @@ end
 
 function State:_LogMemoryRecordStateOutcome(outcome)
     if not outcome or not outcome.success then
-        logger:Warning(string.format("%s Failed to set %s. Active=%s Async=%s AsyncProcessing=%s", MODULE_PREFIX, tostring(outcome and outcome.record or "Unknown Record"), tostring(outcome and outcome.active), tostring(outcome and outcome.async), tostring(outcome and outcome.asyncProcessing)))
+        -- Four facts that only mean something together, so they go together.
+        logger:WarningBlock(MODULE_PREFIX .. " Could not set " ..
+            tostring(outcome and outcome.record or "an unknown record"), {
+            { "Active",          tostring(outcome and outcome.active) },
+            { "Async",           tostring(outcome and outcome.async) },
+            { "AsyncProcessing", tostring(outcome and outcome.asyncProcessing) },
+        })
         return
     end
     if not outcome.changed then
@@ -647,12 +656,10 @@ function State:RestoreState(stateData)
         end
     end
     local report = self:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats)
-    if #report.Lines > 0 then
-        logger:Info(string.format("%s %s\n%s", MODULE_PREFIX, report.Summary,
-            table.concat(report.Lines, "\n")))
-    else
-        logger:Info(MODULE_PREFIX .. " " .. report.Summary)
-    end
+    -- FormatRestoreReport lays its own lines out, indent included, so the
+    -- block renderer is asked not to add another one. Routed through it all
+    -- the same, so every multi row report in the framework is one call shape.
+    logger:InfoBlock(MODULE_PREFIX .. " " .. report.Summary, report.Lines, { indent = "" })
     return stats
 end
 registerLuaFunctionHighlight('RestoreState')
@@ -733,12 +740,10 @@ function State:RestoreOriginalState()
         end
     end
     local report = self:FormatRestoreReport(stateOutcomes, nil, stats, "Original state restored")
-    if #report.Lines > 0 then
-        logger:Info(string.format("%s %s\n%s", MODULE_PREFIX, report.Summary,
-            table.concat(report.Lines, "\n")))
-    else
-        logger:Info(MODULE_PREFIX .. " " .. report.Summary)
-    end
+    -- FormatRestoreReport lays its own lines out, indent included, so the
+    -- block renderer is asked not to add another one. Routed through it all
+    -- the same, so every multi row report in the framework is one call shape.
+    logger:InfoBlock(MODULE_PREFIX .. " " .. report.Summary, report.Lines, { indent = "" })
     return stats
 end
 registerLuaFunctionHighlight('RestoreOriginalState')
@@ -761,7 +766,10 @@ function State:WriteStateFile(path, data)
     end
     local ok, err = customIO:WriteToFileAsJson(path, data)
     if not ok then
-        logger:Error(MODULE_PREFIX .. " Write failed: " .. (err or "Unknown error"))
+        logger:ErrorBlock(MODULE_PREFIX .. " State file write failed", {
+            { "File",   path },
+            { "Reason", err or "unknown error" },
+        })
         return false
     end
     return true
@@ -781,7 +789,10 @@ function State:ReadStateFile(path)
     end
     local data, err = customIO:ReadFromFileAsJson(path)
     if not data then
-        logger:Error(MODULE_PREFIX .. " Read failed: " .. (err or "Unknown error"))
+        logger:ErrorBlock(MODULE_PREFIX .. " State file read failed", {
+            { "File",   path },
+            { "Reason", err or "unknown error" },
+        })
         return nil
     end
     return data
