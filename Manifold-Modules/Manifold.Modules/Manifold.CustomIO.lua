@@ -1,9 +1,15 @@
 local NAME = "Manifold.CustomIO.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.3"
+local VERSION = "1.0.5"
 local DESCRIPTION = "Manifold Framework CustomIO"
 
 --[[
+    ∂ v1.0.5 (2026-09-01)
+        A file operation reports once, not before and after. Every
+        failure names the path and the reason as a block. Creating
+        a directory is Debug, since the caller reports what it was
+        for.
+
     ∂ v1.0.4 (2026-08-23)
         Implemented the Bootstrap handshake so this module
         can be loaded on its own or through the framework.
@@ -102,16 +108,12 @@ registerLuaFunctionHighlight('GetModuleInfo')
 --
 function CustomIO:PrintModuleInfo()
     local info = self:GetModuleInfo()
-    if not info then
-        logger:Info(MODULE_PREFIX .. " Failed to retrieve module info.")
-        return
-    end
-    logger:Info("Module Info : "  .. tostring(info.name))
-    logger:Info("\tVersion:     " .. tostring(info.version))
     local author = type(info.author) == "table" and table.concat(info.author, ", ") or tostring(info.author)
-    local description = type(info.description) == "table" and table.concat(info.description, ", ") or tostring(info.description)
-    logger:Info("\tAuthor:      " .. author)
-    logger:Info("\tDescription: " .. description .. "\n")
+    logger:InfoBlock("Module Info : " .. tostring(info.name), {
+        { "Version",     info.version },
+        { "Author",      author },
+        { "Description", info.description },
+    }, { indent = "\t" })
 end
 registerLuaFunctionHighlight('PrintModuleInfo')
 
@@ -119,8 +121,6 @@ registerLuaFunctionHighlight('PrintModuleInfo')
 --                  Module Start                      --
 --------------------------------------------------------
 
---
---- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
 --
 --- ∑ The single dependency lookup, shared by every Manifold module.
 ---   The name is kept so external callers and the docs keep working, and so a
@@ -201,10 +201,13 @@ function CustomIO:CreateDirectory(dir)
     local success = lfs.mkdir(dir)
     if not success then
         local err = lfs.attributes(dir) and "Unknown error" or "Permission denied or invalid path"
-        logger:Error(MODULE_PREFIX .. " Failed to create directory '" .. dir .. "': " .. err)
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not create directory", {
+            { "Directory", dir },
+            { "Reason",    err },
+        })
         return false, err
     end
-    logger:Info(MODULE_PREFIX .. " Created directory: " .. dir)
+    logger:Debug(MODULE_PREFIX .. " Created directory: " .. dir)
     return true
 end
 registerLuaFunctionHighlight('CreateDirectory')
@@ -225,10 +228,13 @@ function CustomIO:OpenDirectory(dir)
     end
     local success, result = pcall(os.execute, string.format('start /b "" "%s"', dir))
     if success then
-        logger:Info(MODULE_PREFIX .. " Opened directory: " .. dir)
+        logger:Debug(MODULE_PREFIX .. " Opened directory: " .. dir)
         return true
     end
-    logger:Error(MODULE_PREFIX .. " Failed to open directory '" .. dir .. "': " .. tostring(result))
+    logger:ErrorBlock(MODULE_PREFIX .. " Could not open directory", {
+        { "Directory", dir },
+        { "Reason",    tostring(result) },
+    })
     return false
 end
 registerLuaFunctionHighlight('OpenDirectory')
@@ -277,7 +283,10 @@ function CustomIO:DeleteFile(filePath)
     end
     local success, err = pcall(os.remove, filePath)
     if not success then
-        logger:Error(MODULE_PREFIX .. " Failed to delete file '" .. filePath .. "': " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not delete file", {
+            { "File",   filePath },
+            { "Reason", tostring(err) },
+        })
         return false, err
     end
     logger:Info(MODULE_PREFIX .. " Deleted file: " .. filePath)
@@ -319,7 +328,10 @@ function CustomIO:WriteToFile(filePath, data)
     end
     local file, err = io.open(filePath, "w")
     if not file then
-        logger:Error(MODULE_PREFIX .. " Failed to open file '" .. filePath .. "' for writing: " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not open file for writing", {
+            { "File",   filePath },
+            { "Reason", tostring(err) },
+        })
         return false, err
     end
     local success, writeErr = pcall(function()
@@ -327,7 +339,10 @@ function CustomIO:WriteToFile(filePath, data)
     end)
     file:close()
     if not success then
-        logger:Error(MODULE_PREFIX .. " Failed to write to file '" .. filePath .. "': " .. tostring(writeErr))
+        logger:ErrorBlock(MODULE_PREFIX .. " Write failed", {
+            { "File",   filePath },
+            { "Reason", tostring(writeErr) },
+        })
         return false, writeErr
     end
     return true
@@ -346,7 +361,10 @@ function CustomIO:AppendToFile(filePath, data)
     end
     local file, err = io.open(filePath, "a")
     if not file then
-        logger:Error(MODULE_PREFIX .. " Failed to open file '" .. filePath .. "' for appending: " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not open file for appending", {
+            { "File",   filePath },
+            { "Reason", tostring(err) },
+        })
         return false, err
     end
     local success, writeErr = pcall(function()
@@ -354,7 +372,10 @@ function CustomIO:AppendToFile(filePath, data)
     end)
     file:close()
     if not success then
-        logger:Error(MODULE_PREFIX .. " Failed to append to file '" .. filePath .. "': " .. tostring(writeErr))
+        logger:ErrorBlock(MODULE_PREFIX .. " Append failed", {
+            { "File",   filePath },
+            { "Reason", tostring(writeErr) },
+        })
         return false, writeErr
     end
     return true
@@ -394,7 +415,10 @@ function CustomIO:WriteCSV(filePath, data)
     end
     local file, err = io.open(filePath, "w")
     if not file then
-        logger:Error(MODULE_PREFIX .. " Failed to open CSV file '" .. filePath .. "' for writing: " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not open CSV file for writing", {
+            { "File",   filePath },
+            { "Reason", tostring(err) },
+        })
         return false, err
     end
     local success, writeErr = pcall(function()
@@ -404,7 +428,10 @@ function CustomIO:WriteCSV(filePath, data)
     end)
     file:close()
     if not success then
-        logger:Error(MODULE_PREFIX .. " Failed to write to CSV file '" .. filePath .. "': " .. tostring(writeErr))
+        logger:ErrorBlock(MODULE_PREFIX .. " CSV write failed", {
+            { "File",   filePath },
+            { "Reason", tostring(writeErr) },
+        })
         return false, writeErr
     end
     return true
@@ -420,7 +447,8 @@ function CustomIO:ReadFromTableFile(fileName)
     if not _isString(fileName) then
         return nil, "Invalid parameter: fileName is missing"
     end
-    logger:Info(MODULE_PREFIX .. " Reading table file '" .. fileName .. "'.")
+    -- One line for one read. Announcing the attempt and then the result
+    -- doubled every table file access in the log and on disk.
     local tableFile = findTableFile(fileName)
     if not tableFile then
         logger:Warning(MODULE_PREFIX .. " Table file not found: '" .. fileName .. "'")
@@ -428,10 +456,13 @@ function CustomIO:ReadFromTableFile(fileName)
     end
     local success, content = pcall(_readTableFile, tableFile)
     if not success or not content then
-        logger:Error(MODULE_PREFIX .. " Failed to read table file '" .. fileName .. "'.")
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not read table file", {
+            { "File",   fileName },
+            { "Reason", success and "empty result" or tostring(content) },
+        })
         return nil, "Read error"
     end
-    logger:Info(MODULE_PREFIX .. " Read table file '" .. fileName .. "'.")
+    logger:Debug(MODULE_PREFIX .. " Read table file '" .. fileName .. "' (" .. #content .. " bytes).")
     return content
 end
 registerLuaFunctionHighlight('ReadFromTableFile')
@@ -447,18 +478,20 @@ function CustomIO:WriteToTableFile(fileName, text)
         logger:Error(MODULE_PREFIX .. " Invalid parameters: fileName or text is missing or not a string.")
         return false
     end
-    logger:Info(MODULE_PREFIX .. " Writing table file '" .. fileName .. "'.")
     local tableFile = findTableFile(fileName) or createTableFile(fileName)
     if not tableFile then
-        logger:Error(MODULE_PREFIX .. " Failed to create/find table file '" .. fileName .. "'.")
+        logger:Error(MODULE_PREFIX .. " Could not find or create table file '" .. fileName .. "'.")
         return false
     end
     local success, err = pcall(_writeTableFile, tableFile, text)
     if not success then
-        logger:Error(MODULE_PREFIX .. " Failed to write table file '" .. fileName .. "': " .. tostring(err))
+        logger:ErrorBlock(MODULE_PREFIX .. " Could not write table file", {
+            { "File",   fileName },
+            { "Reason", tostring(err) },
+        })
         return false
     end
-    logger:Info(MODULE_PREFIX .. " Wrote table file '" .. fileName .. "'.")
+    logger:Debug(MODULE_PREFIX .. " Wrote table file '" .. fileName .. "' (" .. #text .. " bytes).")
     return true
 end
 registerLuaFunctionHighlight('WriteToTableFile')
@@ -552,10 +585,8 @@ registerLuaFunctionHighlight('WriteToFileAsJson')
 function CustomIO:EnsureDataDirectory()
     local dataDir = self.DataDir
     if self:DirectoryExists(dataDir) then return true end
-    logger:Warning(MODULE_PREFIX .. " Data directory missing. Attempting to create it.")
-    local success, err = self:CreateDirectory(dataDir)
+    local success = self:CreateDirectory(dataDir)
     if not success then
-        logger:Error(MODULE_PREFIX .. " Failed to create Data Directory: " .. (err or "Unknown Error"))
         return false
     end
     return true
