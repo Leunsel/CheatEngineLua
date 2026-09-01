@@ -935,7 +935,9 @@ Since version 1.0.5 every access to `AddressList`, `MemoryRecord` and hotkeys is
 
 ## 8. Teleporter
 
-The teleporter reads and writes three floating-point values through registered AA symbols.
+The teleporter reads and writes a position through registered AA symbols. How many components a
+position has is not fixed. `Transform.Offsets` decides, so the same module drives a 3D game, a 2D
+platformer and a top-down game without a switch anywhere.
 
 ### 8.1 Configuration
 
@@ -963,7 +965,7 @@ teleporter = Teleporter:New({
 | `Symbols.Saved` / `.Backup` | Two allocated buffers for "last save" and "position before the last jump". Read and written directly, not as pointers. |
 
 Offsets for `Saved`/`Backup` are computed by `CalculateSymbolOffsets()` from `Settings.ValueType`
-(`vtSingle` → `{0, 4, 8}`).
+and the axis count (`vtSingle` in three dimensions → `{0, 4, 8}`, in two → `{0, 4}`).
 
 The required AA scaffolding (example):
 
@@ -985,7 +987,60 @@ n_Symbols:
 registersymbol(SavedPositionFlt BackupPositionFlt)
 ```
 
-### 8.2 Core API
+A two component game allocates two floats per buffer instead of three.
+
+### 8.2 Dimensions
+
+`Transform.Offsets` is the authority on how many components a position has, because it is the one
+place the memory layout already had to be written down. A 2D game therefore configures nothing
+extra:
+
+```lua
+teleporter = Teleporter:New({
+    Transform = { Symbol = "TransformPtr", Offsets = { 0x30, 0x34 }, ValueType = vtSingle },
+    Symbols   = { Saved = "SavedPositionFlt", Backup = "BackupPositionFlt" },
+})
+-- teleporter:AxisCount() == 2, teleporter:GetAxes() == { "X", "Y" }
+```
+
+Everything downstream follows: the editor grows two coordinate boxes instead of three and the panel
+shrinks to fit, the save tree prints two columns, `Saved` and `Backup` get two offsets each, the
+generated Auto Assembler script documents two coordinates, and a save file holds `X` and `Y` and no
+`Z`.
+
+`Axes` supplies the letters, not the count. It matters when the two components are not the first
+two, which is the usual case for a top-down game:
+
+```lua
+teleporter.Axes = { "X", "Z" }   -- saves are keyed X and Z, the editor is captioned X and Z
+```
+
+Unnamed components fall back to `X`, `Y`, `Z`, `W` and then `A5`, `A6`. A blank or duplicate name is
+replaced rather than trusted, because two components sharing a name would collapse into one key in
+the save file.
+
+> **The other symbols do not follow automatically.** `Waypoint` and `Additional` carry their own
+> offsets, and shortening the `Transform` does not shorten them. That mismatch surfaces the first
+> time somebody presses the waypoint button, a long way from the mistake. `ValidateConfiguration()`
+> finds it immediately:
+>
+> ```lua
+> teleporter:ValidateConfiguration()
+> --> [Teleporter] Offsets do not match the axis count
+> -->    Axes     : 2 (X, Y)
+> -->    Waypoint : 3 offsets for 'WaypointPtr', expected 2
+> ```
+>
+> A symbol with no name is skipped, which is how a table says it does not use that feature.
+
+`Settings.YCoordinateIndex` stays an index into the position, so the lift-the-target adjustment
+works in any number of dimensions. In a 2D platformer where the second component is height, it is
+still `2`.
+
+Existing 3D save files need no migration. A save has always stored one key per axis, and the
+default axis names are the same three letters those files already use.
+
+### 8.3 Core API
 
 ```lua
 teleporter:SaveCurrentPosition()   -- Transform → Saved
@@ -1016,7 +1071,7 @@ The per-step lines (address resolution, each coordinate write, pause and resume)
 `Memory.LogSuccessfulOperations`: the log writes the file before it applies the level filter, so a
 Debug line on a hot path is a real disk write. Turn it on to trace one jump, not to leave on.
 
-### 8.3 Persistent saves
+### 8.4 Persistent saves
 
 `teleporter.Saves` is a map of `category path + name → entry`:
 
@@ -1059,16 +1114,29 @@ Debug line on a hot path is a real disk write. Turn it on to trace one jump, not
             └─ Teleport To: 'Boss Arena' ()->   (vtAutoAssembler, {$lua})
 ```
 
-### 8.4 Dedicated UI
+### 8.5 Dedicated UI
 
 ```lua
 teleporter:InitTeleporterUI()
 ```
 
 Opens a standalone window (1120 × 720) with a menu strip, status bar, a tree view of saves
-(grouped by author, then category) and an editor for name, author, category path, X/Y/Z and
-description. Its controls are built through `Manifold.Forms`, so `ui:ApplyTheme(...)` recolours
-them automatically (`UI:SetTeleporterControlColors`).
+(grouped by author, then category) and an editor for name, author, category path, one box per
+axis and description. Its controls are built through `Manifold.Forms`, so `ui:ApplyTheme(...)`
+recolours them automatically (`UI:SetTeleporterControlColors`).
+
+Two conventions keep the builder and the theming in step without either one hard coding a list:
+
+* **Every control registers itself into `UiState` under its own name.** A field row registers six
+  entries: `<Key>Edit`, `Row`, `Label`, `Border`, `Fill` and `Inner`. So the name box is
+  `UiState.NameEdit` and the first coordinate box is `UiState.XEdit`, whatever `X` happens to be
+  called.
+* **`UiState.AxisFieldKeys` and `UiState.ButtonKeys` say what was actually built.** The theming
+  walks those rather than a fixed set, which is what lets a 2D window have two coordinate rows.
+  Both have a fallback for a Teleporter older than the lists.
+
+Adding a toolbar button or a field row is therefore one entry in the spec table inside the
+relevant `Create*` function, and nothing else anywhere.
 
 ## 9. Forms, themeable controls
 

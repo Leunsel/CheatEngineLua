@@ -1121,7 +1121,7 @@ Plus: `borderSpacing` (`{Left, Top, Right, Bottom, Around}`), `constraints`, `ro
 
 ## Manifold.UI
 
-`UI`, version 1.1.0. `logger`, `customIO` and `forms` are required, `json` is an optional
+`UI`, version 1.1.2. `logger`, `customIO` and `forms` are required, `json` is an optional
 dependency, and `teleporter` is a runtime dependency.
 
 ### Configuration
@@ -1300,7 +1300,7 @@ ui:StartTextAnimation("MANIFOLD", {
 
 ## Manifold.Teleporter
 
-`Teleporter`, version 1.3.0. `logger` and `forms` are required, and `memory` and `customIO` are
+`Teleporter`, version 1.4.1. `logger` and `forms` are required, and `memory` and `customIO` are
 optional dependencies. `ui` is a runtime dependency. The module also calls `utils` at runtime, for
 `GetTargetNoExt` and `AutoDisable`, without declaring it.
 
@@ -1313,16 +1313,31 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `Additional` | `Symbol = nil`, `Offsets = {0x00, 0x04, 0x08}`, `ValueType = vtSingle` |
 | `Symbols` | `Saved = "SavedPositionFlt"`, `Backup = "BackupPositionFlt"` |
 | `Settings` | `ValueType`, `PauseWhileTeleporting`, `AdjustYCoordinate`, `YCoordinateIndex`, `AdjustmentAmount`, `LogVerbose` |
+| `Axes` | `{ "X", "Y", "Z" }`. Names only. The count comes from `Transform.Offsets`. |
 | other | `Saves = {}`, `SaveFileName = "Teleporter.%s.Saves.txt"`, `SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"` |
+
+### Dimensions
+
+A position is as long as `Transform.Offsets`, so a 2D game configures two offsets and nothing else.
+See [the framework guide](Manifold-Framework.md#82-dimensions).
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporter:AxisCount()` | `number` | How many components a position has. Falls back to `#Axes` before a `Transform` exists. |
+| `teleporter:GetAxes()` | `table` | The axis names, in memory order. Cached against the offsets and `Axes`. Missing names fall back to `X`, `Y`, `Z`, `W`; blank or duplicate names are replaced. |
+| `teleporter:RefreshAxes()` | | Drops the cache. Only needed when `Axes` is edited in place rather than replaced. |
+| `teleporter:SaveToPosition(save)` | `table\|nil` | Reads one key per axis out of a save. `nil` when any is missing. |
+| `teleporter:PositionToSave(save, pos)` | `table` | Writes one key per axis, and removes default axis names this table no longer uses. |
+| `teleporter:ValidateConfiguration([quiet])` | `boolean, table` | Reports every configured symbol whose offset count disagrees with the axis count. A symbol with no name is skipped. |
 
 ### Memory access
 
 | Function | Returns | Description |
 |---|---|---|
 | `teleporter:ResolveAddress(str, isPointer)` | `integer\|nil` | With `isPointer` set it resolves `[str]+0` |
-| `teleporter:ReadPositionFromMemory(symbol, offsets, isPointer, valueType)` | `table\|nil` | `{x, y, z}` |
+| `teleporter:ReadPositionFromMemory(symbol, offsets, isPointer, valueType)` | `table\|nil` | One value per offset. |
 | `teleporter:WritePositionToMemory(symbol, offsets, pos, isPointer, valueType)` | `boolean` | |
-| `teleporter:CalculateSymbolOffsets()` | `table` | Three offsets derived from the size of `Settings.ValueType` |
+| `teleporter:CalculateSymbolOffsets()` | `table` | One offset per axis, sized from `Settings.ValueType`. `vtSingle` in two dimensions gives `{0, 4}`. |
 | `teleporter:SetValueType(vt)` | | Validated against the read and write tables |
 | `teleporter:GetCurrentPosition()` | `table\|nil` | |
 | `teleporter:GetSavedPosition()` | `table\|nil` | |
@@ -1330,20 +1345,20 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 
 ### Movement
 
-| Function | Returns |
-|---|---|
-| `teleporter:SaveCurrentPosition()` | `boolean` |
-| `teleporter:LoadSavedPosition()` | `boolean` |
-| `teleporter:LoadBackupPosition()` | `boolean` |
-| `teleporter:TeleportToCoordinates({x, y, z})` | `boolean` |
-| `teleporter:TeleportToWaypoint()` | `boolean` |
+| Function | Returns | Description |
+|---|---|---|
+| `teleporter:SaveCurrentPosition()` | `boolean` | |
+| `teleporter:LoadSavedPosition()` | `boolean` | |
+| `teleporter:LoadBackupPosition()` | `boolean` | |
+| `teleporter:TeleportToCoordinates(position)` | `boolean` | The position must have `AxisCount()` values. |
+| `teleporter:TeleportToWaypoint()` | `boolean` | |
 | `teleporter:TeleportToSave(keyOrName)` | `boolean` | Full key, or a display name while unambiguous |
-| `teleporter:GetAdjustedTargetPosition(pos)` | `table\|nil` |
-| `teleporter:FormatPosition(position)` | `"{x, y, z}"` to three decimals, or `"unknown"`. |
-| `teleporter:GetDistance(old, new)` | `number\|nil`, the straight line distance. |
-| `teleporter:_ReportJump(what, from, to, backupStored)` | One `InfoBlock` for a completed jump. |
-| `teleporter:LogDistanceTraveled(old, new)` | Kept for outside callers. `_ReportJump` puts the distance in the same entry as the destination. |
-| `teleporter:PauseGame()` / `ResumeGame()` | |
+| `teleporter:GetAdjustedTargetPosition(pos)` | `table\|nil` | Rejects a position that is not `AxisCount()` long, naming both counts. |
+| `teleporter:FormatPosition(position)` | `string` | Three decimals per component, however many there are. `"unknown"` for `nil` or empty. |
+| `teleporter:GetDistance(old, new)` | `number\|nil` | Straight line, summed over as many components as the shorter of the two has. |
+| `teleporter:_ReportJump(what, from, to, backupStored)` | | One `InfoBlock` for a completed jump. |
+| `teleporter:LogDistanceTraveled(old, new)` | | Kept for outside callers. `_ReportJump` puts the distance in the same entry as the destination. |
+| `teleporter:PauseGame()` / `ResumeGame()` | | |
 
 ### Categories
 
@@ -1410,6 +1425,8 @@ categories.
 | `teleporter:ClearEditor()` | |
 | `teleporter:LoadSaveIntoEditor(keyOrName)` | |
 | `teleporter:GetSelectedSaveName()` / `SetSelectedSaveName(key)` | Holds the save key, not the display name |
+| `teleporter:GetAxisEdits()` | The editor's coordinate boxes, in axis order. Skips any that were not built. |
+| `teleporter:_CommitSaveChange(key, status)` | Persists, reselects, refreshes and reloads the editor. The shared tail of add, update, rename, duplicate and delete. `key = nil` clears the editor, which is the delete case. |
 | `teleporter:TryGetEditorPosition()` | Reads X, Y and Z from the editor fields |
 | `teleporter:GetSaveKeyFromTreeNode(node)` | Walks back up to the author node to rebuild the key |
 | `teleporter:GetSaveNameFromTreeNode(node)` | Deprecated alias for `GetSaveKeyFromTreeNode` |

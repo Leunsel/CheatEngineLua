@@ -20,7 +20,7 @@ every public function is listed in
 - Persistent, process-aware state management
 - Fully themeable UI with JSON theme files
 - Abstraction for file I/O with safe directory management
-- Trainer-friendly Teleporter system for 3D games
+- Trainer-friendly Teleporter system, 2D and 3D
 
 ## Data Directory Structure
 
@@ -131,7 +131,7 @@ These modules provide the primary functionality for runtime operations.
 - `Manifold.AssemblerCommands` → Registers the Manifold Auto Assembler commands, among them
   `ManifoldScanModule`, `ManifoldAssert`, `ManifoldPatch`, `ManifoldNop`,
   `ManifoldInstallDetour`, `ManifoldEmitOriginal` and `ManifoldResolveStatic`
-- `Manifold.Teleporter` → Save and restore 3D positions
+- `Manifold.Teleporter` → Save and restore positions, in as many dimensions as the game has
 
 ### UI and Themes
 
