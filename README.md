@@ -33,7 +33,7 @@ The documentation for all of them lives in [`docs/`](docs/README.md).
 
 Thanks to the following people and resources.
 
-LeFiXER, for invaluable guidance and extensive support throughout the development of this
+[LeFiXER](https://ko-fi.com/lefixer_), for invaluable guidance and extensive support throughout the development of this
 project. He's also the creator of the current icon pack which is included in this repository!
 
 Jeffrey Friedl, for sharing his [`json.lua`](http://regex.info/blog/lua/json), which made my life
