@@ -1,7 +1,7 @@
 # Manifold CE Fixes
 
 `Manifold-CE-Fixes.lua` is an autorun script that carries workarounds for defects in Cheat
-Engine itself that upstream has not fixed. Once installed it is loaded automatically every time
+Engine itself that upstream has not fixed. (That bug is confirmed to be fixed in Cheat Engine 7.7!) Once installed it is loaded automatically every time
 Cheat Engine starts.
 
 ## Highlights
