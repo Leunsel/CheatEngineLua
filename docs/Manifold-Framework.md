@@ -584,9 +584,6 @@ Not part of a normal table setup. They are loaded manually during development.
 
 | Module | Version | Purpose |
 |---|---|---|
-| Manifold.AssemblerLinter | 1.0.0 | Five-phase AA script linter (lex → shape → directives → symbols → gate) |
-| Manifold.Patcher | 1.1.0 | Snapshot, fingerprint and remote-patch system. Discontinued, see TODO T3 |
-| Manifold.RTTI | - | MSVC RTTI scanner: classes, COLs, vtables, instances |
 | Manifold.Json (working copy) | 1.0.1 | Development copy of the shipped module |
 | Manifold.Json.Old | 20161109.21 | The vendored Jeffrey Friedl implementation the rewrite replaced, CC-BY |
 
