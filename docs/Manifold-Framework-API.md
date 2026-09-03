@@ -42,7 +42,7 @@ Conventions used here:
 - [Manifold.Forms](#manifoldforms)
 - [Manifold.UI](#manifoldui)
 - [Manifold.Teleporter](#manifoldteleporter)
-- [Developer modules](#developer-modules)
+- [Manifold.Testing](#manifoldtesting)
 
 ## Manifold.Bootstrap
 
@@ -1433,71 +1433,7 @@ categories.
 | `teleporter:OnThemeApplied(themeData)` | Reaction to a theme change |
 | `teleporter:CreateMenuStrip/Header/StatusBar/TreePanel/EditorPanel/TreeContextMenu(...)` | UI construction |
 
-## Developer modules
-
-The directory `Manifold-Modules/Manifold.Modules/Manifold.Dev/` is not part of a normal table
-setup and is listed in `.gitignore`, so these files are not published to GitHub. The reference
-below documents the local working copy. The directory also holds a second copy of
-`Manifold.Json.lua` and the retired `Manifold.Json.Old.lua`. `CETrequire("Manifold.Json")`
-resolves the flat one, not the copy in here.
-
-### Manifold.AssemblerLinter
-
-| Function | Description |
-|---|---|
-| `AssemblerLinter:New()` | |
-| `linter:Lint(rawText)` | Runs all five phases and returns a report. |
-| `linter:PrintReport(report)` | |
-| `linter:Use(plugin)` | A plugin is a function, or a table with `Apply` or `Register`. |
-| `linter:RegisterDirective(name, spec)` | |
-| `linter:RegisterDirectiveAlias(alias, target)` | |
-| `linter:RegisterArgType(typeName, fn)` | |
-| `linter:Phase1_Lex(...)` through `Phase5_Gate(...)` | Callable individually. |
-
-Configuration: `UnknownDirectiveAsWarning`, `RequireEnableDisableBlocks`, `BlockOnErrors` and
-`WarnOnGlobalStarOps`.
-
-### Manifold.Patcher
-
-| Function | Description |
-|---|---|
-| `Patcher:New(version)` | |
-| `patcher:Start(url)` | Computes the fingerprint and calls `CheckAndApply`. |
-| `patcher:CheckAndApply(url [, bypass])` | Server exchange, user confirmation, application and rollback. |
-| `patcher:RequestPatches(url)` | `internet.postURL` with `{version, fingerprint}`. |
-| `patcher:ApplyPatch(patch)` / `NormalizePatch(patch)` | |
-| `patcher:RevertPatches()` | |
-| `patcher:ResolveTarget(patch)` | Finds the target record. |
-| `patcher:PatchScript(target, value)` | Replaces script text. `DefaultScriptReplaceMode` is `"plain"`, and a patch may ask for `"pattern"`. |
-| `patcher:CoerceAndSet(target, path, kind, value)` | Type conversion on assignment. |
-| `patcher:TakeTableSnapshot(name [, opts])` / `GeneratePatchFromSnapshot(name, meta)` | Patch authoring |
-| `patcher:CreateSnapshot(target, path)` / `ClearSnapshots()` | |
-| `patcher:SerializeRecord(record)` / `BuildTableFingerprint()` / `GenerateTableHash()` | |
-| `patcher:LoadConfig()` / `SaveConfig()` / `ApplyConfig(cfg)` / `GetConfigFilePath()` | `Manifold.Patcher.Config.json` |
-| `patcher:TogglePatcher()` / `ToggleStrictTargetResolution()` | |
-
-### Manifold.RTTI
-
-| Function | Description |
-|---|---|
-| `RTTI:Init(opts)` | Options listed below. |
-| `RTTI:DiscoverClasses(s, fl)` | Searches for `.?AV` class names. |
-| `RTTI:ResolveVtablesForClass(s, fl, picked)` | |
-| `RTTI:ScanInstancesForVtables(s, fl, vtables, picked)` | |
-| `RTTI:GetClasses()` / `PrintClasses([moduleFilter])` | |
-| `RTTI:FindClasses(query [, usePattern, maxPrint])` | |
-| `RTTI:GetInstancesByName(className)` | |
-| `RTTI:GetInstancesByAnyName(query [, usePattern])` | |
-| `RTTI:DumpInstances(instances [, maxDump])` | |
-| `RTTI:PrintInstancesForModule(moduleName [, maxClassesToScan])` | |
-| `RTTI:ClearCache()` | |
-
-Options for `Init`: `protection` (default `"*W*X*C"`), `alignment`, `scanAllMin`, `scanAllMax`,
-`useDropdown`, `defaultClass`, `moduleFilter`, `cacheEnabled`, `yieldEvery`, `instanceScanMode`
-(`"all" | "heap" | "private" | "writable"`), `instanceRangeMin`, `instanceRangeMax`,
-`maxClasses`, `maxCOLs`, `maxVtables` and `maxInstances`, where `0` means unlimited.
-
-### Manifold.Testing
+## Manifold.Testing
 
 `Manifold-Modules/Manifold.Modules/Manifold.Testing/Manifold.UnitTest.lua` is a test runner rather
 than a module, so it exposes no API. It loads each module named in its own `MODULE_SPECS` table,
