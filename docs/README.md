@@ -1,17 +1,22 @@
 # Manifold Documentation
 
-Documentation for the five segments of the
+Documentation for the six segments of the
 [`Leunsel/CheatEngineLua`](https://github.com/Leunsel/CheatEngineLua) repository.
 
 | Segment | Directory | Runs where | Purpose |
 |---|---|---|---|
+| Manifold CE Fixes | `Manifold-CE-Fixes/` | Cheat Engine `autorun` | Workarounds for defects in Cheat Engine itself |
 | Manifold CE Utility | `Manifold-CE-Utility/` | Cheat Engine `autorun` | Quality of life menu for the Cheat Engine UI itself |
 | Manifold Framework | `Manifold-Modules/` | Inside a Cheat Table (`luaFiles` or table files) | Modular runtime library for Cheat Tables |
 | Manifold Logger | `Manifold-Logger/` | Cheat Engine `autorun` | Canvas-drawn log console any script can side-load |
+| Manifold SigMaker | `Manifold-SigMaker/` | Cheat Engine `autorun` | Array-of-bytes signature for the selected instruction |
 | Manifold Table Files | `Manifold-TableFiles/` | Cheat Engine `autorun` | Editable window over the files attached to a Cheat Table |
 | Manifold Template Loader | `Manifold-TemplateLoader/` | Cheat Engine `autorun` | Template engine for Auto Assembler scripts |
 
 ## Entry points
+
+[Manifold CE Fixes](Manifold-CE-Fixes.md) covers installation and, per fix, the symptom, the
+cause in Cheat Engine's source, what the workaround changes and how to verify it.
 
 [Manifold CE Utility](Manifold-CE-Utility.md) covers installation, the menu reference and
 configuration.
@@ -24,6 +29,9 @@ for every module.
 
 [Manifold Logger](Manifold-Logger.md) covers the record model, channels, the canvas console, the
 bridges onto other producers and the log file.
+
+[Manifold SigMaker](Manifold-SigMaker.md) covers installation, the menu entry, how a signature is
+built by probing the disassembler, the masking policy and the output parts.
 
 [Manifold Table Files](Manifold-TableFiles.md) covers installation, the window, and the design
 framework instance it carries.
@@ -42,7 +50,11 @@ between them. They only share naming conventions and, in part, the data director
 Cheat Engine starts
 │
 ├─ autorun/Manifold-CE-Utility.lua            Segment 1, the "[— Manifold —]" menu
-│    └─ hooks into MainForm.Menu
+│    ├─ publishes ManifoldCEUtility, adds the entry to MainForm.Menu
+│    └─ logs through ManifoldLogger when present, print otherwise
+│
+├─ autorun/Manifold-CE-Fixes.lua              Segment 6, workarounds for Cheat Engine defects
+│    └─ wraps tvStructureView.OnMouseDown in every Structure Dissect window
 │
 ├─ autorun/Manifold-TableFiles.lua            Segment 4, the Table Files window
 │    └─ publishes ManifoldTableFiles, registers no menu of its own
@@ -81,8 +93,14 @@ render a comment block naming what is missing.
 The CE Utility has no runtime coupling to the Framework. It only references it in source comments
 as a reference implementation.
 
-The CE Utility contributes the menu entry that opens Table Files and delegates to the global
-`ManifoldTableFiles`, logging where to install it when that global is absent. Neither segment
+The CE Fixes script touches no other segment. It registers one form notification, wraps one
+event handler per Structure Dissect window, and logs through `print` only.
+
+The CE Utility contributes the menu entries that open Table Files and the Logger console,
+delegating to the globals `ManifoldTableFiles` and `ManifoldLogger` and logging where to install
+them when a global is absent. Its own lines go
+through `ManifoldLogger:Channel("CE Utility")` when the Logger is installed and to `print`
+otherwise, resolved on every call so a rebuilt Logger is picked up. Neither segment
 requires the other. Table Files reads `forms.ActiveDesignTheme` when a Cheat Table has a live
 `Manifold.Forms`, so it follows the table's theme, but it never loads that module: it carries its
 own copy of the design framework, exactly as the Template Loader does.
