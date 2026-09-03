@@ -314,7 +314,7 @@ gameVersion = appVersion or helper:GetFileVersionStr() or "GameVersion",
 
 🟠 cross-segment:
 [`Manifold.State.lua:471–485`](../Manifold-Modules/Manifold.Modules/Manifold.State.lua) ×
-[`Manifold-CE-Utility.lua:687`](../Manifold-CE-Utility/Manifold-CE-Utility.lua)
+[`Manifold-CE-Utility-Records.lua`](../Manifold-CE-Utility/Manifold-CE-Utility-Modules/Manifold-CE-Utility-Records.lua)
 
 `State:RestoreState` matches saved entries purely by `mr.ID`:
 
@@ -345,7 +345,8 @@ if not rec then rec = descriptionLookup[mr.Description] end
 2. Write a `SchemaVersion` and a table identifier, for example `utils.Version`, into the state file
    so incompatible files are detected rather than misinterpreted.
 3. In the CE Utility, extend the "Normalize Cheat Table IDs" confirmation dialog with a note that
-   saved states will become invalid.
+   saved states will become invalid. ✅ Done in CE Utility 2.0.0: the dialog names Manifold state files,
+   `getMemoryRecordByID` users and ID-bound hotkeys.
 
 ## T11. Every memory access emits an info log line
 
@@ -541,11 +542,12 @@ caller.
 `Manifold.ProcessHandler.lua:198`, where the value is numeric and therefore harmless. Both also
 flash up a console window.
 
-Fix. Use `ShellExecute` consistently. Cheat Engine provides it and the CE Utility already uses it
-in `Manifold-CE-Utility.lua:468`:
+Fix. Use `shellExecute` consistently. Cheat Engine provides it and the CE Utility wraps it in
+`Manifold-CE-Utility-CE.lua` as `CE:Shell`, documented spelling first, the capitalised one as a
+fallback:
 
 ```lua
-local ok, err = pcall(ShellExecute, dir)
+local ok, err = ce:Shell(dir)
 ```
 
 ## T17. `_markProcessChangedAndThrow` does not throw
@@ -757,7 +759,7 @@ installGuard("OnValueChange",       "DisableValueChange",       "Value change")
 | Location | Claim | Reality |
 |---|---|---|
 | [`Manifold-Modules/README.md:44`](../Manifold-Modules/README.md) | `Manifold.CustomIO.GetDataDir()` | ✅ Fixed in the README rewrite. The name no longer appears anywhere in the file, which now points at `CustomIO:EnsureDataDirectory()` and the field `customIO.DataDir` |
-| [`Manifold-CE-Utility/README.md:38`](../Manifold-CE-Utility/README.md) | "Open the Manifold submenu and then Settings" | The entry is called "Session Settings" |
+| [`Manifold-CE-Utility/README.md`](../Manifold-CE-Utility/README.md) | "Open the Manifold submenu and then Settings" | ✅ Fixed in CE Utility 2.0.0. The entry is "Settings", and the three values it holds now persist |
 | [`Manifold.Utils.lua:3`](../Manifold-Modules/Manifold.Modules/Manifold.Utils.lua) | `VERSION = "1.0.3"` while the changelog below already documented `v1.0.5` | ✅ Fixed in Utils 1.1.0. `VERSION` and the top changelog entry both read 1.1.0 |
 | [`Manifold.AutoAssembler.lua:215–221`](../Manifold-Modules/Manifold.Modules/Manifold.AutoAssembler.lua) | `@return nil` and "aborts execution ... throws an error" | Does not throw, see [T17](#t17-_markprocesschangedandthrow-does-not-throw) |
 
