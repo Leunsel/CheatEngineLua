@@ -1,315 +1,379 @@
 # Manifold CE Utility
 
 > File: [`Manifold-CE-Utility/Manifold-CE-Utility.lua`](../Manifold-CE-Utility/Manifold-CE-Utility.lua)
-> Version: 1.1.0 · License: MIT · Authors: Leunsel, LeFiXER
+> Version: 2.0.0 · License: MIT · Authors: Leunsel, LeFiXER
 
-A single autorun script with no dependencies. It extends the Cheat Engine user interface itself
-with a menu of frequently used actions. It has nothing to do with the Manifold Framework or the
-Template Loader and works on its own.
+An autorun segment that extends the Cheat Engine user interface itself with a menu of
+frequently used actions. It has no dependency on the Manifold Framework and works on its own.
+Two optional couplings: it logs through [Manifold Logger](Manifold-Logger.md) when that is
+installed, and it contributes the menu entries that open [Manifold Table Files](Manifold-TableFiles.md)
+and the Logger's console.
+
+Version 2.0.0 is a rewrite. The 1.x file was one flat script; 2.0.0 is an entry file plus a
+`-Modules` folder of `:New()` classes with dependency injection, the same shape as the Logger and
+Table Files segments. The reasons are in section 8.
 
 ## 1. Installation
 
-1. Download `Manifold-CE-Utility.lua`.
-2. Drop it into Cheat Engine's `autorun` folder, typically:
+Place `Manifold-CE-Utility.lua` **and** the `Manifold-CE-Utility-Modules` folder next to each
+other in Cheat Engine's `autorun` folder, typically:
 
 ```
 C:\Program Files\Cheat Engine 7.5\autorun
 ```
 
-Portable builds keep that folder somewhere else. You can find the correct path from the Cheat
-Engine Lua console:
+Portable builds keep that folder somewhere else. The Lua console tells you where:
 
 ```lua
 return getAutorunPath()
 ```
 
-The script runs automatically on the next Cheat Engine start. Its entry point is the `Main()`
-call at the end of the file.
+The layout:
+
+```
+autorun/
+  Manifold-CE-Utility.lua
+  Manifold-CE-Utility-Modules/
+    Manifold-CE-Utility-CE.lua
+    Manifold-CE-Utility-Host.lua
+    Manifold-CE-Utility-Icons.lua
+    Manifold-CE-Utility-Log.lua
+    Manifold-CE-Utility-Menu.lua
+    Manifold-CE-Utility-Records.lua
+    Manifold-CE-Utility-Settings.lua
+    Manifold-CE-Utility-Shell.lua
+    Manifold-CE-Utility-Structures.lua
+    Manifold-CE-Utility-Version.lua
+    Manifold-Icons/            fourteen 16x16 PNGs
+```
+
+The script runs on the next Cheat Engine start and publishes `ManifoldCEUtility`.
 
 ### Re-running it at runtime
 
-The script is reload-safe. It stores its runtime handles, the menu item and the caption timer,
-under the global key `__MANIFOLD_CE_UTILITY_RUNTIME__` in `_G`. When the file is executed again
-from the Lua engine, `DisposePreviousInstance()` tears the previous timer and menu item down
-before rebuilding. The timer is disposed first, because its callback still holds a reference to
-the old menu item. Without that step every reload would stack another menu entry and another
-caption timer.
+Executing the entry file again from the Lua Engine rebuilds everything from fresh module code.
+The previous generation is taken down first: its menu and caption timer through `Uninstall`, its
+image list explicitly, because `Icons` keeps that list in a module-local upvalue and dropping the
+module from `package.loaded` would otherwise orphan a live `TImageList`. Nothing accumulates; the
+startup line reads `re-executed` instead of `ready`.
 
-## 2. Menu structure
+A live 1.x instance is taken down the same way. 1.x kept its root item and caption timer,
+untagged, in `_G.__MANIFOLD_CE_UTILITY_RUNTIME__`; both are destroyed before 2.0 builds, so
+2.0 can be executed over a running 1.x without restarting Cheat Engine. Its image list is left
+alone: 1.x borrowed Cheat Engine's own.
 
-After startup an entry `[— Manifold —]` appears in Cheat Engine's main menu bar.
+Two lighter operations exist without re-executing the file:
+
+```lua
+ManifoldCEUtility:Reinstall()   -- rebuilds the menu, keeps the modules
+ManifoldCEUtility:Shutdown()    -- removes the menu, releases the globals
+```
+
+## 2. The menu
+
+The entry `[— Manifold —]` appears in the main menu bar.
 
 | Entry | Shortcut | Effect |
 |---|---|---|
-| Open Lua Engine | `Ctrl+L` | Shows the Lua engine window |
-| Open Memory Viewer | | Shows the memory viewer |
+| Open Lua Engine | `Ctrl+L` | Shows the Lua Engine window |
+| Open Memory Viewer | | Shows the Memory Viewer |
 | *(separator)* | | |
 | Open Structure Dissect | | `createStructureForm(nil, nil, nil)` |
-| Generate Structure Records | | Builds memory records from a selected structure |
-| Remove All Structures | | Removes all global structures, destructive |
-| Open Table File Viewer | | Opens [Manifold Table Files](Manifold-TableFiles.md), if installed |
+| Generate Structure Records | | Section 3 |
+| Remove All Structures | | Removes every global structure, destructive |
+| Open Table File Viewer | | `ManifoldTableFiles:Open()`, with an install hint when absent |
+| Open Log Console | | `ManifoldLogger:Open()`, with an install hint when absent |
 | *(separator)* | | |
-| Deactivate All Scripts | `Ctrl+D` | Deactivates all active `vtAutoAssembler` entries, destructive |
-| Deactivate Everything | `Ctrl+F` | Deactivates every active address list entry, destructive |
-| Normalize Cheat Table IDs | | Reassigns IDs 1..N, transactionally, destructive |
+| Deactivate All Scripts | `Ctrl+D` | `Active = false` on every active `vtAutoAssembler` record, destructive |
+| Deactivate Everything | `Ctrl+F` | `Active = false` on every active record, destructive |
+| Normalize Cheat Table IDs | | Renumbers 1..N in tree order, transactionally, destructive |
 | *(separator)* | | |
-| Toggle Compact Mode | `Ctrl+Shift+F` | Hides and shows `Panel5` and `Splitter1` |
+| Toggle Compact Mode | `Ctrl+Shift+F` | Hides and shows `Panel5` and `Splitter1` on the main form |
 | *(separator)* | | |
 | Open Autorun Folder | | Explorer in the `autorun` directory |
 | Open Process Folder | | Explorer in the attached process's directory |
 | *(separator)* | | |
-| Session Settings | | Submenu, see below |
+| Settings | | Submenu, below |
+| About | | Version and status, section 7 |
 
-The four entries marked as destructive ask for confirmation before they run, as long as
-`Config.ConfirmDestructiveActions` is left at its default.
+The four destructive entries ask for confirmation and name the number of entries they touch, as
+long as "Confirm Destructive Actions" is on. A missing dialog API blocks the action rather than
+letting it run unprompted.
 
-### "Session Settings" submenu
+### The Settings submenu
 
 | Entry | Effect |
 |---|---|
-| Animate Caption (check mark) | Toggles the rotating menu caption |
-| Animation Speed, with Slow (600 ms), Normal (350 ms) and Fast (200 ms) | Timer interval |
-| Confirm Destructive Actions (check mark) | Toggles the confirmation dialogs |
+| Animate Caption (check mark) | Rotates the menu caption |
+| Animation Speed › Slow (600 ms), Normal (350 ms), Fast (200 ms) | Timer interval |
+| Confirm Destructive Actions (check mark) | The confirmation dialogs |
+| Include Unnamed Elements (check mark) | Off, Generate Structure Records creates a record only for the elements labelled in Structure Dissect. On, for every element. Section 3.3 |
 | *(separator)* | |
 | Reset Caption Animation | Rebuilds the timer and resets the caption |
 
-`RefreshSettingsMenu()` re-applies the check marks after every change. The three speed entries
-are checked by comparing `Config.AnimationInterval` against 600, 350 and 200 exactly, so a
-custom interval leaves all three unchecked.
+These three settings persist between Cheat Engine sessions, section 5.
 
-These settings apply to the current Cheat Engine session only. There is no persistence. For a
-permanent change, edit the `Config` table at the top of the file.
+## 3. Generate Structure Records
 
-> Note: the segment's own `README.md` calls this menu "Manifold > Settings". In the code the
-> entry is named "Session Settings".
+The flow:
 
-## 3. Configuration
+1. A selection list of every global structure. Unnamed structures are offered as
+   `(unnamed structure #n)` rather than dropped, and the choice maps back through an index table,
+   so an unnamed structure in the middle of the list no longer shifts every later choice by one.
+2. An input dialog for the base address. When a Structure Dissect window for that structure is
+   open, its first column's address is what the dialog offers; otherwise `+0`. Any interpretable
+   address string works: a number, a symbol, a pointer path.
+3. The plan: plain tables describing every record, section 3.2. Unlabelled
+   elements are pruned out of it unless "Include Unnamed Elements" is on,
+   section 3.3.
+4. The records are created on the main thread, the root is selected, the main form repainted,
+   and a summary block is logged.
 
-The `Config` table sits at the top of the file, starting at line 38:
+### 3.1 What is generated
 
-```lua
-local Config = {
-    FontName = "Consolas",       -- currently unused
-    FontSize = 9,                -- currently unused
-    MenuCaption       = "Manifold",
-    Prefix            = "[— ",
-    Suffix            = " —]",
-    AnimatedCaption   = false,
-    AnimationInterval = 350,
-    ConfirmDestructiveActions = true,
-    Indices = { ... }            -- populated at runtime
-}
+```
+Player                               address group header, Address = <base>
+├─ [0000] — health                   +0        4 Bytes
+├─ [0004] — stamina                  +4        Float
+├─ [0008] — name                     +8        String, Size 16
+├─ [0018] — flags                    +18       4 Bytes, hexadecimal
+└─ [0020] — inventory -> Inventory   +20       header, OffsetCount 1, Offset[0] 0
+   ├─ [0000] — count                 +0        (element offset minus ChildStructStart)
+   └─ [0008] — items                 +8
 ```
 
-Other relevant constants:
+A child's `+offset` is relative to its parent's resolved address, which is how Cheat Engine's
+own relative addresses work. That is also why `+0` is a usable root address: the whole block can
+be dropped under any pointer record afterwards.
 
-| Constant | Value | Meaning |
-|---|---|---|
-| `MIN_ANIMATION_INTERVAL` | `100` | Lower bound enforced by `NormalizeAnimationInterval` |
-| `MAX_ANIMATION_INTERVAL` | `2000` | Upper bound |
-| `RUNTIME_STATE_KEY` | `"__MANIFOLD_CE_UTILITY_RUNTIME__"` | Reload key in `_G` |
-| `NORMALIZE_TMP_BASE` | `1000000000` | Start of the temporary ID range used by the normalizer |
-| `HEADER_COLOR` | `0xD2FF00` | Colour of the structure root record |
-| `ADDRESS_COLOR` | `0xADAD5A` | Colour of structure child records |
-| `ENABLE_FORMAT` | `false` | Enables `FormatDisplayName` for field names |
+A pointer element with a `ChildStruct` becomes an address group header with one offset of `0`,
+so its children resolve against the structure it points to. A child structure entered at
+`ChildStructStart` gets its element offsets shifted by that amount; an element below the entry
+point comes out as a negative relative address such as `-8`.
 
-`Config.Indices` is filled by `GetImageListAndIndices()`. It copies bitmaps off existing Cheat
-Engine menu items, five from the memory view form and two from the main form, adds them to the
-main form's image list and stores the resulting indices. Missing bitmaps are skipped silently,
-because `tryAdd` wraps every `add` in `pcall`. The menu then works without those icons.
+### 3.2 Type mapping
 
-## 4. Internal structure
-
-The file is a flat script built from local functions. There are no classes and no `:New()`
-instances like in the framework.
-
-### 4.1 Logging
-
-Only failures are logged:
-
-```lua
-FailLog(tag, msg)  --> "[HH:MM:SS] [FAIL] [tag] msg"
-```
-
-Success messages go straight to `print` as `[OK] ...` or `[INFO] ...`.
-
-### 4.2 Thread safety
-
-```lua
-RunInMainThread(func)
-```
-
-It checks `inMainThread()` and either calls `func` directly or hands it to `synchronize(func)`.
-If `inMainThread` is unavailable or the call to it fails, the function assumes it is already on
-the main thread. Everything is wrapped in `pcall` and errors end up in `FailLog`. It returns
-`true` on success and `false` on failure, including the case where the argument is not a
-function.
-
-### 4.3 UI references
-
-`RefreshUiReferences()` resolves the main form, the main menu, the memory view form and the Lua
-engine. Callers invoke it again before they touch any of those, so a form that only appears
-later is still picked up.
-
-| Variable | Source |
+| Element `Vartype` | Record |
 |---|---|
-| `mf` | `getMainForm()` |
-| `mainMenu` | `mf.Menu` |
-| `mv` | `getMemoryViewForm()` |
-| `le` | `getLuaEngine()` |
+| Byte, 2 Bytes, 4 Bytes, 8 Bytes, Float, Double | The same type |
+| `vtString` | `vtString`, `String.Size = Bytesize` |
+| `vtWideString` / `vtUnicodeString` | `vtString`, `String.Unicode = true`, `String.Size = Bytesize / 2` |
+| `vtByteArray` | `vtByteArray`, `Aob.Size = Bytesize` |
+| `vtBinary` | `vtBinary`, `Binary.Startbit = 0`, `Binary.Size = min(Bytesize * 8, 32)` |
+| `vtPointer` with `ChildStruct` | Address group header with `Offset[0] = 0` and the child's elements underneath |
+| `vtPointer` with `ChildStruct` and `NestedStructure` | Address group header without offsets: the child is laid out inline at the element's offset and its elements are relative to it |
+| `vtPointer` without | `vtQword` on a 64-bit target, `vtDword` on 32-bit, shown as hex |
+| `vtCustom` with a `CustomType` whose `name` is set | `vtCustom` with that name |
+| `vtCustom` without | `vtByteArray` of `Bytesize`, counted as "kept as bytes" |
+| anything else | `vtByteArray` of `Bytesize` |
 
-Two more handles live outside that function. `il` is resolved on first use by
-`safeGetImageList()`, which tries `mf.ImageList` and then `mf.mfImageList` and caches whichever
-one it finds. `al` is set by `GetAddressListOrLog(tag)` from `getAddressList()` at the start of
-every address list operation.
+`DisplayMethod` `dtHexadecimal` sets `ShowAsHex`, `dtSignedInteger` sets `ShowAsSigned`.
 
-Every access is wrapped in `pcall`. A missing API produces a `FailLog` entry instead of a crash.
+### 3.3 Only labelled elements
 
-### 4.4 Confirmations
+Structure Dissect creates an element for every offset it walks. A structure of a few thousand
+bytes therefore carries a few thousand elements, and on an auto-created one almost none of them
+have a name. Generating a record for each buried the address list, so by default only the
+elements you actually labelled in the dissect window become records.
 
-```lua
-ConfirmDestructiveAction(action, affectedCount) --> boolean
+Measured against real tables in this repository's author's collection:
+
+| Structure | Elements | Records, all | Records, labelled only |
+|---|---|---|---|
+| `SettingsDI`, Dying Light 2 | 3656 | 3657 | 13 |
+| `Health`, Rift Apart | 1765 | 1766 | 5 |
+| `DamagePacket`, Rift Apart | 3348 | 3349 | 266 |
+| `CH_P_EVE_01_Blueprint_C`, Stellar Blade | 130 | 131 | 113 |
+
+The last row is the point of the rule working in both directions: a structure filled from a
+Unreal Engine dump is labelled throughout, and almost nothing is dropped.
+
+An unlabelled element is kept when something labelled hangs under it, so naming a field inside
+an unlabelled pointer never loses it. Such a container keeps its type-derived description,
+`[0008] — Pointer -> Inner`, and is counted separately in the summary.
+
+When a structure has no labelled elements at all, nothing is created and the report says how
+many elements were skipped and where the switch is. Turn on **Settings › Include Unnamed
+Elements** to get a record per element; unlabelled ones are then described by their type,
+`[0050] — Byte`.
+
+### 3.4 Depth and cycles
+
+Nesting stops at `Structures.MaxDepth` levels below the root (default 4) and at a cycle, a
+structure that is already on the path being expanded. In both cases the pointer becomes a plain
+hex value whose description names the target and the reason: `-> Inventory (depth limit)` or
+`-> Player (cycle)`. An inline nested structure that hits a limit stays a header with nothing
+under it, marked `(inline, depth limit)` or `(inline, cycle)`, since a pointer-sized value would
+misdescribe inline bytes.
+
+### 3.5 The summary
+
+```
+Structure records generated
+  Structure           : Player
+  Base                : game.exe+10
+  Records             : 13
+  Pointers            : 3
+  Nested structures   : 1
+  Unlabelled, skipped : 1
+  Not expanded        : 1 (depth limit or cycle)
 ```
 
-- With `Config.ConfirmDestructiveActions == false` it returns `true` immediately.
-- If the dialog API is missing (`messageDialog`, `mtConfirmation`, `mbYes`, `mbNo`, `mrYes`),
-  the action is blocked and the function returns `false` rather than letting it run unprompted.
-  That is a deliberately conservative choice.
-- The dialog names the number of affected entries whenever the caller passes one, which all
-  four callers do.
+Rows that would read zero are left out. A failure mid-way reports how many of the planned
+records were created and what stopped it; the records made so far stay in the table.
 
-## 5. Function reference
+## 4. The other actions
 
-All functions are `local` and there is no public API. This reference exists for readers who want
-to modify the script.
+**Remove All Structures** walks `getStructureCount()` backwards calling
+`removeFromGlobalStructureList()` on each, so an index stays valid after the one above it is gone.
 
-### 5.1 Structure tools
+**Deactivate All Scripts** and **Deactivate Everything** collect every record, children
+included, and set `Active = false` backwards, children before parents. That runs each record's
+`[DISABLE]` section; it is the button for bringing a table to a known state with its hooks
+removed. The framework's `ProcessHandler` uses `disableAllWithoutExecute()` for the opposite
+case, a process that is already gone. A record that refuses is counted and reported; the rest are
+still deactivated.
 
-| Function | Description |
+**Normalize Cheat Table IDs** assigns 1..N in tree order in three phases: read every ID (an
+unreadable one aborts before anything changes), move every record into a temporary range no
+current ID occupies, then write 1..N. Cheat Engine keeps IDs unique, which is why the temporary
+range exists: writing 1..N straight over the originals would collide with any original that is a
+small number. A failure in either phase puts back exactly the records that changed, parking the
+ones already holding a final ID in the temporary range first for the same reason. The confirmation
+dialog says what stops matching afterwards: Manifold state files, table Lua using
+`getMemoryRecordByID`, hotkeys and scripts given an ID.
+
+**Toggle Compact Mode** flips `Visible` on `Panel5` and `Splitter1`, the same two controls the
+framework's `Manifold.UI:EnableCompactMode` touches.
+
+**Open Process Folder** takes `enumModules()[1].PathToFile` and opens its directory. With no
+process attached it says so instead of opening nothing.
+
+## 5. Settings
+
+`Manifold-CE-Utility-Settings.lua` holds the defaults:
+
+```lua
+MenuCaption = "Manifold",  Prefix = "[— ",  Suffix = " —]",
+AnimatedCaption = false,  AnimationInterval = 350,          -- clamped to 100..2000
+ConfirmDestructiveActions = true,
+Persist = true,
+Shortcuts = { LuaEngine = "Ctrl+L", MemoryViewer = "", DeactivateScripts = "Ctrl+D",
+              DeactivateEverything = "Ctrl+F", CompactMode = "Ctrl+Shift+F" },
+Structures = { HeaderColor = 0xD2FF00, ElementColor = 0xADAD5A, PointerColor = 0x61CDEA,
+               MaxDepth = 4, IncludeUnnamed = false, OffsetInDescription = true, DefaultBase = "+0" }
+```
+
+Override any of them where the host is built in the entry file. Nested tables merge, so one
+shortcut can be changed without restating the others:
+
+```lua
+local host = Host:New({
+    Settings = { MenuCaption = "Tools", Shortcuts = { LuaEngine = "Ctrl+Shift+L" } }
+})
+```
+
+### 5.1 Persistence
+
+`AnimatedCaption`, `AnimationInterval`, `ConfirmDestructiveActions` and
+`Structures.IncludeUnnamed` are written through `getSettings("Manifold CE Utility")` whenever the
+menu changes them and read back on the next start. A dotted key reaches into a nested table and
+is stored under that name, dot included. Values are stored as strings (`"1"` / `"0"` for booleans) and decoded against the type of
+the default, so a damaged registry value falls back to the default instead of turning a boolean
+into a string. Cheat Engine answers an empty string, never nil, for a value that was never
+written; that is treated as absent, so a fresh install keeps every default. `Persist = false`
+keeps everything for the session only, which is what 1.x did.
+
+## 6. Logging
+
+Lines go to the Manifold Logger channel `CE Utility` when `ManifoldLogger` exists, and to a
+timestamped `print` otherwise:
+
+```
+[19:47:50] [INFO] [CE Utility] Compact mode on.
+```
+
+The channel is resolved on every call and re-resolved when the Logger host is rebuilt, so a
+`ManifoldLogger:Shutdown()` followed by a re-execution of the Logger never leaves this segment
+writing into a buffer no window shows. Multi-row reports use the Logger's `Block` renderer when
+it is there and an aligned fallback when it is not.
+
+## 7. The public object
+
+`ManifoldCEUtility` is the host. Everything the menu does is a method on it:
+
+```lua
+ManifoldCEUtility:GenerateStructureRecords()      -- returns ok, rootRecord
+ManifoldCEUtility:RemoveAllStructures()
+ManifoldCEUtility:DeactivateScripts()
+ManifoldCEUtility:DeactivateEverything()
+ManifoldCEUtility:NormalizeIDs()
+ManifoldCEUtility:ToggleCompactMode()
+ManifoldCEUtility:SetCompactMode(true)
+ManifoldCEUtility:OpenLuaEngine()                 -- also OpenMemoryViewer, OpenStructureDissect,
+                                                  -- OpenTableFiles, OpenLogConsole,
+                                                  -- OpenAutorunFolder, OpenProcessFolder
+ManifoldCEUtility:SetAnimatedCaption(true)
+ManifoldCEUtility:SetAnimationInterval(200)
+ManifoldCEUtility:SetConfirmDestructiveActions(false)
+ManifoldCEUtility:SetIncludeUnnamed(true)         -- every element, not only the labelled ones
+ManifoldCEUtility:Status()                        -- a table
+ManifoldCEUtility:About()                         -- logs the status block and shows it
+ManifoldCEUtility:Reinstall()
+ManifoldCEUtility:Shutdown()
+```
+
+`About` logs the block and makes sure it can be seen: it opens the Logger console when lines go
+there, and shows a message box otherwise.
+
+## 8. Internal structure
+
+| Module | Owns |
 |---|---|
-| `RecordFactory.Create(parent, desc, addr, vartype, color, isHeader)` | Creates a memory record. With `isHeader` it sets `isAddressGroupHeader = true`, `OffsetCount = 1` and `Offset[0] = 0`. Returns the record or `nil`. |
-| `FormatDisplayName(n)` | Cosmetic name cleanup, only active when `ENABLE_FORMAT = true`. See the note below. |
-| `SelectStructure()` | Shows `showSelectionList("Structure Selector", "Choose a Structure", list, false)` over all named global structures and returns the chosen one. |
-| `BuildStructureRecords(struct)` | Creates a root record named after `struct.Name` (`vtCustom`, `+0`, header) and one child `[OFFSET] — Name` per element at `+OFFSET`. Elements of type `vtPointer` become group headers themselves. A single `repaint` at the end. |
-| `GenerateStructure()` | `SelectStructure()` followed by `BuildStructureRecords()` |
-| `DeleteAllStructures()` | Iterates `getStructureCount()` backwards and calls `structure:removeFromGlobalStructureList()`. |
+| `-CE` | Defensive wrappers: `Call`, `Get`, `RunInMain`, `Confirm`, `Input`, `Shell`, and the form and address list accessors. Every global is looked up at call time. |
+| `-Log` | The Logger channel or the `print` fallback, and `Block`. |
+| `-Settings` | Defaults, overrides, clamping, the registry store. |
+| `-Icons` | The 16x16 set: one `TImageList` per session, attached to the root item's `SubMenuImages`. |
+| `-Structures` | `List`, `Select`, `SuggestBase`, `Plan` (plan, prune, tally), `Materialize`, `Generate`, `RemoveAll`. |
+| `-Records` | `Collect`, `Active`, `Deactivate`, `FreeRange`, `Assign`, `Restore`, `NormalizeIDs`. |
+| `-Shell` | Windows, folders, compact mode. |
+| `-Menu` | The root entry built from the host's spec, check marks, the Tag sweep, the ticker. |
+| `-Host` | Wiring, the menu spec, the settings actions, `Status`, `About`, `Shutdown`. |
+| `-Version` | The version number. |
 
-`FormatDisplayName` removes balanced `[...]` groups, collapses runs of whitespace, keeps at most
-the last two word tokens, splits CamelCase into separate words, replaces underscores with spaces
-and uppercases the first letter. The gsub that is meant to strip a leading `b_` or `m_` is
-written as `(?:[Bb]_?|m_)`, which is regular expression syntax that Lua patterns do not
-understand, so that one step never fires on a real field name.
+### Why the rewrite
 
-Example output of Generate Structure Records:
+The 1.x "Generate Structure Records" built records straight off the structure and got most of it
+wrong: the address list handle was only fetched by the deactivation actions, so on a fresh session
+the generator failed with "AddressList handle unavailable"; the selection list skipped unnamed
+structures but used the list index against `getStructure`, so one unnamed structure shifted every
+choice after it; strings and byte arrays never got their size; the root was `vtCustom` with no
+custom type name at `+0`; a pointer element became a group header with a pointer offset whether or
+not it pointed at a structure, and a child structure was never expanded; the cosmetic name
+formatter used regular-expression syntax Lua patterns do not have. And it generated a record for
+every element of the structure, which on a dissected one of a few thousand bytes meant a few
+thousand records. The menu icons were bitmaps
+borrowed off Cheat Engine's own menu items and pushed into the main form's image list on every
+execution, and which ones existed depended on which forms had been built yet.
 
-```
-PlayerStruct                 (vtCustom, +0, header, 0xD2FF00)
-├─ [0000] — health           (+0000)
-├─ [0004] — stamina          (+0004)
-└─ [0018] — pInventory       (+0018, header, because vtPointer)
-```
+2.0.0 separates planning from creation so the interesting part is testable without Cheat Engine,
+carries its own icon set, and follows the segment layout the Logger and Table Files established.
 
-### 5.2 Deactivation tools
+### Cheat Engine facts the code depends on
 
-| Function | Description |
-|---|---|
-| `CountActiveRecords(addressList, scriptsOnly)` | Counts active records. With `scriptsOnly` only `vtAutoAssembler` entries count. Feeds the number shown in the confirmation dialog. |
-| `DeactivateActiveScripts()` | Sets `Active = false` on all active AA scripts, iterating backwards. |
-| `DeactivateEverything()` | The same, without the type filter. |
-
-Both iterate the address list backwards, so that deactivating an entry does not shift the
-indices of the entries that follow. If the count comes back as zero they print an informational
-line and return without showing a dialog.
-
-> Important: both set `Active = false` and therefore trigger the records' `[DISABLE]` sections.
-> That differs from `AddressList.disableAllWithoutExecute()`, which the framework's
-> `ProcessHandler` uses when the attached process disappears.
-
-### 5.3 ID normalization
-
-`NormalizeCheatTableIDs()` assigns the IDs `1..N` to all records, recursively including
-children, in tree order. It runs transactionally in three phases:
-
-```
-1. Read all current IDs        → originalIds[]
-                                 (an invalid value aborts before anything changes)
-2. Find a collision-free temp range (FindTemporaryIdBase, base 1_000_000_000)
-   → write temporaryIds[] to every record
-3. Write finalIds[] = 1..N to every record
-```
-
-If phase 2 or 3 fails, `RestoreRecordIds()` first moves the records back into the temporary
-range and only then restores the original IDs. Otherwise a partially written target sequence
-could collide with the original IDs that have not been overwritten yet.
-
-Helpers:
-
-| Function | Description |
-|---|---|
-| `CollectRecordsRecursive(rec, out, seen)` | Depth-first walk over `rec.Child[i]` or `rec[i]`, using `rec.Count` as the child count, with cycle protection through `seen`. |
-| `GetAllAddressListRecords(addressList)` | Collects all records including children in tree order. |
-| `SetRecordId(record, id)` | Prefers `record.setID(id)`, falls back to `record.ID = id`. |
-| `FindTemporaryIdBase(originalIds, count)` | Searches from `1_000_000_000` for a block of `count` free IDs up to `2^31-2`. |
-
-### 5.4 Miscellaneous
-
-| Function | Description |
-|---|---|
-| `OpenFolder(folder, tag)` | `ShellExecute(folder)` with error logging. |
-| `OpenProcessFolder()` | Derives the folder from `enumModules()[1].PathToFile`. |
-| `OpenAutorunFolder()` | Opens whatever `getAutorunPath()` returns. |
-| `ToggleControlVisibility(name)` | Inverts `mf[name].Visible`. |
-| `ToggleCompactMode()` | Toggles `Panel5` and `Splitter1` in one main thread call. |
-
-### 5.5 Caption animation
-
-```
-StartCaptionAnimation()
- ├─ StopCaptionAnimation()          -- dispose the old timer
- ├─ SetMenuCaption(label)           -- Prefix .. label .. Suffix
- ├─ bail out if AnimatedCaption == false or #label < 2
- ├─ PrepareTicker(label)            -- tickerBuffer = " label "
- └─ createTimer → OnTimer: SetMenuCaption(RotateTicker())
-```
-
-`RotateTicker()` shifts the buffer cyclically by one character. An error inside the timer
-callback stops the animation immediately instead of logging once per tick. The interval goes
-through `NormalizeAnimationInterval` before the timer is created, so it always ends up between
-100 and 2000 milliseconds.
-
-## 6. Customization recipes
-
-Change the menu caption and enable the animation:
-
-```lua
-MenuCaption       = "Tools",
-Prefix            = "« ",
-Suffix            = " »",
-AnimatedCaption   = true,
-AnimationInterval = 250,
-```
-
-Disable confirmations permanently, which is not recommended:
-
-```lua
-ConfirmDestructiveActions = false,
-```
-
-Add your own menu entry by inserting into `CreateUtilityEntries()`:
-
-```lua
-AddSubItem("My Entry", function()
-    RunInMainThread(function()
-        print("Hello from the Manifold menu")
-    end)
-end, Config.Indices.Toggle, "Ctrl+M")
-```
-
-`AddSubItem(caption, onclick, imageIndex, shortcut)` attaches the item under the root entry and
-automatically wraps the handler in `pcall` and `FailLog`.
-
-Clean up structure field names cosmetically:
-
-```lua
-local ENABLE_FORMAT = true
-```
+* `TMenuItem` has no `ImageList` property. Children resolve `ImageIndex` against the nearest
+  ancestor's `SubMenuImages`, so the list is attached to the root item once. `SetImageIndex`
+  early-exits on an unchanged value, so `-1` is written first.
+* `createPNG(1, 1)` then `loadFromFile` is the way to load a PNG; `createBitmap` reads BMP only.
+  `imagelist.add` never returns `-1`, so success is checked by watching `Count` rise.
+* Cheat Engine hands out a fresh userdata per property access, so two handles to the same object
+  do not compare equal. Structures are matched by name, records de-duplicated by ID.
+* The address list's `Count` and `[]` index every record including children, in tree order. The
+  walk follows `Child[]` as well, with a seen-set, so it is right either way.
+* `getSettings().Value[key]` reads `""`, never nil, for a value that was never written.
+* A structure element's custom type is reachable as `element.CustomType.name`, and
+  `element.NestedStructure` marks a child structure laid out inline rather than behind a pointer.
+  Neither is in celua.txt; both are in the 7.5 sources.
+* Every menu item carries `Tag = 1297374316`. Removal sweeps the main menu for that tag rather
+  than trusting a kept reference, the pattern the Logger's `RemoveMenu` proved. The Logger and the
+  Template Loader use their own values, so the three never remove each other's entries.
