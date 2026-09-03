@@ -736,7 +736,7 @@ function UI:ApplyThemeToLuaEngineControls(luaEngine, theme)
     luaEngine.mOutput.Font.Name = "Consolas"
     luaEngine.mOutput.Font.Color = headerFontColor
     luaEngine.mOutput.BorderStyle = "bsNone"
-    luaEngine.mOutput.ScrollBars = "ssAuto"
+    luaEngine.mOutput.ScrollBars = "ssAutoBoth"
     luaEngine.mOutput.Visible = true
     luaEngine.mScript.BorderStyle = "bsNone"
     luaEngine.mScript.ScrollBars = "ssNone"
@@ -779,23 +779,30 @@ end
 --
 function UI:CreateOrUpdateLuaEngineExecutePanel(luaEngine, foundlistColor, headerFontColor, mainColor, o_LuaEngine_btnExecute_OnClick)
     if not btnExecutePanel then
-        btnExecutePanel = createPanel(luaEngine.Panel3)
-        btnExecutePanel.Name = "btnExecutePanel"
-        btnExecutePanel.Align = "alCenter"
-        btnExecutePanel.Height = 25
-        btnExecutePanel.BevelOuter = bvRaised
-        btnExecutePanel.BevelWidth = 1
-        btnExecutePanel.Color = foundlistColor
-        btnExecutePanel.Cursor = -21 -- crHandPoint
-        btnExecutePanel.Caption = "Execute"
-        btnExecutePanel.BorderSpacing.Around = 3
-        btnExecutePanel.BorderColor = 0xFF0000
-        btnExecutePanel.OnClick = function()
+        -- Built into a local and published last. Assigning the global first meant a
+        -- throw anywhere below left a half built panel cached for the session: the
+        -- guard above never fired again and the control stayed dead.
+        local panel = createPanel(luaEngine.Panel3)
+        panel.Name = "btnExecutePanel"
+        -- TAlign has no alCenter, and Height only binds under alTop/alBottom/alNone.
+        panel.Align = "alBottom"
+        panel.Height = 25
+        -- bvRaised is an RTTI enum name, not a Lua global. Cheat Engine defines the
+        -- al* constants in defines.lua but no bv*, so the bare identifier was nil.
+        panel.BevelOuter = "bvRaised"
+        panel.BevelWidth = 1
+        panel.Color = foundlistColor
+        panel.Cursor = -21 -- crHandPoint
+        panel.Caption = "Execute"
+        panel.BorderSpacing.Around = 3
+        panel.BorderColor = 0xFF0000
+        panel.OnClick = function()
             if o_LuaEngine_btnExecute_OnClick then
                 o_LuaEngine_btnExecute_OnClick(luaEngine.btnExecute)
             end
         end
         luaEngine.btnExecute.Visible = false
+        btnExecutePanel = panel
     end
     btnExecutePanel.OnMouseEnter = function()
         btnExecutePanel.Color = headerFontColor
