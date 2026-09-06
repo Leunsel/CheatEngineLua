@@ -156,6 +156,30 @@ local function safeSet(control, property, value)
     return (pcall(function() control[property] = value end))
 end
 
+--
+--- Frees a window from Cheat Engine's main form. createForm assigns every Lua
+--- form to the main CE application, which makes it an owned window: Windows
+--- keeps it above Cheat Engine forever, gives it no taskbar button of its own
+--- and minimises it whenever CE is minimised. pmNone drops that ownership,
+--- stAlways asks for the button back.
+---
+--- Two conditions. Set them while the form is still hidden, because LCL reads
+--- them when the window handle is realised. And never on a modal dialog: an
+--- unowned modal can fall behind the window it blocks, and that window is
+--- disabled, so the table looks frozen rather than busy. AskText is this
+--- module's only modal and it builds its own form, so CreateWindow - which
+--- only ever builds the console - can detach unconditionally.
+---
+--- None of the three appear in celua.txt. They are published properties of
+--- the LCL form, which is what Cheat Engine's object bridge reads, so they
+--- are reachable the same way every other undocumented property is.
+--
+local function detachFromMainForm(form)
+    safeSet(form, "PopupMode", "pmNone")
+    safeSet(form, "PopupParent", nil)
+    safeSet(form, "ShowInTaskBar", "stAlways")
+end
+
 local function safeFont(control, color, size, style)
     pcall(function()
         local font = control.Font
@@ -364,13 +388,15 @@ end
 --- @return userdata, table
 --
 function Theme:CreateWindow(caption, width, height)
-    -- false means do not show it yet. Console:Open makes it visible.
+    -- false means do not show it yet. Console:Open makes it visible, which is
+    -- also why detachFromMainForm below lands before the handle exists.
     local form = createForm(false)
     form.Caption = caption
     form.Position = "poScreenCenter"
     form.BorderStyle = "bsSizeable"
     form.Width = width or 900
     form.Height = height or 600
+    detachFromMainForm(form)
     self:Track(function()
         local active = self:GetPalette()
         safeSet(form, "Color", active.COLOR_BG)
