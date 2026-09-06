@@ -1,9 +1,18 @@
 local NAME = "Manifold.Forms.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.0.3"
+local VERSION = "1.1.0"
 local DESCRIPTION = "Manifold Framework Forms"
 
 --[[
+    ∂ v1.1.0 (2026-09-07)
+        Forms are their own windows. Every form Lua creates is
+        assigned to the main Cheat Engine application, which
+        makes it an owned window: it can never go behind Cheat
+        Engine, it has no taskbar button, and it minimises
+        whenever CE does. CreateForm now drops that ownership,
+        and does it while the form is still hidden, because LCL
+        reads those properties when the handle is realised.
+
     ∂ v1.0.3 (2026-09-01)
         Unknown config keys are one report, not one line each.
 
@@ -558,19 +567,46 @@ end
 registerLuaFunctionHighlight('SetButtonState')
 
 --
+--- ∑ Frees a form from Cheat Engine's main window.
+---   createForm assigns the form to the main CE application, which makes it
+---   an owned window: Windows keeps an owned window above its owner forever,
+---   gives it no taskbar button of its own, and minimises it with the owner.
+---   pmNone drops the ownership, stAlways asks for the button back.
+---   None of the three are in celua.txt. They are published properties of the
+---   LCL form, which is what Cheat Engine's object bridge reads, so they are
+---   reachable the same way every other undocumented property is - and
+---   _SafeSet keeps a build that disagrees from taking the form down with it.
+---   Call this while the form is still hidden. LCL applies these when the
+---   window handle is realised, and setting them afterwards asks it to
+---   recreate a handle that already has children on it.
+--- @param form table # The form to detach.
+--- @returns table # The form, for chaining.
+--
+function Forms:DetachFromMainForm(form)
+    if not form then return form end
+    self:_SafeSet(form, "PopupMode", "pmNone")
+    self:_SafeSet(form, "PopupParent", nil)
+    self:_SafeSet(form, "ShowInTaskBar", "stAlways")
+    return form
+end
+registerLuaFunctionHighlight('DetachFromMainForm')
+
+--
 --- ∑ Creates and registers a themed form.
 --- @param opts table # Form creation and layout options.
 --- @returns table # The created form.
 --
 function Forms:CreateForm(opts)
     opts = opts or {}
-    local form
-    if opts.visible ~= nil then
-        form = createForm(opts.visible)
-    else
-        form = createForm()
-    end
+    -- Built hidden whatever the caller asked for, then shown below. The
+    -- ownership properties only take when they are set before the handle
+    -- exists, and createForm() shows the form by default.
+    local form = createForm(false)
     form.BorderStyle = "bsSizeable"
+    self:DetachFromMainForm(form)
+    if opts.visible ~= false then
+        form.show()
+    end
     self:_ApplyCommonOptions(form, opts)
     self:RegisterForm(form, opts)
     return form
