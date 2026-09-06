@@ -72,6 +72,30 @@ local function safeSet(control, property, value)
     return (pcall(function() control[property] = value end))
 end
 
+--
+--- Frees a window from Cheat Engine's main form. createForm assigns every Lua
+--- form to the main CE application, which makes it an owned window: Windows
+--- keeps it above Cheat Engine forever, gives it no taskbar button of its own
+--- and minimises it whenever CE is minimised. pmNone drops that ownership,
+--- stAlways asks for the button back.
+---
+--- Two conditions. Set them while the form is still hidden, because LCL reads
+--- them when the window handle is realised. And never on a modal dialog: an
+--- unowned modal can fall behind the window it blocks, and that window is
+--- disabled, so the table looks frozen rather than busy. The loader shows no
+--- window with showModal, so CreateWindow can detach unconditionally - add
+--- an opt-out here first if that ever changes.
+---
+--- None of the three appear in celua.txt. They are published properties of
+--- the LCL form, which is what Cheat Engine's object bridge reads, so they
+--- are reachable the same way every other undocumented property is.
+--
+local function detachFromMainForm(form)
+    safeSet(form, "PopupMode", "pmNone")
+    safeSet(form, "PopupParent", nil)
+    safeSet(form, "ShowInTaskBar", "stAlways")
+end
+
 local function safeFont(control, color, size, style)
     pcall(function()
         local font = control.Font
@@ -124,6 +148,7 @@ function Theme:CreateWindow(caption, width, height)
     form.BorderStyle = "bsSizeable"
     form.Width = width or 720
     form.Height = height or 520
+    detachFromMainForm(form)
     safeSet(form, "Color", palette.COLOR_BG)
     safeFont(form, palette.COLOR_TEXT)
     pcall(function()
