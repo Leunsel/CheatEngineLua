@@ -97,6 +97,28 @@ local function safeSet(control, property, value)
     return (pcall(function() control[property] = value end))
 end
 
+--
+--- Frees a window from Cheat Engine's main form. createForm assigns every Lua
+--- form to the main CE application, which makes it an owned window: Windows
+--- keeps it above Cheat Engine forever, gives it no taskbar button of its own
+--- and minimises it whenever CE is minimised. pmNone drops that ownership,
+--- stAlways asks for the button back.
+---
+--- Two conditions. Set them while the form is still hidden, because LCL reads
+--- them when the window handle is realised. And never on a modal dialog: an
+--- unowned modal can fall behind the window it blocks, and that window is
+--- disabled, so the table looks frozen rather than busy.
+---
+--- None of the three appear in celua.txt. They are published properties of
+--- the LCL form, which is what Cheat Engine's object bridge reads, so they
+--- are reachable the same way every other undocumented property is.
+--
+local function detachFromMainForm(form)
+    safeSet(form, "PopupMode", "pmNone")
+    safeSet(form, "PopupParent", nil)
+    safeSet(form, "ShowInTaskBar", "stAlways")
+end
+
 local function safeFont(control, color, size, style)
     pcall(function()
         local font = control.Font
@@ -143,8 +165,11 @@ end
 --
 --- A resizeable themed window. ESC closes it. The buttons are panels, so
 --- there is no native Cancel button to do that.
+--- @param options table|nil # Modal = true for a window that will be shown
+---   with showModal. Such a window keeps Cheat Engine as its owner so it
+---   cannot fall behind the window it blocks; every other window is detached.
 --
-function Theme:CreateWindow(caption, width, height)
+function Theme:CreateWindow(caption, width, height, options)
     local palette = self:GetPalette()
     local form = createForm(false)
     form.Caption = caption
@@ -152,6 +177,9 @@ function Theme:CreateWindow(caption, width, height)
     form.BorderStyle = "bsSizeable"
     form.Width = width or 720
     form.Height = height or 520
+    if not (options and options.Modal) then
+        detachFromMainForm(form)
+    end
     safeSet(form, "Color", palette.COLOR_BG)
     safeFont(form, palette.COLOR_TEXT)
     pcall(function()
@@ -853,7 +881,8 @@ function Theme:AskChoice(options)
     for _, choice in ipairs(choices) do needed = needed + (choice.Width or 104) + 12 end
     local form, palette = self:CreateWindow(options.Caption or "Manifold",
         math.max(options.Width or 520, needed),
-        options.Height or (options.CheckBox and 220 or 190))
+        options.Height or (options.CheckBox and 220 or 190),
+        { Modal = true })
     pcall(function()
         form.BorderStyle = "bsDialog"
         form.Position = "poScreenCenter"
@@ -942,7 +971,7 @@ end
 --- @return string|nil # The text, or nil when cancelled.
 --
 function Theme:AskText(caption, prompt, default)
-    local form, palette = self:CreateWindow(caption or "Manifold", 460, 190)
+    local form, palette = self:CreateWindow(caption or "Manifold", 460, 190, { Modal = true })
     pcall(function()
         form.BorderStyle = "bsDialog"
         local constraints = form.Constraints
