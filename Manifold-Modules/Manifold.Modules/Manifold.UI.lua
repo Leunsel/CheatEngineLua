@@ -1,10 +1,21 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.2"
+local VERSION = "1.2.0"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
 --[[
+    ∂ v1.2.0 (2026-09-07)
+        Themes can colour the address list selection.
+        AddressList.SelectedBackgroundColor fills the focused
+        row, AddressList.SelectedSecondaryBackgroundColor the
+        remaining rows of a multi selection - the split Cheat
+        Engine itself makes when it paints them. Both are
+        optional: a theme that omits them has them derived from
+        its own border colour instead of being reported as
+        incomplete, so every theme written before this version
+        gains the colour without being touched.
+
     ∂ v1.1.2 (2026-09-01)
         SetTeleporterControlColors themes the buttons the
         Teleporter declares in UiState.ButtonKeys, and its panel
@@ -192,6 +203,8 @@ UI.ThemeTokens = {
     "AddressList.CheckboxActiveColor",
     "AddressList.CheckboxSelectedColor",
     "AddressList.CheckboxActiveSelectedColor",
+    "AddressList.SelectedBackgroundColor",
+    "AddressList.SelectedSecondaryBackgroundColor",
     "AddressList.List.BackgroundColor",
     "AddressList.Header.Font.Color",
     "AddressList.Header.Canvas.Brush.Color",
@@ -220,6 +233,8 @@ UI.TokenDescriptions = {
     ["AddressList.CheckboxActiveColor"] = "Fill of checked boxes",
     ["AddressList.CheckboxSelectedColor"] = "Outline of selected boxes",
     ["AddressList.CheckboxActiveSelectedColor"] = "Fill of checked + selected",
+    ["AddressList.SelectedBackgroundColor"] = "Fill of the focused row (optional)",
+    ["AddressList.SelectedSecondaryBackgroundColor"] = "Fill of the other selected rows (optional)",
     ["AddressList.List.BackgroundColor"] = "Background of address list",
     ["AddressList.Header.Font.Color"] = "Font color of list header",
     ["AddressList.Header.Canvas.Brush.Color"] = "Background of list header",
@@ -240,6 +255,55 @@ UI.TokenDescriptions = {
     ["Memrec.FloatType.Color"] = "Font for float entries",
     ["Memrec.DefaultForeground.Color"] = "Fallback/default font color"
 }
+
+--
+--- ∑ Tokens a theme is allowed to leave out. Any other token that is absent
+---   means the theme is incomplete and is reported as such. These two are
+---   younger than nearly every theme that exists, so a theme without them is
+---   older, not broken, and UI:DeriveSelectionColors fills them in.
+--
+UI.DerivedThemeTokens = {
+    ["AddressList.SelectedBackgroundColor"] = true,
+    ["AddressList.SelectedSecondaryBackgroundColor"] = true,
+}
+
+-- How far a derived selection fill travels from the border colour toward the
+-- list behind it, and how far the secondary fill then falls back again.
+local SELECTION_LIST_MIX = 0.55
+local SELECTION_SECONDARY_MIX = 0.45
+
+--
+--- ∑ Mixes two packed colours channel by channel. The channel order does not
+---   matter here - the same order goes in as comes out - so this operates on
+---   BGR values without needing to know that is what they are.
+--- @param from number # The colour at t = 0.
+--- @param to number # The colour at t = 1.
+--- @param t number # The mix factor, 0 to 1.
+--- @return number # The mixed colour.
+--
+local function _MixColor(from, to, t)
+    local mixed = 0
+    for shift = 0, 16, 8 do
+        local a = (from >> shift) & 0xFF
+        local b = (to >> shift) & 0xFF
+        mixed = mixed | (math.floor(a + (b - a) * t + 0.5) << shift)
+    end
+    return mixed
+end
+
+--
+--- ∑ Sets a property that a given Cheat Engine build may not have at all.
+---   Reading or writing an absent property raises, so the pcall is what keeps
+---   an older build from losing the entire theme over one colour.
+--- @param object userdata # The component to write to.
+--- @param property string # The property name.
+--- @param value any # The value. nil is ignored so the component keeps its own.
+--- @return boolean # True when the property was set.
+--
+local function _TrySetProperty(object, property, value)
+    if value == nil then return false end
+    return (pcall(function() object[property] = value end))
+end
 
 --
 --- ∑ Checks if all required dependencies are loaded, and loads them if necessary.
@@ -440,6 +504,50 @@ function UI:TokenColor(raw, token)
 end
 
 --
+--- ∑ Fills in the selection colours a theme did not declare.
+---   The derived fill is the theme's own border colour pulled most of the way
+---   to the list background: dark enough that the row's text keeps the
+---   contrast it has everywhere else, light enough to read as a selection.
+---   Note what this deliberately does not do. Cheat Engine draws the frame
+---   around the focused row with Canvas.DrawFocusRect, which inverts the
+---   pixels beneath it rather than using a colour of its own, so a fill near
+---   mid grey would cancel that frame almost entirely - and would also drag
+---   the fill into the light text of a dark theme and make the selected row
+---   the least readable row on screen. Suppressing the frame that far is a
+---   judgement call about one specific palette, so it belongs in the two
+---   tokens a theme declares for itself, not in the fallback for themes that
+---   declared nothing.
+---   Silent by design. This runs once per theme per load, and the log writes
+---   to disk before it filters on level, so a line here would be one write
+---   per theme for something that never varies.
+--- @param processed table # The token table being built, modified in place.
+--- @return table # The names of the tokens that were derived.
+--
+function UI:DeriveSelectionColors(processed)
+    local derived = {}
+    local base = processed["AddressList.Header.Canvas.Pen.Color"]
+        or processed["AddressList.Header.Canvas.Brush.Color"]
+        or processed["MainForm.Panel4.BevelColor"]
+    local behind = processed["AddressList.List.BackgroundColor"] or processed["MainForm.Color"]
+    if processed["AddressList.SelectedBackgroundColor"] == nil and base and behind then
+        processed["AddressList.SelectedBackgroundColor"] =
+            _MixColor(base, behind, SELECTION_LIST_MIX)
+        derived[#derived + 1] = "AddressList.SelectedBackgroundColor"
+    end
+    -- The secondary rows are the rest of a multi selection. They read as the
+    -- same selection one step back, so they are the primary falling toward
+    -- the list behind them rather than a colour of their own.
+    local primary = processed["AddressList.SelectedBackgroundColor"]
+    if processed["AddressList.SelectedSecondaryBackgroundColor"] == nil and primary then
+        processed["AddressList.SelectedSecondaryBackgroundColor"] =
+            behind and _MixColor(primary, behind, SELECTION_SECONDARY_MIX) or primary
+        derived[#derived + 1] = "AddressList.SelectedSecondaryBackgroundColor"
+    end
+    return derived
+end
+registerLuaFunctionHighlight("DeriveSelectionColors")
+
+--
 --- ∑ ...
 --
 function UI:ProcessThemeData(rawData, themeName)
@@ -449,12 +557,17 @@ function UI:ProcessThemeData(rawData, themeName)
     for _, token in ipairs(tokens) do
         local color = self:TokenColor(rawData, token)
         if not color then
-            table.insert(missing, token)
+            -- A derived token being absent is the normal case for every theme
+            -- older than it, so it is not a complaint.
+            if not self.DerivedThemeTokens[token] then
+                table.insert(missing, token)
+            end
         elseif type(color) ~= "number" then
             table.insert(invalid, {token = token, value = tostring(color)})
         end
         processed[token] = color
     end
+    self:DeriveSelectionColors(processed)
     -- Both complaints are about the same theme, so they are one report.
     -- The invalid list used to be one warning per token, which for a theme
     -- written by hand meant a screen of near identical lines.
@@ -699,7 +812,7 @@ end
 --
 --- ∑ Applies the theme to the Address List component.
 --- @param theme table # The theme data.
---- @return # void
+--- @return boolean # True when this Cheat Engine build took the selection colours.
 --
 function UI:ApplyThemeToAddressList(theme)
     local addressList = getAddressList()
@@ -715,7 +828,15 @@ function UI:ApplyThemeToAddressList(theme)
         self.brush.color = theme["AddressList.Header.Canvas.Brush.Color"] or self.brush.color
         self.pen.Color = theme["AddressList.Header.Canvas.Pen.Color"] or self.pen.Color
     end
+    -- Cheat Engine grew these two after the checkbox colours, so a table
+    -- opened on an older build should lose the selection fill rather than the
+    -- whole theme. Everything above is old enough to set directly.
+    local selected = _TrySetProperty(
+        addressList, "SelectedBackgroundColor", theme["AddressList.SelectedBackgroundColor"])
+    local secondary = _TrySetProperty(
+        addressList, "SelectedSecondaryBackgroundColor", theme["AddressList.SelectedSecondaryBackgroundColor"])
     MainForm.repaint()
+    return selected and secondary
 end
 
 --
@@ -1206,7 +1327,7 @@ function UI:ApplyTheme(themeName, allowReapply)
         end
         MainForm.Show()
         self:ApplyThemeToTreeView(theme)
-        self:ApplyThemeToAddressList(theme)
+        local selection = self:ApplyThemeToAddressList(theme)
         local slogan = self:ApplyThemeToMainForm(theme)
         local updated, unchanged = self:ApplyThemeToAddressRecords(theme)
         local luaEngine = self:ApplyThemeToLuaEngine(theme)
@@ -1223,6 +1344,7 @@ function UI:ApplyTheme(themeName, allowReapply)
         logger:InfoBlock(MODULE_PREFIX .. " Theme applied", {
             { "Theme",       themeName },
             { "Memrecs",     updated .. " recoloured, " .. unchanged .. " unchanged" },
+            { "Selection",   selection and "themed" or "unsupported by this Cheat Engine" },
             { "Lua Engine",  luaEngine and "themed" or "not open" },
             { "Slogan",      slogan and "themed" or "absent" },
             { "Teleporter",  teleporterThemed and "themed" or "not open" },
