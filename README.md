@@ -7,7 +7,7 @@ talking to the game process and building interfaces.
 Whether you are handling memory records, automating the auto assembly process or managing UI
 components, these modules give you the pieces to build more dynamic Cheat Tables.
 
-![Preview](https://i.imgur.com/U0kjEIV.png)
+![Preview](https://i.imgur.com/ykfhY5E.png)
 
 ## What is in here
 
