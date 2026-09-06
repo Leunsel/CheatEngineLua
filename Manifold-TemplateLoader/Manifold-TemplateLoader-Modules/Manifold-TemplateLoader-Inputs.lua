@@ -164,6 +164,13 @@ function Inputs:_BuildForm(definitions, templateCaption)
         form.Position = "poScreenCenter"
         form.BorderStyle = "bsSizeable"
         form.Width, form.Height = width, height
+        -- The themed branch above gets this from Theme:CreateWindow. This one
+        -- builds its form by hand, so it has to say it by hand: drop Cheat
+        -- Engine's ownership while the form is still hidden, or the window
+        -- can never go behind CE and gets no taskbar button.
+        pcall(function() form.PopupMode = "pmNone" end)
+        pcall(function() form.PopupParent = nil end)
+        pcall(function() form.ShowInTaskBar = "stAlways" end)
         content = form
         local okButton = createButton(form)
         okButton.Caption = "OK"
