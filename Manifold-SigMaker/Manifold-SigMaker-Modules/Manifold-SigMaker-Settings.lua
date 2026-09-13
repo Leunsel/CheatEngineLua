@@ -23,7 +23,13 @@ Settings.Persisted = {
     "Mask.BranchTarget",
     "Mask.Immediate",
     "Scope",
-    "CopyToClipboard"
+    "CopyToClipboard",
+    "Find.Protection",
+    "Find.Fallback",
+    "Find.MinFixedBytes",
+    "Find.MaxResults",
+    "Find.PrefillFromClipboard",
+    "Find.Shortcut"
 }
 
 Settings.Defaults = {
@@ -85,7 +91,47 @@ Settings.Defaults = {
         ImmediateThreshold = 0x10000
     },
 
-    MenuCaption = "Manifold: Copy Signature"
+    MenuCaption = "Manifold: Copy Signature",
+
+    --
+    -- The other half of the tool: reading a signature back in and going to
+    -- where it matches.
+    --
+    Find = {
+        -- A signature made here describes code, and code lives in executable
+        -- pages, so that is where the search starts. It is also the only
+        -- reason a scan of a large process finishes quickly. A pattern that
+        -- describes data finds nothing there, and Fallback is what keeps the
+        -- second attempt from being the user's job.
+        Protection = "+X",
+        Fallback = true,
+
+        -- A pattern shorter than this matches thousands of times in any real
+        -- process. Cheat Engine builds the whole result list before anything
+        -- can be counted, so scanning for two fixed bytes is a freeze rather
+        -- than a search. A nibble wildcard does not count as a fixed byte.
+        MinFixedBytes = 4,
+
+        -- How many hits the picker is willing to list. Past this the scan
+        -- reports the total and offers the first ones.
+        MaxResults = 100,
+
+        -- The prompt opens on whatever is on the clipboard, as long as it
+        -- reads as a signature. Copy in one Cheat Engine and find in another
+        -- is then two keystrokes and no pasting.
+        PrefillFromClipboard = true,
+
+        MenuCaption = "Manifold: Find Signature",
+
+        -- The keyboard shortcut, and the menu bar entry that carries it. A
+        -- shortcut is dispatched by the focused form through its main menu,
+        -- and an item in a context menu never sees the key, so the entry in
+        -- the memory view's own menu bar is what makes the shortcut work.
+        -- Setting Shortcut to "" takes the key away and leaves the entry.
+        Shortcut = "Ctrl+Shift+F",
+        MenuBar = true,
+        MenuBarCaption = "Manifold"
+    }
 }
 
 local function copy(value)
@@ -147,14 +193,23 @@ function Settings:Store()
     return nil
 end
 
+--- A value that was never written comes back as an empty string, so an empty
+--- string cannot be stored as itself: it would read back as "not set" and the
+--- default would win. Find.Protection is empty when a search is meant to
+--- cover all memory, which is a real choice and has to survive a restart, so
+--- it goes in as this marker instead.
+local EMPTY = "<empty>"
+
 local function encode(value)
     if type(value) == "boolean" then return value and "1" or "0" end
+    if value == "" then return EMPTY end
     return tostring(value)
 end
 
 --- Mask.Immediate has three states, so it decodes as a string first.
 local function decode(raw, like)
     if raw == nil or raw == "" then return nil end
+    if raw == EMPTY then return "" end
     if type(like) == "boolean" then
         if raw == true or raw == false then return raw end
         return raw == "1" or raw == "true"
@@ -207,7 +262,13 @@ function Settings:Summary()
         Output = self.Output,
         StopAtFunctionEnd = self.StopAtFunctionEnd,
         CopyToClipboard = self.CopyToClipboard,
-        Persist = self.Persist
+        Persist = self.Persist,
+        FindProtection = self.Find.Protection,
+        FindFallback = self.Find.Fallback,
+        FindMinFixedBytes = self.Find.MinFixedBytes,
+        FindMaxResults = self.Find.MaxResults,
+        FindPrefill = self.Find.PrefillFromClipboard,
+        FindShortcut = self.Find.Shortcut
     }
 end
 
