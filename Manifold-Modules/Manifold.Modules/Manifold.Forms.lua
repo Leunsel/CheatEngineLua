@@ -1,20 +1,22 @@
 local NAME = "Manifold.Forms.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.0"
+local VERSION = "1.4.0"
 local DESCRIPTION = "Manifold Framework Forms"
 
 --[[
-    ∂ v1.1.0 (2026-09-07)
-        Forms are their own windows. Every form Lua creates is
-        assigned to the main Cheat Engine application, which
-        makes it an owned window: it can never go behind Cheat
-        Engine, it has no taskbar button, and it minimises
-        whenever CE does. CreateForm now drops that ownership,
-        and does it while the form is still hidden, because LCL
-        reads those properties when the handle is realised.
+    ∂ v1.4.0 (2026-09-13)
+        ThemeMenuBar gives a form's menu bar the dark background
+        Cheat Engine gives its own. A menu made in Lua is a plain
+        LCL menu, while Cheat Engine's own menus are its dark
+        mode subclass, which sets a dark background on the menu
+        and on every submenu the first time a window shows. A
+        Lua menu never gets that step, so its entries came out
+        dark inside a light frame, with a light icon column and
+        light separators. This is the same step through the same
+        Windows calls. Outside dark mode it does nothing, and a
+        failure is reported once.
 
-    ∂ v1.0.3 (2026-09-01)
-        Unknown config keys are one report, not one line each.
+    ...
 
     ∂ v1.0.2 (2026-06-17)
         Implemented the Bootstrap handshake so this module
@@ -60,24 +62,79 @@ local MODULE = BOOTSTRAP.Declare({
 
 
 local DEFAULT_THEME = {
-    COLOR_BG           = 0x202020,
-    COLOR_PANEL        = 0x2A2A2A,
-    COLOR_ACCENT       = 0x4A4A4A,
-    COLOR_TEXT         = 0xEAEAEA,
-    COLOR_LABEL        = 0xC8C8C8,
-    COLOR_BTN          = 0x2A2A2A,
-    COLOR_BTN_HOVER    = 0x4A4A4A,
-    COLOR_BTN_TEXT     = 0xEAEAEA,
-    COLOR_TAB_ACTIVE   = 0x4A4A4A,
-    COLOR_TAB_INACTIVE = 0x2A2A2A,
-    COLOR_INPUT        = 0x1B1B1B,
-    COLOR_INPUT_TEXT   = 0xEAEAEA,
-    COLOR_BORDER       = 0x454545,
-    COLOR_MUTED        = 0x8A8A8A,
-    COLOR_SURFACE      = 0x2F2F2F,
-    COLOR_SURFACE_ALT  = 0x242424,
-    COLOR_SUCCESS      = 0x6FD96F,
+    COLOR_BG           = 0x202020, -- #202020
+    COLOR_PANEL        = 0x2A2A2A, -- #2A2A2A
+    COLOR_ACCENT       = 0x4A4A4A, -- #4A4A4A
+    COLOR_TEXT         = 0xEAEAEA, -- #EAEAEA
+    COLOR_LABEL        = 0xC8C8C8, -- #C8C8C8
+    COLOR_BTN          = 0x2A2A2A, -- #2A2A2A
+    COLOR_BTN_HOVER    = 0x4A4A4A, -- #4A4A4A
+    COLOR_BTN_TEXT     = 0xEAEAEA, -- #EAEAEA
+    COLOR_TAB_ACTIVE   = 0x4A4A4A, -- #4A4A4A
+    COLOR_TAB_INACTIVE = 0x2A2A2A, -- #2A2A2A
+    COLOR_INPUT        = 0x1B1B1B, -- #1B1B1B
+    COLOR_INPUT_TEXT   = 0xEAEAEA, -- #EAEAEA
+    COLOR_BORDER       = 0x454545, -- #454545
+    COLOR_MUTED        = 0x8A8A8A, -- #8A8A8A
+    COLOR_SURFACE      = 0x2F2F2F, -- #2F2F2F
+    COLOR_SURFACE_ALT  = 0x242424, -- #242424
+    COLOR_SUCCESS      = 0x6FD96F, -- #6FD96F
 }
+
+--- Cheat Engine's own menu grey. Its dark mode menu subclass paints menus in
+--- this colour, and a Lua menu given the same background matches them.
+local MENU_BACKGROUND = 0x2B2B2B
+
+--- The MENUINFO mask bits for a background brush that also reaches submenus.
+local MIM_BACKGROUND = 0x00000002
+local MIM_APPLYTOSUBMENUS = 0x80000000
+
+--- Where the one menu brush lives. In _G, because CETrequire runs this file
+--- again on every require, and a brush made on every run would never be freed.
+local MENU_BRUSH_SLOT = "__ManifoldMenuBrush"
+
+--- Exports in Cheat Engine's own process, each looked up once.
+local nativeExports = {}
+
+--
+--- ∑ An exported function in Cheat Engine's own process. The name is tried
+---   with its module and without, because symbol lookups differ between builds.
+--- @param module string # The module, user32 or gdi32.
+--- @param name string # The export.
+--- @returns number|nil # Its address, or nil when it cannot be found.
+--
+local function _nativeExport(module, name)
+    local key = module .. "." .. name
+    local cached = nativeExports[key]
+    if cached ~= nil then return cached or nil end
+    local address = false
+    if type(getAddressSafe) == "function" then
+        for _, candidate in ipairs({ key, name }) do
+            local ok, value = pcall(getAddressSafe, candidate, true)
+            if ok and type(value) == "number" and value ~= 0 then
+                address = value
+                break
+            end
+        end
+    end
+    nativeExports[key] = address
+    return address or nil
+end
+
+--
+--- ∑ Calls an export in Cheat Engine's own process with integer arguments.
+--- @returns number|nil, string|nil # The result, or nil and the reason.
+--
+local function _nativeCall(module, name, ...)
+    if type(executeCodeLocalEx) ~= "function" then return nil, "executeCodeLocalEx is not available" end
+    local address = _nativeExport(module, name)
+    if not address then return nil, name .. " could not be resolved" end
+    local args = {}
+    for index, value in ipairs({ ... }) do args[index] = { type = 0, value = value } end
+    local ok, result = pcall(executeCodeLocalEx, address, table.unpack(args))
+    if not ok then return nil, tostring(result) end
+    return result
+end
 
 --
 --- ∑ Creates a shallow copy of a table.
@@ -401,6 +458,53 @@ end
 registerLuaFunctionHighlight('RegisterForm')
 
 --
+--- ∑ Removes one control from the registry.
+--- @param control table # The control to forget.
+--- @returns boolean # Whether it was registered.
+--
+function Forms:UnregisterControl(control)
+    if not control then return false end
+    local registry = self:_EnsureRegistry()
+    local key = tostring(control)
+    if not registry.Keys[key] then return false end
+    registry.Keys[key] = nil
+    for index = #registry.Controls, 1, -1 do
+        if registry.Controls[index].control == control then
+            table.remove(registry.Controls, index)
+        end
+    end
+    return true
+end
+registerLuaFunctionHighlight('UnregisterControl')
+
+--
+--- ∑ Removes a form and every control registered under it.
+---   Call it from the form's OnClose before returning caFree. The controls
+---   are freed with the form, and a registry entry for a freed control is a
+---   use after free waiting for the next ApplyTheme: reading Visible on a
+---   form that no longer exists is an access violation once the memory has
+---   been reused. A form that only hides itself keeps its entries.
+--- @param root table # The form.
+--- @returns number # How many entries were dropped.
+--
+function Forms:UnregisterRoot(root)
+    if not root then return 0 end
+    local registry = self:_EnsureRegistry()
+    local kept, dropped = {}, 0
+    for _, entry in ipairs(registry.Controls) do
+        if entry.root == root or entry.control == root then
+            registry.Keys[tostring(entry.control)] = nil
+            dropped = dropped + 1
+        else
+            kept[#kept + 1] = entry
+        end
+    end
+    registry.Controls = kept
+    return dropped
+end
+registerLuaFunctionHighlight('UnregisterRoot')
+
+--
 --- ∑ Converts a Manifold UI theme into the normalized Forms design palette.
 --- @param theme table # A Manifold theme token table or normalized Forms theme.
 --- @returns table # A normalized Forms design theme.
@@ -495,6 +599,9 @@ function Forms:ApplyThemeToControl(entry, designTheme, includeHidden)
     elseif role == "input" or role == "textbox" then
         self:_SetColor(control, theme.COLOR_INPUT)
         self:_SafeSet(control, "BorderStyle", opts.borderStyle or "bsNone")
+        self:ApplyFont(control, theme.COLOR_INPUT_TEXT, fontSize, fontStyle)
+    elseif role == "combo" then
+        self:_SetColor(control, theme.COLOR_INPUT)
         self:ApplyFont(control, theme.COLOR_INPUT_TEXT, fontSize, fontStyle)
     elseif role == "memo" then
         self:_SetColor(control, theme.COLOR_INPUT)
@@ -664,6 +771,34 @@ function Forms:CreateTextBox(parent, opts)
     return edit
 end
 registerLuaFunctionHighlight('CreateTextBox')
+
+--
+--- ∑ Creates and registers a themed read-only dropdown.
+---   Items come from opts.items and the selection from opts.itemIndex.
+---   opts.onChange is attached last, so filling the box does not fire it
+---   before the caller's state exists. The closed box is themed through the
+---   "combo" role; the dropped list is drawn by the system.
+---   The dropdown kind is opts.dropdownStyle, not opts.style: the theming
+---   reads opts.style as the font style for every control it colours.
+--- @param parent table # The parent control.
+--- @param opts table # Combo creation and layout options.
+--- @returns table # The created combo box.
+--
+function Forms:CreateComboBox(parent, opts)
+    opts = opts or {}
+    opts.parent = parent
+    local combo = createComboBox(parent)
+    self:_SafeSet(combo, "Style", opts.dropdownStyle or "csDropDownList")
+    self:_ApplyCommonOptions(combo, opts)
+    for _, item in ipairs(opts.items or {}) do
+        pcall(function() combo.Items.add(tostring(item)) end)
+    end
+    if opts.itemIndex ~= nil then self:_SafeSet(combo, "ItemIndex", opts.itemIndex) end
+    self:RegisterControl(combo, opts.role or "combo", opts)
+    if _isCallable(opts.onChange) then self:_SafeSet(combo, "OnChange", opts.onChange) end
+    return combo
+end
+registerLuaFunctionHighlight('CreateComboBox')
 
 --
 --- ∑ Creates and registers a themed multi-line memo.
@@ -938,6 +1073,96 @@ function Forms:CreateListView(parent, opts)
     return list
 end
 registerLuaFunctionHighlight('CreateListView')
+
+--
+--- ∑ Gives a form's menu bar the dark background Cheat Engine gives its own.
+---
+---   A menu made in Lua is a plain LCL menu. Cheat Engine's own menus are its
+---   dark mode subclass, which sets a dark background on the menu and on every
+---   submenu the first time a window shows, and a menu made in Lua never gets
+---   that step. Its entries come out dark, and Windows draws the frame, the
+---   icon column and the separators around them in the light style. This is
+---   the same step through the same Windows calls.
+---
+---   Call it once the menu is complete, on a form whose window exists. The
+---   background only reaches the submenus that exist when it is set, so a
+---   submenu filled in later needs another call. Outside dark mode, and
+---   outside Cheat Engine, it does nothing.
+--- @param form table # A form whose Menu is assigned.
+--- @returns boolean # Whether the background was set.
+--
+function Forms:ThemeMenuBar(form)
+    if not form or type(darkMode) ~= "function" then return false end
+    local okDark, dark = pcall(darkMode)
+    if not okDark or dark ~= true then return false end
+    local hwnd = self:_SafeGet(form, "Handle")
+    if type(hwnd) ~= "number" or hwnd == 0 then return false end
+    local hmenu, reason = _nativeCall("user32", "GetMenu", hwnd)
+    if hmenu == nil then return self:_MenuBarFailure("GetMenu", reason) end
+    -- A form without a menu bar has nothing to colour, which is not a failure.
+    if hmenu == 0 then return false end
+    local brush = rawget(_G, MENU_BRUSH_SLOT)
+    if type(brush) ~= "number" or brush == 0 then
+        brush, reason = _nativeCall("gdi32", "CreateSolidBrush", MENU_BACKGROUND)
+        if type(brush) ~= "number" or brush == 0 then
+            return self:_MenuBarFailure("CreateSolidBrush", reason)
+        end
+        rawset(_G, MENU_BRUSH_SLOT, brush)
+    end
+    -- The MENUINFO is written into a memory stream and not to a raw address,
+    -- so a wrong size can only ever be a short stream and never memory that
+    -- belongs to something else. It is 40 bytes on 64 bit Cheat Engine and 28
+    -- on 32 bit.
+    local okBits, is64 = pcall(cheatEngineIs64Bit)
+    if not okBits or type(is64) ~= "boolean" then
+        return self:_MenuBarFailure("cheatEngineIs64Bit", is64)
+    end
+    local expected = is64 and 40 or 28
+    local okStream, info = pcall(createMemoryStream)
+    if not okStream or not info then return self:_MenuBarFailure("createMemoryStream", info) end
+    local written = pcall(function()
+        info.writeDword(expected) -- cbSize
+        info.writeDword(MIM_APPLYTOSUBMENUS | MIM_BACKGROUND) -- fMask
+        info.writeDword(0) -- dwStyle
+        info.writeDword(0) -- cyMax
+        if is64 then info.writeQword(brush) else info.writeDword(brush) end -- hbrBack
+        info.writeDword(0) -- dwContextHelpID
+        if is64 then
+            info.writeDword(0) -- padding before the pointer sized field
+            info.writeQword(0) -- dwMenuData
+        else
+            info.writeDword(0) -- dwMenuData
+        end
+    end)
+    local size = self:_SafeGet(info, "Size")
+    local result
+    if written and size == expected then
+        -- Read last, because the address moves whenever the stream grows.
+        result, reason = _nativeCall("user32", "SetMenuInfo", hmenu, self:_SafeGet(info, "Memory"))
+    else
+        reason = string.format("MENUINFO came out %s bytes, %d expected", tostring(size), expected)
+    end
+    pcall(function() info.destroy() end)
+    if not result or result == 0 then return self:_MenuBarFailure("SetMenuInfo", reason) end
+    _nativeCall("user32", "DrawMenuBar", hwnd)
+    return true
+end
+registerLuaFunctionHighlight('ThemeMenuBar')
+
+--- Reports a menu bar that could not be coloured, once per session. A step
+--- that fails for one window fails the same way for every other one.
+function Forms:_MenuBarFailure(step, reason)
+    if not self.MenuBarFailureReported then
+        self.MenuBarFailureReported = true
+        if logger and logger.WarningBlock then
+            logger:WarningBlock(MODULE_PREFIX .. " A menu bar keeps its light frame", {
+                { "Step",   tostring(step) },
+                { "Reason", tostring(reason or "no result") },
+            })
+        end
+    end
+    return false
+end
 
 --------------------------------------------------------
 --                   Module End                       --
