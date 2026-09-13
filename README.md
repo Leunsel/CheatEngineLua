@@ -31,6 +31,11 @@ is an autorun script that puts every file attached to a Cheat Table into one edi
 is an autorun script that gives every script one place to log to, and a canvas-drawn console with
 levels, icons, filters and search to read it in.
 
+[Manifold SigMaker](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-SigMaker)
+is an autorun script for signatures in both directions. It turns the instruction selected in the
+disassembler into an array of bytes signature, and it reads one back in, scans the process for it
+and goes to where it matched.
+
 The documentation for all of them lives in [`docs/`](docs/README.md).
 
 ## Credits
