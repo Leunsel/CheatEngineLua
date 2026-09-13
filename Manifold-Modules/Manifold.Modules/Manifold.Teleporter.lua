@@ -1,9 +1,63 @@
 local NAME = "Manifold.Teleporter.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.4.1"
+local VERSION = "1.6.2"
 local DESCRIPTION = "Manifold Framework Teleporter"
 
 --[[
+    ∂ v1.6.2 (2026-09-13)
+        The menu bar is dark all the way through. A menu made in
+        Lua misses the step that gives Cheat Engine's own menus
+        their dark background, so the dropdowns had a light
+        frame and light separators around dark entries. The
+        menu strip asks Manifold.Forms for that step once it is
+        built.
+
+    ∂ v1.6.1 (2026-09-10)
+        One spelling per area. CanonicalArea is the single place
+        that decides it, and every path that stores an Area goes
+        through it, so the editor and a table script can no
+        longer put "old town" beside "Old Town" and lose the
+        save out of every count and every view. KnownAreas
+        learns in key order rather than in pairs() order, so the
+        spelling it settles on does not change between calls.
+        RenameArea takes its derived members with it: a save
+        that was in the area because of its category has the new
+        name written into it, which is what the old name can no
+        longer derive. It also tells the views when only the
+        declared list changed, and says when the table script
+        still declares the old name.
+
+    ∂ v1.6.0 (2026-09-10)
+        Saves can belong to an area. A game with several maps
+        (Dying Light's Slums, Old Town and The Following) keeps
+        them in one file, and the map shows one at a time. Area
+        is an attribute of the save, never part of its key, so
+        nothing is rekeyed and every generated record keeps
+        working. A save without one takes its top category when
+        that names a declared area, so an existing file lights
+        up by declaring Areas.Names and nothing else. The editor
+        gets an Area row; the Saves menu gets Set Area, Assign
+        Derived Areas and Rename Area. DuplicateSave and
+        SetSavePosition take a key, for the map's context menu.
+
+    ∂ v1.5.0 (2026-09-10)
+        Three things Manifold.TeleporterMap needs and nothing
+        else had. PeekCurrentPosition reads the player without
+        reporting an unresolvable pointer, because a map polls
+        ten times a second and a loading screen is not an error.
+        CreateSaveAtPosition creates a save at any position, and
+        CreateSaveFromCurrentPosition now delegates to it. Save
+        listeners are told after every edit and every load, so a
+        view of the saves can follow them without polling. The
+        window gets a Map button and a Tools entry when the map
+        module is loaded.
+        Two smaller things. A symbol block assigned without a
+        ValueType takes Settings.ValueType once, in New, so a
+        Transform written as { Symbol, Offsets } works on every
+        path instead of on none. The window drops its controls
+        from the Forms registry when it closes, since they are
+        freed with it and the next theme change walked them.
+
     ∂ v1.4.1 (2026-09-01)
         The window builder lost a third of its lines without
         losing a control. Panel properties moved into the option
@@ -71,6 +125,16 @@ Teleporter = {
         AdjustYCoordinate = true,
         YCoordinateIndex = 1,
         AdjustmentAmount = 10.000
+    },
+
+    --- The game's separate maps, for the Teleporter Map's one-area view.
+    --- Names declares them. A save whose top category matches one of them,
+    --- case-insensitively, belongs to it without carrying an Area of its
+    --- own, so a file written as "Slums / ..." needs no editing. A save with
+    --- an explicit Area belongs to that instead, whatever its category.
+    Areas = {
+        Names = {},
+        DeriveFromCategory = true,
     },
 
     Saves = {},
@@ -148,6 +212,16 @@ function Teleporter:New(config)
     end
     if #rejected > 0 then
         logger:WarningBlock(MODULE_PREFIX .. " Ignored " .. #rejected .. " unknown config properties", rejected)
+    end
+    -- A symbol block assigned wholesale loses the class default for its
+    -- ValueType. Settings.ValueType is what every read and write would have
+    -- used had the block been left alone, so it fills the gap here, once,
+    -- rather than at each of the places a block is read or written.
+    for _, key in ipairs({ "Transform", "Waypoint", "Additional" }) do
+        local block = rawget(instance, key)
+        if type(block) == "table" and block.ValueType == nil then
+            block.ValueType = instance.Settings.ValueType
+        end
     end
     return BOOTSTRAP.Ready(MODULE, instance)
 end
@@ -623,6 +697,48 @@ end
 registerLuaFunctionHighlight('GetCurrentPosition')
 
 --
+--- ∑ Reads the current position without logging anything.
+---   GetCurrentPosition reports an unresolvable pointer as a warning, which
+---   is right when somebody pressed Teleport and wrong for a caller that
+---   polls: a game in its menu or a loading screen has no valid pointer
+---   for seconds at a time, and ten reads a second of that would fill the
+---   log with the same line. This answers nil and says nothing.
+--- @return table|nil # The position, or nil when it cannot be read right now.
+--
+function Teleporter:PeekCurrentPosition()
+    local transform = self.Transform
+    if type(transform) ~= "table" or trimString(transform.Symbol) == "" then
+        return nil
+    end
+    local offsets = transform.Offsets
+    if type(offsets) ~= "table" or #offsets == 0 then
+        return nil
+    end
+    local getPid = rawget(_G, "getOpenedProcessID")
+    if type(getPid) == "function" and getPid() == 0 then
+        return nil
+    end
+    local ok, base = pcall(getAddressSafe, "[" .. trimString(transform.Symbol) .. "]+0")
+    if not ok or type(base) ~= "number" or base == 0 then
+        return nil
+    end
+    local readFunc = readFunctions[transform.ValueType]
+    if not readFunc then
+        return nil
+    end
+    local position = {}
+    for index, offset in ipairs(offsets) do
+        local value = readFunc(base + offset)
+        if value == nil then
+            return nil
+        end
+        position[index] = value
+    end
+    return position
+end
+registerLuaFunctionHighlight('PeekCurrentPosition')
+
+--
 --- ∑ Reads the current saved position from memory.
 --- @returns # the current saved coordinates as a table (x, y, z).
 --
@@ -1091,6 +1207,273 @@ function Teleporter:ResolveSaveKey(input)
 end
 registerLuaFunctionHighlight('ResolveSaveKey')
 
+--------------------------------------------------------
+--                       Areas                        --
+--------------------------------------------------------
+
+--
+--- ∑ Every area name this table knows, and a lookup by lower-case form:
+---   the declared Areas.Names first, then every explicit Area a save
+---   carries, so a name only has to be spelled once anywhere to be
+---   recognised everywhere.
+--- @return table, table # Sorted names, and { [lower] = name }.
+--
+function Teleporter:KnownAreas()
+    local byLower, names = {}, {}
+    local function learn(name)
+        name = trimString(name)
+        if name == "" then return end
+        local lower = name:lower()
+        if not byLower[lower] then
+            byLower[lower] = name
+            names[#names + 1] = name
+        end
+    end
+    for _, name in ipairs((type(self.Areas) == "table" and self.Areas.Names) or {}) do
+        learn(name)
+    end
+    -- In key order, not in pairs() order. The first spelling of a name wins,
+    -- and pairs() does not promise the same first save twice, so learning
+    -- from it let the canonical spelling of an undeclared area change from
+    -- one call to the next - and with it which saves the map showed.
+    for _, key in ipairs(sortedKeys(self.Saves or {})) do
+        local save = self.Saves[key]
+        if type(save) == "table" then learn(save.Area) end
+    end
+    sortCaseInsensitive(names)
+    return names, byLower
+end
+registerLuaFunctionHighlight('KnownAreas')
+
+--
+--- ∑ An area name in the spelling this table already uses, so "old town"
+---   joins "Old Town" rather than founding a second area that no count and
+---   no view would ever agree on. Every path that stores an Area goes
+---   through here, and GetSaveArea folds what it reads the same way, so a
+---   file edited by hand is read back under one name.
+--- @param area string|nil # The name as it was typed.
+--- @param known table|nil # The lookup from KnownAreas, for a caller in a loop.
+--- @return string|nil # The canonical name, or nil for an empty one.
+--
+function Teleporter:CanonicalArea(area, known)
+    area = trimString(area)
+    if area == "" then
+        return nil
+    end
+    local byLower = known or select(2, self:KnownAreas())
+    return byLower[area:lower()] or area
+end
+registerLuaFunctionHighlight('CanonicalArea')
+
+--
+--- ∑ The area a save belongs to. Its explicit Area first; else, while
+---   Areas.DeriveFromCategory is on, its top category when that names a
+---   known area, spelled the known way. Nothing else derives: a top
+---   category that is not a declared area ("Bosses", "Default") is not one.
+--- @param save table # A save entry.
+--- @param known table|nil # The lookup from KnownAreas, for a caller in a loop.
+--- @return string|nil, boolean # The area, and whether it was derived.
+--
+function Teleporter:GetSaveArea(save, known)
+    if type(save) ~= "table" then
+        return nil, false
+    end
+    local explicit = trimString(save.Area)
+    if explicit ~= "" then
+        -- Folded, not returned as written. A file edited by hand, or an
+        -- older version of this module, can hold a case variant, and an
+        -- area nothing else spells that way is an area nothing counts.
+        return self:CanonicalArea(explicit, known), false
+    end
+    if type(self.Areas) ~= "table" or self.Areas.DeriveFromCategory == false then
+        return nil, false
+    end
+    local top = self:GetSaveCategoryPath(save, false)[1]
+    if not top then
+        return nil, false
+    end
+    local byLower = known or select(2, self:KnownAreas())
+    local name = byLower[top:lower()]
+    if name then
+        return name, true
+    end
+    return nil, false
+end
+registerLuaFunctionHighlight('GetSaveArea')
+
+--
+--- ∑ Every area with how many saves it holds, and how many saves have
+---   none. Declared areas appear even while empty, so a map can be opened
+---   for one before its first save exists.
+--- @return table, number # Sorted array of { Name, Count }, and the unassigned count.
+--
+function Teleporter:GetAreas()
+    local names, byLower = self:KnownAreas()
+    local counts, unassigned = {}, 0
+    for _, save in pairs(self.Saves or {}) do
+        local area = self:GetSaveArea(save, byLower)
+        if area then
+            counts[area] = (counts[area] or 0) + 1
+        else
+            unassigned = unassigned + 1
+        end
+    end
+    local areas = {}
+    for _, name in ipairs(names) do
+        areas[#areas + 1] = { Name = name, Count = counts[name] or 0 }
+    end
+    return areas, unassigned
+end
+registerLuaFunctionHighlight('GetAreas')
+
+--
+--- ∑ Sets or clears a save's explicit Area and persists it. A name that is
+---   already known is taken in its known spelling, so "old town" joins
+---   "Old Town" instead of founding a second area.
+--- @param keyOrName string # Save key, or a display name while unambiguous.
+--- @param area string|nil # The area; empty or nil clears it.
+--- @return boolean
+--
+function Teleporter:SetSaveArea(keyOrName, area)
+    if not inMainThread() then
+        synchronize(function() self:SetSaveArea(keyOrName, area) end)
+        return
+    end
+    local key, reason = self:ResolveSaveKey(keyOrName or "")
+    local save = key and self.Saves and self.Saves[key]
+    if not save then
+        logger:WarningF(MODULE_PREFIX .. " Save Not Found: '%s' (%s).", tostring(keyOrName), tostring(reason))
+        return false
+    end
+    save.Area = self:CanonicalArea(area)
+    logger:InfoF(MODULE_PREFIX .. " Save '%s' area set to '%s'.", key, save.Area or "(none)")
+    return self:_CommitSaveChange(key, string.format("Area of '%s': %s",
+        self:GetSaveDisplayName(save, key), save.Area or "none"))
+end
+registerLuaFunctionHighlight('SetSaveArea')
+
+--
+--- ∑ Asks for a save's area and sets it. The window's menus call this.
+--- @param keyOrName string|nil # Defaults to the selected save.
+--- @return boolean
+--
+function Teleporter:PromptSaveArea(keyOrName)
+    if not inMainThread() then
+        return synchronize(function() return self:PromptSaveArea(keyOrName) end)
+    end
+    local key = (keyOrName or self:GetSelectedSaveName())
+    key = key and self:ResolveSaveKey(key)
+    local save = key and self.Saves and self.Saves[key]
+    if not save then
+        return false
+    end
+    local current = self:GetSaveArea(save) or ""
+    local answer = inputQuery("Set Area", "Area name for '" .. self:GetSaveDisplayName(save, key) ..
+                              "' (empty clears it):", current)
+    if answer == nil then
+        return false
+    end
+    return self:SetSaveArea(key, answer) == true
+end
+registerLuaFunctionHighlight('PromptSaveArea')
+
+--
+--- ∑ Writes the derived area into every save that has none of its own.
+---   One write and one listener call, however many saves. For a table
+---   whose file should say what the map shows.
+--- @return number # How many saves were given an area.
+--
+function Teleporter:AssignDerivedAreas()
+    if not inMainThread() then
+        return synchronize(function() return self:AssignDerivedAreas() end)
+    end
+    local _, byLower = self:KnownAreas()
+    local assigned = 0
+    for _, save in pairs(self.Saves or {}) do
+        if type(save) == "table" and trimString(save.Area) == "" then
+            local area, derived = self:GetSaveArea(save, byLower)
+            if area and derived then
+                save.Area = area
+                assigned = assigned + 1
+            end
+        end
+    end
+    if assigned > 0 then
+        self:PersistSaves(true)
+        self:RefreshUi(true)
+        self:_NotifySavesChanged(nil)
+    end
+    logger:InfoF(MODULE_PREFIX .. " Assigned a derived area to %d save(s).", assigned)
+    self:SetStatus(string.format("%d save(s) given their derived area", assigned))
+    return assigned
+end
+registerLuaFunctionHighlight('AssignDerivedAreas')
+
+--
+--- ∑ Renames an area. Every save in it moves, whether it carried the name
+---   itself or only derived it from its category: after the rename the old
+---   name derives nothing, so a derived member has the new name written
+---   into it, which is what AssignDerivedAreas would have written anyway.
+---   A name that is already another area's merges into it.
+---   Areas.Names is table-script configuration and the save file never
+---   carries it, so a renamed declaration only lasts the session; the log
+---   line says so.
+--- @param oldName string|nil # Asked for when nil.
+--- @param newName string|nil # Asked for when nil.
+--- @return number # How many saves were moved.
+--
+function Teleporter:RenameArea(oldName, newName)
+    if not inMainThread() then
+        return synchronize(function() return self:RenameArea(oldName, newName) end)
+    end
+    local old = trimString(oldName ~= nil and oldName or inputQuery("Rename Area", "Area to rename:", ""))
+    if old == "" then return 0 end
+    local new = trimString(newName ~= nil and newName or inputQuery("Rename Area", "New name for '" .. old .. "':", old))
+    if new == "" or new == old then return 0 end
+    -- Resolved before Areas.Names changes: afterwards the old name derives
+    -- nothing, so a member that only had it through its category could no
+    -- longer be recognised as one.
+    local _, byLower = self:KnownAreas()
+    -- Another area already spells it this way, so this is a merge and that
+    -- spelling wins. Changing only the case of the same name is not a
+    -- merge, and keeps what was typed.
+    local merging = new:lower() ~= old:lower() and byLower[new:lower()] ~= nil
+    if merging then new = byLower[new:lower()] end
+    local renamed = 0
+    for _, key in ipairs(sortedKeys(self.Saves or {})) do
+        local save = self.Saves[key]
+        local area = type(save) == "table" and self:GetSaveArea(save, byLower) or nil
+        if area and area:lower() == old:lower() then
+            save.Area = new
+            renamed = renamed + 1
+        end
+    end
+    local names = type(self.Areas) == "table" and self.Areas.Names
+    local declared = false
+    for index = #(names or {}), 1, -1 do
+        if trimString(names[index]):lower() == old:lower() then
+            declared = true
+            -- On a merge the target is declared already, so the old entry
+            -- goes rather than becoming a duplicate of it.
+            if merging then table.remove(names, index) else names[index] = new end
+        end
+    end
+    if renamed > 0 then
+        self:PersistSaves(true)
+    end
+    -- The declared list alone changing still moves saves between areas, by
+    -- changing what their categories derive, so the views have to hear it.
+    if renamed > 0 or declared then
+        self:RefreshUi(true)
+        self:_NotifySavesChanged(nil)
+    end
+    logger:InfoF(MODULE_PREFIX .. " Renamed area '%s' to '%s' on %d save(s).%s", old, new, renamed,
+        declared and " Areas.Names in the table script still declares the old name." or "")
+    self:SetStatus(string.format("Area '%s' renamed to '%s'", old, new))
+    return renamed
+end
+registerLuaFunctionHighlight('RenameArea')
+
 --
 --- ∑ Adds a save name to a nested category tree.
 --- @param root table # Category tree root.
@@ -1442,6 +1825,7 @@ function Teleporter:SaveLookup()
         if (self:EnsureAuthorsAndCategories() or 0) > 0 then
             self:PersistSaves(true)
         end
+        self:_NotifySavesChanged(nil)
         return self:CountSaves()
     end
     if saveFilePath then
@@ -1745,6 +2129,10 @@ function Teleporter:ClearEditor()
         edit.Text = ""
     end
     if ui.DescriptionEdit then ui.DescriptionEdit.Lines.Text = "" end
+    if ui.AreaEdit then
+        ui.AreaEdit.Text = ""
+        pcall(function() ui.AreaEdit.TextHint = "" end)
+    end
     ui.CurrentSelection = nil
 end
 
@@ -1794,6 +2182,11 @@ function Teleporter:LoadSaveIntoEditor(name)
         if edit then edit.Text = tostring(save[axis] or "") end
     end
     ui.DescriptionEdit.Lines.Text = save.Description or ""
+    if ui.AreaEdit then
+        local area, derived = self:GetSaveArea(save)
+        ui.AreaEdit.Text = (area and not derived) and area or ""
+        pcall(function() ui.AreaEdit.TextHint = (area and derived) and ("derived: " .. area) or "" end)
+    end
     return true
 end
 
@@ -1833,7 +2226,77 @@ function Teleporter:_CommitSaveChange(key, status)
         self:ClearEditor()
     end
     self:SetStatus(status)
+    self:_NotifySavesChanged(key)
     return true
+end
+
+--
+--- ∑ Registers a function to be told when the saves change: after every
+---   add, update, rename, duplicate and delete, and after a load. The map
+---   uses this to rebuild its markers instead of polling. Registering the
+---   same function twice keeps one entry.
+--- @param listener function # fn(teleporter, key) - key is the save that
+---   changed, or nil for a load.
+--- @return function|nil # The listener, for RemoveSaveListener.
+--
+function Teleporter:AddSaveListener(listener)
+    if type(listener) ~= "function" then
+        return nil
+    end
+    -- Per instance, not on the class. Saves and Settings are shared through
+    -- the metatable until assigned, which is fine for configuration and
+    -- wrong for a list two instances would both append to.
+    local listeners = rawget(self, "SaveListeners")
+    if not listeners then
+        listeners = {}
+        rawset(self, "SaveListeners", listeners)
+    end
+    for _, existing in ipairs(listeners) do
+        if existing == listener then
+            return listener
+        end
+    end
+    listeners[#listeners + 1] = listener
+    return listener
+end
+registerLuaFunctionHighlight('AddSaveListener')
+
+--
+--- ∑ Forgets a listener registered with AddSaveListener.
+--- @param listener function
+--- @return boolean # Whether it was registered.
+--
+function Teleporter:RemoveSaveListener(listener)
+    local listeners = rawget(self, "SaveListeners")
+    if not listeners then
+        return false
+    end
+    for index, existing in ipairs(listeners) do
+        if existing == listener then
+            table.remove(listeners, index)
+            return true
+        end
+    end
+    return false
+end
+registerLuaFunctionHighlight('RemoveSaveListener')
+
+--
+--- ∑ Tells every listener. One that raises is reported and skipped, so a
+---   broken view cannot stop a save from being committed.
+--- @param key string|nil # The save that changed, or nil for a load.
+--
+function Teleporter:_NotifySavesChanged(key)
+    local listeners = rawget(self, "SaveListeners")
+    if not listeners then
+        return
+    end
+    for _, listener in ipairs(listeners) do
+        local ok, err = pcall(listener, self, key)
+        if not ok then
+            logger:WarningF(MODULE_PREFIX .. " A save listener failed: %s", tostring(err))
+        end
+    end
 end
 
 --
@@ -1929,17 +2392,41 @@ end
 --- @param name string # The name of the save. If nil, the user will be prompted to enter a name.
 --- @param category string # An optional category for the save.
 --- @param description string # An optional description for the save.
+--- @param area string|nil # An optional explicit area.
 --- @returns # true if the save was successfully created, false otherwise.
 --
-function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
+function Teleporter:CreateSaveFromCurrentPosition(name, category, description, area)
     local saveName = name
     if not saveName or saveName == "" then
         saveName = inputQuery("Add Save", "Enter a name for the new save:", "Location")
+        -- Cancel answers nil and an emptied box answers "". Neither is a
+        -- mistake, so neither earns the error line validateName would write.
+        if saveName == nil or trimString(saveName) == "" then
+            return false
+        end
     end
     if not validateName(saveName, "Save") then
         return false
     end
-    local position = self:GetCurrentPosition()
+    return self:CreateSaveAtPosition(self:GetCurrentPosition(), saveName, category, description, area)
+end
+
+--
+--- ∑ Creates a save at the given position and persists it.
+---   The position is taken as it is, one value per axis. This is what the
+---   map calls for a point that was clicked rather than stood on.
+--- @param position table # One value per axis.
+--- @param name string # The display name. Must not be empty.
+--- @param category string|table|nil # An optional category path.
+--- @param description string|nil # An optional description.
+--- @param area string|nil # An optional explicit area.
+--- @return boolean # true if the save was created, false otherwise.
+--
+function Teleporter:CreateSaveAtPosition(position, name, category, description, area)
+    local saveName = name
+    if not validateName(saveName, "Save") then
+        return false
+    end
     if not logSavePositionError(self, saveName, position) then
         return false
     end
@@ -1950,6 +2437,7 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
         Description = description or "",
     }, position)
     self:SetSaveCategoryPath(save, category)
+    save.Area = self:CanonicalArea(area)
     local saveKey = self:GetSaveKey(save)
     if not saveKey then
         logger:Error(MODULE_PREFIX .. " Cannot create a save without a name.")
@@ -1963,6 +2451,7 @@ function Teleporter:CreateSaveFromCurrentPosition(name, category, description)
     logger:InfoF(MODULE_PREFIX .. " Added Save: '%s'", saveKey)
     return self:_CommitSaveChange(saveKey, "Save created: " .. save.Name)
 end
+registerLuaFunctionHighlight('CreateSaveAtPosition')
 
 --
 --- ∑ Adds a new save using the current position. If called from a non-main thread, it synchronizes the call to the main thread.
@@ -2057,9 +2546,25 @@ end
 --- @returns # true if the save was successfully duplicated, false otherwise.
 --
 function Teleporter:DuplicateSelectedSave()
-    local sourceKey = self:GetSelectedSaveName()
+    return self:DuplicateSave(self:GetSelectedSaveName())
+end
+registerLuaFunctionHighlight('DuplicateSelectedSave')
+
+--
+--- ∑ Duplicates a save under a unique copy name in the same category, with
+---   its area, and persists it. The map's context menu calls this with a
+---   key; the window's button goes through DuplicateSelectedSave.
+--- @param keyOrName string # Save key, or a display name while unambiguous.
+--- @return boolean
+--
+function Teleporter:DuplicateSave(keyOrName)
+    if not inMainThread() then
+        return synchronize(function() return self:DuplicateSave(keyOrName) end)
+    end
+    local sourceKey, reason = self:ResolveSaveKey(keyOrName or "")
     if not sourceKey or not self.Saves or type(self.Saves[sourceKey]) ~= "table" then
-        logger:Warning(MODULE_PREFIX .. " No valid save selected for duplication.")
+        logger:WarningF(MODULE_PREFIX .. " Save Not Found for duplication: '%s' (%s).",
+                        tostring(keyOrName), tostring(reason or "no selection"))
         return false
     end
     local src = self.Saves[sourceKey]
@@ -2069,6 +2574,7 @@ function Teleporter:DuplicateSelectedSave()
         Name = newName,
         Author = src.Author or self:GetCurrentAuthor(),
         Description = src.Description or "",
+        Area = src.Area,
     }
     for _, axis in ipairs(self:GetAxes()) do
         copiedSave[axis] = src[axis]
@@ -2079,6 +2585,34 @@ function Teleporter:DuplicateSelectedSave()
     logger:InfoF(MODULE_PREFIX .. " Duplicated save '%s' as '%s'.", sourceKey, newKey)
     return self:_CommitSaveChange(newKey, "Save duplicated: " .. newName)
 end
+registerLuaFunctionHighlight('DuplicateSave')
+
+--
+--- ∑ Moves a save to a position, one value per axis, and persists it.
+---   What the map's "Set To Player Position" calls.
+--- @param keyOrName string # Save key, or a display name while unambiguous.
+--- @param position table # One value per axis.
+--- @return boolean
+--
+function Teleporter:SetSavePosition(keyOrName, position)
+    if not inMainThread() then
+        synchronize(function() self:SetSavePosition(keyOrName, position) end)
+        return
+    end
+    local key, reason = self:ResolveSaveKey(keyOrName or "")
+    local save = key and self.Saves and self.Saves[key]
+    if not save then
+        logger:WarningF(MODULE_PREFIX .. " Save Not Found: '%s' (%s).", tostring(keyOrName), tostring(reason))
+        return false
+    end
+    if not logSavePositionError(self, key, position) then
+        return false
+    end
+    self:PositionToSave(save, position)
+    logger:InfoF(MODULE_PREFIX .. " Save '%s' moved to %s.", key, self:FormatPosition(position))
+    return self:_CommitSaveChange(key, "Save moved: " .. self:GetSaveDisplayName(save, key))
+end
+registerLuaFunctionHighlight('SetSavePosition')
 
 --
 --- ∑ Updates the currently selected save with values from the editor and persists changes.
@@ -2116,6 +2650,9 @@ function Teleporter:UpdateSelectedSaveFromEditor()
     save.Author = ui.AuthorEdit.Text ~= "" and ui.AuthorEdit.Text or self:GetCurrentAuthor()
     self:SetSaveCategoryPath(save, ui.CategoryEdit.Text or "")
     save.Description = ui.DescriptionEdit.Lines.Text or ""
+    if ui.AreaEdit then
+        save.Area = self:CanonicalArea(ui.AreaEdit.Text)
+    end
     if oldKey ~= newKey then
         self.Saves[newKey] = save
         self.Saves[oldKey] = nil
@@ -2212,6 +2749,7 @@ function Teleporter:CreateMenuStrip(parent)
     local menu = createMainMenu(parent)
     parent.Menu = menu
     local hasWaypoint = self.Waypoint and trimString(self.Waypoint.Symbol) ~= ""
+    local hasMap = self:GetMap() ~= nil
     local menus = {
         { "&File", {
             { "Load Saves", function()
@@ -2238,6 +2776,10 @@ function Teleporter:CreateMenuStrip(parent)
             { "Duplicate Selected",   function() self:DuplicateSelectedSave() end },
             { "Rename Selected",      function() self:RenameSave() end },
             { "Delete Selected",      function() self:DeleteSave() end },
+            { "-" },
+            { "Set Area Of Selected...", onSelectedSave(self, function(name) self:PromptSaveArea(name) end) },
+            { "Assign Derived Areas",    function() self:AssignDerivedAreas() end },
+            { "Rename Area...",          function() self:RenameArea() end },
         } },
         { "&Tools", {
             { "Teleport To Selected Save",
@@ -2249,6 +2791,9 @@ function Teleporter:CreateMenuStrip(parent)
                 self:SetStatus("Runtime position saved")
             end },
             { "Load Runtime Position", function() self:LoadSavedPosition() end },
+            -- Only offered when the map module was loaded by the table.
+            hasMap and { "-" } or false,
+            hasMap and { "Open Map", function() self:OpenMap() end } or false,
         } },
     }
     for _, entry in ipairs(menus) do
@@ -2257,6 +2802,9 @@ function Teleporter:CreateMenuStrip(parent)
         menu.Items.add(top)
         addMenuItems(menu, top, entry[2])
     end
+    -- Once the whole menu exists, because the dark background only reaches
+    -- the submenus that are there when it is set.
+    if type(forms.ThemeMenuBar) == "function" then forms:ThemeMenuBar(parent) end
 end
 
 --
@@ -2287,18 +2835,56 @@ function Teleporter:CreateHeader(parent)
             if name then self:TeleportToSave(name) end
         end },
         { "Update",    "Update",       84, function() self:UpdateSelectedSaveFromEditor() end },
+        -- Only built when the map module was loaded by the table.
+        self:GetMap() and { "Map", "Map", 64, function() self:OpenMap() end } or false,
     }
     ui.ButtonKeys = ui.ButtonKeys or {}
     for _, entry in ipairs(toolbar) do
-        local key, caption, width, handler = entry[1], entry[2], entry[3], entry[4]
-        ui[key .. "Button"] = forms:CreateButton(buttons, {
-            caption = caption, width = width, theme = theme, onClick = handler,
-        })
-        ui.ButtonKeys[#ui.ButtonKeys + 1] = key .. "Button"
+        if entry then
+            local key, caption, width, handler = entry[1], entry[2], entry[3], entry[4]
+            ui[key .. "Button"] = forms:CreateButton(buttons, {
+                caption = caption, width = width, theme = theme, onClick = handler,
+            })
+            ui.ButtonKeys[#ui.ButtonKeys + 1] = key .. "Button"
+        end
     end
     ui.ToolbarPanel = header
     return header
 end
+
+--
+--- ∑ The map module's instance, when the table loaded one.
+---   Looked up rather than held, so a map constructed after the Teleporter
+---   is still found, and a table without one costs nothing but this call.
+--- @return table|nil
+--
+function Teleporter:GetMap()
+    local map = rawget(_G, "teleporterMap")
+    if type(map) == "table" and type(map.Show) == "function" then
+        return map
+    end
+    return nil
+end
+registerLuaFunctionHighlight('GetMap')
+
+--
+--- ∑ Opens the map window, with the selected save focused when there is one.
+--- @return boolean # Whether a map module was there to open.
+--
+function Teleporter:OpenMap()
+    local map = self:GetMap()
+    if not map then
+        logger:Warning(MODULE_PREFIX .. " No map module is loaded. CETrequire Manifold.TeleporterMap and construct it.")
+        return false
+    end
+    map:Show()
+    local selected = self:GetSelectedSaveName()
+    if selected and type(map.FocusSave) == "function" then
+        map:FocusSave(selected)
+    end
+    return true
+end
+registerLuaFunctionHighlight('OpenMap')
 
 --
 --- ∑ Creates the status bar panel for the Teleporter UI, containing a label to display status messages to the user.
@@ -2460,7 +3046,7 @@ function Teleporter:CreateEditorPanel(parent)
     local axes = self:GetAxes()
     local ROW_HEIGHT = 40
     local coordinateHeight = math.max(ROW_HEIGHT, #axes * ROW_HEIGHT - 2)
-    local identityHeight = 3 * ROW_HEIGHT - 2
+    local identityHeight = 4 * ROW_HEIGHT - 2
     ui.FieldsHostPanel = forms:CreatePanel(content, {
         align = "alTop", height = identityHeight + coordinateHeight + 8,
         color = theme.COLOR_PANEL, role = "panel",
@@ -2481,7 +3067,11 @@ function Teleporter:CreateEditorPanel(parent)
         { "Name",     { caption = "Name" } },
         { "Author",   { caption = "Author" } },
         { "Category", { caption = "Category Path", labelWidth = 108,
-                        textHint = "World / Region / Room" } },
+                        textHint = "Area / Region / Room" } },
+        -- Empty for a save whose area is derived from its category; the
+        -- derived name shows as the box's hint, which is the truth about
+        -- the file.
+        { "Area",     { caption = "Area", textHint = "" } },
     }
     local function buildRows(parentPanel, rows)
         for index = #rows, 1, -1 do
@@ -2497,6 +3087,7 @@ function Teleporter:CreateEditorPanel(parent)
     end
     buildRows(ui.BottomGroupPanel, coordinateRows)
     ui.AxisFieldKeys = axes
+    ui.IdentityFieldKeys = { "Name", "Author", "Category", "Area" }
     return ui.RightPanel
 end
 
@@ -2516,6 +3107,7 @@ function Teleporter:CreateTreeContextMenu()
         { "Duplicate",          function() self:DuplicateSelectedSave() end },
         { "Rename",             function() self:RenameSave() end },
         { "Delete",             function() self:DeleteSave() end },
+        { "Set Area...",        onSelectedSave(self, function(name) self:PromptSaveArea(name) end) },
     })
 end
 
@@ -2534,6 +3126,12 @@ function Teleporter:EnsureAuthorsAndCategories()
             data.Category = data.Category or ""
             self:SetSaveCategoryPath(data, self:GetSaveCategoryPath(data, false))
             data.Description = data.Description or ""
+            -- Area is optional. A blank one is the same as none and is
+            -- dropped in memory; the file is not rewritten for it.
+            if data.Area ~= nil then
+                local area = trimString(data.Area)
+                data.Area = area ~= "" and area or nil
+            end
             if trimString(data.Name) == "" then
                 -- Legacy entry: the key doubled as the display name before path keys existed.
                 data.Name = trimString(key)
@@ -2659,6 +3257,11 @@ function Teleporter:InitTeleporterUI()
     self:CreateTreeContextMenu()
     form.OnClose = function()
         self:SetStatus("Closed")
+        -- caFree frees every control with the form. The registry must not
+        -- keep them, or the next theme change reads freed memory.
+        if type(forms.UnregisterRoot) == "function" then
+            forms:UnregisterRoot(form)
+        end
         self.UiState = nil
         return caFree
     end
