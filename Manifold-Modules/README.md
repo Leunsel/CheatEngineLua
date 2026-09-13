@@ -21,6 +21,7 @@ every public function is listed in
 - Fully themeable UI with JSON theme files
 - Abstraction for file I/O with safe directory management
 - Trainer-friendly Teleporter system, 2D and 3D
+- An interactive map over the Teleporter's saves, with the player's live position
 
 ## Data Directory Structure
 
@@ -41,7 +42,8 @@ Manifold/
 ├── Themes/
 │   └── *.json                         → UI theme configuration files
 ├── Teleporter/
-│   └── Teleporter.<Process>.Saves.txt → Teleport save data (JSON)
+│   ├── Teleporter.<Process>.Saves.txt → Teleport save data (JSON)
+│   └── Teleporter.<Process>.Map.txt   → The map's remembered view (JSON)
 ├── State/
 │   └── Manifold.<StateName>.<Process>.State → Saved table states (JSON)
 └── Logs/
@@ -132,6 +134,8 @@ These modules provide the primary functionality for runtime operations.
   `ManifoldScanModule`, `ManifoldAssert`, `ManifoldPatch`, `ManifoldNop`,
   `ManifoldInstallDetour`, `ManifoldEmitOriginal` and `ManifoldResolveStatic`
 - `Manifold.Teleporter` → Save and restore positions, in as many dimensions as the game has
+- `Manifold.TeleporterMap` → Interactive canvas map over the Teleporter's saves: grid, zoom,
+  the player's live position and a teleport on a single click
 
 ### UI and Themes
 

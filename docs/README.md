@@ -1,6 +1,6 @@
 # Manifold Documentation
 
-Documentation for the six segments of the
+Documentation for the seven segments of the
 [`Leunsel/CheatEngineLua`](https://github.com/Leunsel/CheatEngineLua) repository.
 
 | Segment | Directory | Runs where | Purpose |
@@ -9,7 +9,7 @@ Documentation for the six segments of the
 | Manifold CE Utility | `Manifold-CE-Utility/` | Cheat Engine `autorun` | Quality of life menu for the Cheat Engine UI itself |
 | Manifold Framework | `Manifold-Modules/` | Inside a Cheat Table (`luaFiles` or table files) | Modular runtime library for Cheat Tables |
 | Manifold Logger | `Manifold-Logger/` | Cheat Engine `autorun` | Canvas-drawn log console any script can side-load |
-| Manifold SigMaker | `Manifold-SigMaker/` | Cheat Engine `autorun` | Array-of-bytes signature for the selected instruction |
+| Manifold SigMaker | `Manifold-SigMaker/` | Cheat Engine `autorun` | Array-of-bytes signature for the selected instruction, and the search back from one |
 | Manifold Table Files | `Manifold-TableFiles/` | Cheat Engine `autorun` | Editable window over the files attached to a Cheat Table |
 | Manifold Template Loader | `Manifold-TemplateLoader/` | Cheat Engine `autorun` | Template engine for Auto Assembler scripts |
 
@@ -30,8 +30,9 @@ for every module.
 [Manifold Logger](Manifold-Logger.md) covers the record model, channels, the canvas console, the
 bridges onto other producers and the log file.
 
-[Manifold SigMaker](Manifold-SigMaker.md) covers installation, the menu entry, how a signature is
-built by probing the disassembler, the masking policy and the output parts.
+[Manifold SigMaker](Manifold-SigMaker.md) covers installation, the menu entries and the shortcut,
+how a signature is built by probing the disassembler, the masking policy, the output parts, and
+the search that reads a signature back in and goes to where it matched.
 
 [Manifold Table Files](Manifold-TableFiles.md) covers installation, the window, and the design
 framework instance it carries.
@@ -59,6 +60,10 @@ Cheat Engine starts
 ├─ autorun/Manifold-TableFiles.lua            Segment 4, the Table Files window
 │    └─ publishes ManifoldTableFiles, registers no menu of its own
 │
+├─ autorun/Manifold-SigMaker.lua              Segment 7, signatures in both directions
+│    ├─ publishes ManifoldSigMaker, adds two entries to the disassembler context menu
+│    └─ carries its shortcut in the memory view's own menu bar
+│
 ├─ autorun/Manifold-Logger.lua                Segment 5, the log console
 │    ├─ publishes ManifoldLogger, adds a "Logger" main-menu entry
 │    ├─ bridges onto Manifold.Logger and the Template Loader when present
@@ -75,7 +80,7 @@ Cheat Engine starts
           ├─ ProcessHandler / Utils            lifecycle
           ├─ Memory / State / AutoAssembler    runtime
           ├─ Forms / UI                        presentation and themes
-          ├─ Teleporter                        feature module
+          ├─ Teleporter / TeleporterMap        feature modules
           └─ AssemblerCommands / Trampolines   Auto Assembler language extension
 ```
 

@@ -102,6 +102,7 @@ Consequences worth knowing:
 | `assemblerCommands` | `AssemblerCommands` | `Manifold.AssemblerCommands` |
 | `autoAssembler` | `AutoAssembler` | `Manifold.AutoAssembler` |
 | `teleporter` | `Teleporter` | `Manifold.Teleporter` |
+| `teleporterMap` | `TeleporterMap` | `Manifold.TeleporterMap` |
 | `callbacks` | `Callbacks` | `Manifold.Callbacks` |
 
 `Manifold.Bootstrap` is a namespace rather than a class, so its functions are dot-called
@@ -281,7 +282,9 @@ have already recorded themselves, so it erases exactly the three entries a suppo
 13  autoAssembler      logger required, customIO, processHandler runtime,
                        trampolines runtime
 14  teleporter         logger required, forms required, memory, customIO, ui runtime
-15  callbacks          logger required, ui runtime
+15  teleporterMap      logger required, forms required, teleporter required, customIO,
+                       json runtime, utils runtime, ui runtime
+16  callbacks          logger required, ui runtime
 ```
 
 `utils` sits after `ui` although nothing forces it to. `utils:InitializeTable()` calls
@@ -436,6 +439,12 @@ Bootstrap.Boot({
 processHandler:AutoAttach("Game.exe")
 ```
 
+A `KNOWN` entry may declare what it `needs` and that it is `optional`. `Boot` skips such a module,
+with one Info line rather than a failure, when a need was skipped or failed or is otherwise not
+there, and when its file is not shipped with the table. `teleporterMap` is the first of these:
+it needs `teleporter`, so the `skip = { teleporter = true }` above still boots cleanly, and a table
+that does not ship `Manifold.TeleporterMap.lua` is not told its boot is incomplete.
+
 `options.only` restricts the walk to a list of keys, `options.skip` removes keys from it,
 `options.after` runs a post-load hook per module, and `options.stopOnError` turns the first
 failure into an error instead of a collected report. `options.verify` defaults to true and runs
@@ -464,8 +473,8 @@ never assigned, and the Forms and Teleporter passes that follow are skipped.
    somewhere inside a dependency check. Nothing in `Manifold.Bootstrap` indexes the logger without
    a guard, which is what closed
    [TODO T4](TODO.md#t4-statecheckdependencies-uses-the-logger-before-it-exists) structurally.
-2. `forms` before `ui` and `teleporter`. Both declare `forms` as required and refuse to construct
-   without it.
+2. `forms` before `ui`, `teleporter` and `teleporterMap`. All three declare `forms` as required
+   and refuse to construct without it, and the map additionally requires `teleporter`.
 3. `Manifold.Callbacks` registers at load time. On `dofile` it replaces four handlers outright,
    `AddressList.OnDescriptionChange`, `OnAddressChange`, `OnTypeChange` and `OnValueChange`,
    and it defines the global `onMemRecPreExecute` and `onMemRecPostExecute`. The two remaining
@@ -491,7 +500,8 @@ Manifold/
 ├── Themes/
 │   └── *.json                         → external themes ("(External)" suffix in the name)
 ├── Teleporter/
-│   └── Teleporter.<Process>.Saves.txt → teleporter saves (JSON)
+│   ├── Teleporter.<Process>.Saves.txt → teleporter saves (JSON)
+│   └── Teleporter.<Process>.Map.txt   → the map's remembered view (JSON)
 ├── State/
 │   └── Manifold.<StateName>.<Process>.State → table states (JSON)
 └── Logs/
@@ -526,7 +536,7 @@ logger.DataDir   = "D:\\Manifold"   -- the logger keeps its own copy!
 
 | Module | Version | Purpose |
 |---|---|---|
-| Manifold.Bootstrap | 1.0.0 | Dependency lookup, module registry, order of execution, collision detection |
+| Manifold.Bootstrap | 1.0.3 | Dependency lookup, module registry, order of execution, collision detection |
 
 ### Core modules
 
@@ -566,14 +576,15 @@ logger.DataDir   = "D:\\Manifold"   -- the logger keeps its own copy!
 
 | Module | Version | Purpose |
 |---|---|---|
-| Manifold.Forms | 1.0.2 | Role-based, themeable VCL control factory with a registry |
-| Manifold.UI | 1.0.6 | Theme system, CE window tweaks, theme creator |
+| Manifold.Forms | 1.4.0 | Role-based, themeable VCL control factory with a registry |
+| Manifold.UI | 1.2.2 | Theme system, CE window tweaks, theme creator |
 
 ### Feature
 
 | Module | Version | Purpose |
 |---|---|---|
-| Manifold.Teleporter | 1.1.6 | Save/load 3D positions, own UI, CE record generation |
+| Manifold.Teleporter | 1.6.2 | Save/load positions in any number of dimensions, optional areas, own UI, CE record generation |
+| Manifold.TeleporterMap | 1.3.3 | Interactive canvas map over the Teleporter's saves: one area at a time, height in size and shade, readable crowds |
 
 ### Developer modules (`Manifold.Dev/`)
 
@@ -707,6 +718,7 @@ ui:ApplyTheme(themeName [, allowReapply])
   │                               → whether the window was open
   ├─ ApplyThemeToForms            every control registered through Manifold.Forms
   ├─ ApplyThemeToTeleporter       if the teleporter is loaded → whether it was
+  ├─ teleporterMap:OnThemeApplied if the map is loaded → whether its window was open
   ├─ one InfoBlock                the whole apply, reported once
   └─ ReleaseThemeApplyLock()
 ```
@@ -725,6 +737,7 @@ entry:
    Lua Engine : themed
    Slogan     : themed
    Teleporter : not open
+   Map        : not open
 ```
 
 `ApplyThemeObject`, which the theme creator uses, emits the same block. A theme applied by name and
@@ -951,6 +964,7 @@ teleporter = Teleporter:New({
         YCoordinateIndex      = 2,      -- 1 = X, 2 = Y, 3 = Z
         AdjustmentAmount      = 10.0,
     },
+    Areas     = { Names = { "Slums", "Old Town", "The Following" } },   -- the game's maps, see 8.6
 })
 ```
 
@@ -960,6 +974,7 @@ teleporter = Teleporter:New({
 | `Waypoint` | Optional waypoint position, also a pointer. |
 | `Additional` | Optional second write target (some games require a second set of coordinates to allow for proper teleports). Only used when `Symbol` is set. |
 | `Symbols.Saved` / `.Backup` | Two allocated buffers for "last save" and "position before the last jump". Read and written directly, not as pointers. |
+| `Areas` | Optional. `Names` declares the game's separate maps for the Teleporter Map; `DeriveFromCategory` (default `true`) lets a save's top category stand in for a missing `Area`. See 8.4 and 8.6. |
 
 Offsets for `Saved`/`Backup` are computed by `CalculateSymbolOffsets()` from `Settings.ValueType`
 and the axis count (`vtSingle` in three dimensions → `{0, 4, 8}`, in two → `{0, 4}`).
@@ -1096,6 +1111,15 @@ Debug line on a hot path is a real disk write. Turn it on to trace one jump, not
   for backward compatibility, and older files that only carry `Category` are normalized on load
   through `GetSaveCategoryPath()`.
 - `/`, `\`, `>` and `|` are accepted as separators in `Category`, and output always uses `" / "`.
+- `Area` (string, optional, since 1.6.0) says which of the game's maps a save is on, for the
+  Teleporter Map. It is an attribute, never part of the key, so setting or clearing it rekeys
+  nothing and every generated `TeleportToSave('<key>')` record keeps working. A save without one
+  belongs to the area its top category names, provided that name is declared in
+  `teleporter.Areas.Names` or used explicitly by another save; a top category that is not a
+  declared area ("Bosses", "Default") derives nothing. `GetSaveArea(save)` answers with the area
+  and whether it was derived, `SetSaveArea(key, area)` sets or clears the field, and
+  `AssignDerivedAreas()` writes the derived areas into the file once, for a table that wants the
+  file to say what the map shows.
 - File: `%USERPROFILE%\AppData\Local\Manifold\Teleporter\Teleporter.<Target>.Saves.txt`.
   `SaveLookup()` tries that file first and falls back to the table file of the same name, which is
   handy for shipped tables with predefined jump targets.
@@ -1122,18 +1146,206 @@ Opens a standalone window (1120 × 720) with a menu strip, status bar, a tree vi
 axis and description. Its controls are built through `Manifold.Forms`, so `ui:ApplyTheme(...)`
 recolours them automatically (`UI:SetTeleporterControlColors`).
 
+Since 1.6.0 the editor has an Area row. It is empty for a save whose area is derived from its
+category, with the derived name as the box's hint, and filled for a save that carries the field.
+The Saves menu offers Set Area Of Selected…, Assign Derived Areas and Rename Area…, and the tree's
+context menu Set Area…. The Teleporter Map's context menu sets areas too.
+
 Two conventions keep the builder and the theming in step without either one hard coding a list:
 
 * **Every control registers itself into `UiState` under its own name.** A field row registers six
   entries: `<Key>Edit`, `Row`, `Label`, `Border`, `Fill` and `Inner`. So the name box is
   `UiState.NameEdit` and the first coordinate box is `UiState.XEdit`, whatever `X` happens to be
   called.
-* **`UiState.AxisFieldKeys` and `UiState.ButtonKeys` say what was actually built.** The theming
-  walks those rather than a fixed set, which is what lets a 2D window have two coordinate rows.
-  Both have a fallback for a Teleporter older than the lists.
+* **`UiState.IdentityFieldKeys`, `UiState.AxisFieldKeys` and `UiState.ButtonKeys` say what was
+  actually built.** The theming walks those rather than a fixed set, which is what lets a 2D
+  window have two coordinate rows and what let the Area row appear without a second edit in
+  `Manifold.UI`. Each has a fallback for a Teleporter older than its list: `Name`, `Author`,
+  `Category` for the identity rows, `X`, `Y`, `Z` for the coordinates.
 
 Adding a toolbar button or a field row is therefore one entry in the spec table inside the
 relevant `Create*` function, and nothing else anywhere.
+
+### 8.6 Map
+
+`Manifold.TeleporterMap` draws the saves on a canvas: a grid that rescales with the zoom, one
+marker per save, the player's live position with a trail behind it, and a teleport on a single
+click. It is a separate module because the Teleporter is already the size it is, and a table that
+wants no map pays nothing for it.
+
+```lua
+CETrequire("Manifold.TeleporterMap")
+teleporterMap = TeleporterMap:New({
+    View   = { OneClickTeleport = true },
+    Player = { RefreshInterval = 100, TrailBreakDistance = 25 },
+})
+teleporterMap:Show()
+```
+
+It requires `teleporter`, so it is constructed after it. In `Bootstrap.ORDER` it sits between
+`teleporter` and `callbacks`. Once it exists the Teleporter window grows a **Map** button and a
+**Tools → Open Map** entry, both of which open the map with the selected save focused, switching
+to that save's area first. Nothing has to be wired for that; `Teleporter:GetMap()` looks the
+instance up when the window is built.
+
+**Which two axes are the map.** A position has as many components as `Transform.Offsets`, and a
+map has two. For a 3D game the up axis is left out, and the Teleporter already names it: when
+`Settings.AdjustYCoordinate` is on, `Settings.YCoordinateIndex` is the axis the lift applies to,
+so that is the one the map does not draw. Off, the second component is assumed. A 2D game draws
+both of its components. The rule can be overridden in the configuration or at runtime through
+**View → Plane**, which lists every pair the table has:
+
+```lua
+teleporterMap.Plane = { Horizontal = 1, Vertical = 3 }   -- X across, Z up the screen
+```
+
+A growing vertical value moves **up** the screen, which is what a map reader expects. When the
+game's north points the other way, **View → Flip Vertical** (or `Plane.FlipVertical = true`)
+turns it around, and **Flip Horizontal** does the same across.
+
+**Areas.** A game with several maps keeps its saves in one file, and their coordinate spaces
+overlap, so a marker from Old Town drawn on the Slums is a lie. The window therefore shows one
+area at a time: the dropdown in the toolbar, **View → Area** and PageUp/PageDown switch between
+All Areas, each area with its count, and (No Area), which appears while any save has none or while
+it is the view being shown. Which area a save is in is the Teleporter's answer, see 8.4; the map
+never guesses from coordinates, because the spaces overlap by construction. Every area remembers
+its own camera per plane, Fit All fits the area, the trail is dropped on a switch, a save made
+with Add Save Here is stamped with the area being shown, and with every area drawn at once each
+area names itself once, where its saves are. A save without an area is hidden in every single-area
+view and lives behind the (No Area) entry, where it can be given one from the context menu's Set
+Area submenu. There is no automatic detection of the player's area: that needs a level symbol per
+game and engine, so the switch stays manual.
+
+**Height.** The map is flat and a 3D game is not, so a marker carries the height of its save in
+its size and its shade at once: the lowest save is the largest disc in the accent itself, the
+highest the smallest and the most recessive, in up to four steps of one hue. Both come from one
+mirrored number, so size and shade cannot disagree, and the legend in the corner shows the pair
+between two rounded heights. "Height" is the component the plane leaves out: the up axis while the
+plane does not draw it, otherwise the one remaining component, so switching to the X / Y plane
+makes Z the height rather than duplicating what the vertical position already shows.
+
+The ramp is built from the theme's own accent, in OKLab, so it is one hue with lightness steps
+that are steps to the eye and not only to the arithmetic. A palette whose accent cannot be held
+apart from its surface gets no ramp rather than an unreadable one, and then every marker is the
+plain accent at the base radius and there is no legend. **View → Scale Markers By Height** governs
+size, shade and the legend together; a 2D table has no height and draws every marker the same.
+
+**Crowds.** Saves sit on top of each other, and a pile of fifteen used to be one blob. Four things
+separate them. Every disc is drawn on a ring of the canvas colour, so a marker in front carves its
+own gap out of the ones behind it. Discs are painted large to small, which is lowest to highest, so
+a small high save is never swallowed by a large low one. A disc is never drawn wider than the room
+a save has at this zoom. And a pile the eye still cannot separate carries the number of saves in
+it, drawn beside the pile and never over it. Every one of them is still one click away: the badge
+has no hit behaviour and nothing about the hit test changed. `Z` zooms into the pile under the
+pointer, which is the only thing that really separates it.
+
+**The pointer.** Hovering answers with a card: which save it is on, where that save is, which area
+it belongs to, what a click will do, and the names of the other saves under the same pointer. In a
+pile that card is the only place those names exist.
+
+**Labels.** A label tries eight places around its disc and takes the first that is clear of the
+other marks, the readouts, the labels already placed and the edge of the map. One that fits nowhere
+is dropped rather than clipped or painted over a mark, and the map card says how many of the names
+a frame managed to place. The selection is placed first, so the save being asked about always gets
+its name, and it carries its coordinates on a second row. The save under the pointer gets no label
+at all, because the card beside it is already showing the name and the numbers, and the room that
+frees goes to its neighbours.
+
+**The window.** A toolbar (Fit All, Player, Follow, zoom, Teleport, an area dropdown and a filter
+box), the map card, a details card for the selected save with a Teleport, Editor and Center
+button, and a status bar whose right half shows the world coordinates under the cursor, the zoom
+and the player's position. The details card can be hidden through **View → Details Panel**.
+
+| Input | Effect |
+|---|---|
+| Click a marker | Selects it, and teleports when **One-Click Teleport** is on (the default) |
+| Double click a marker | Teleports when One-Click Teleport is off |
+| Ctrl + click on empty map | Teleports to that point. The height snaps to the nearest shown save within `View.HeightSnapRadius`, and is the player's own when none is in reach. |
+| Ctrl + Shift + click | Teleports to the point keeping the player's own height, ignoring the height snap |
+| Any teleport from the map | Asks first while **Teleport → Confirm Before Teleport** is on (the default) |
+| Drag | Pans. Panning switches Follow off. |
+| Wheel | Zooms around the cursor |
+| Right click | Teleport To *save*, Teleport Here, Add Save Here…, Rename Save…, Duplicate Save, Delete Save, Set To Player Position, Set Height To Player, Set Area ▸, Copy Coordinates, Center Here, Fit All, Open Selected In Editor |
+| `+` / `-` | Zoom in and out |
+| Wheel notch | A quarter of the scale, arriving over `View.ZoomAnimationMs` (120 ms) of real time rather than of frames, so a slow frame drops steps instead of stretching the glide. `0` applies it at once. Following the player does not interrupt a notch, but panning, dragging and centring do. |
+| `Home` / `Shift+Home` | Fit the saves that sit together / fit every save |
+| `Z` | Zoom into the pile under the pointer |
+| `End` | Centre on the player |
+| `Space` | Follow the player |
+| `Enter` | Teleport to the selected save |
+| Arrow keys | Pan |
+| `G`, `L`, `T` | Grid, labels, trail |
+| `PageUp` / `PageDown` | Previous / next area |
+| `,` / `.` | Narrow / widen the height band |
+| `Delete` / `F2` | Delete / rename the selected save, through the Teleporter's own question or prompt |
+| `Ctrl+F`, `Escape` | Focus the filter box; Escape clears the filter while it has focus, otherwise the selection |
+
+The filter box dims every save whose key, name, category, author or description does not contain
+the text, and a dimmed save is drawn hollow and cannot be clicked, so a filter makes a crowded area
+clickable as well as readable.
+
+**Teleport Here** and **Add Save Here…** need a full position, and the map plane only supplies two
+components. The height comes from the nearest shown save within `View.HeightSnapRadius` world units
+of the point (25 by default), because a save is a height somebody stood at, and a click from a
+rooftop onto a street point would otherwise drop the player from the roof. The question and the
+status bar name the save the height came from. With no save in reach, or with Ctrl+Shift+click, the
+player's own height is kept. Either way the Teleporter then lifts the target by its own adjustment
+as it does for every jump. `View.HeightSnapRadius = 0` switches the snap off.
+
+**Height band.** For a game whose floors share one level, the band is what areas are for a game
+with several: **View → Height Band** (Off, ±2, ±5, ±10, ±25, ±50 units; `,` and `.` step through
+them) dims every save further than that from the player's height, and a dimmed save cannot be
+clicked, exactly like a filter miss. The band follows the player, re-applied once they have moved a
+quarter of it up or down, and is remembered with the view. A table with no height axis is told it
+has no band to apply.
+
+**Editing from the map.** The context menu on a marker offers Rename Save…, Duplicate Save, Delete
+Save, Set To Player Position, Set Height To Player, Set Area ▸ and Copy Coordinates (comma
+separated, in axis order). Rename and Delete go through the Teleporter's own prompt and question,
+the two moves ask first every time, and the map is told through the save listeners, so the marker
+follows. `Delete` and `F2` do the same for the selected save.
+
+**Fitting.** One far-away save used to squeeze every other one into a corner. **Fit All** fits the
+saves that sit together and says in the status bar how many far ones it left out. **Fit Every Save**
+(Shift+Home) fits those as well. Two rules keep it from throwing the map away instead of an outlier.
+An axis where the middle half of the saves share one value has no spread to measure, so that axis
+decides nothing and the choice falls to the axis that does spread. And a fit that would leave out
+more than a fifth of the saves is measuring the shape of the level rather than an outlier, so it
+fits everything instead. What it did leave out is said even when an area switch or the window
+opening writes its own status line.
+
+**The player.** The window's timer reads the position every `Player.RefreshInterval` milliseconds
+through `Teleporter:PeekCurrentPosition()`, which resolves the pointer without logging.
+`GetCurrentPosition` reports an unresolvable pointer as a warning, and every warning is a file
+write; a game in its menu has no valid pointer for seconds at a time, and ten reads a second of
+that would fill the log with one line. After `Player.FailureBackoff` failed reads in a row the poll
+slows to one read per ten ticks and the last known position is painted faint, until a read succeeds
+again. The player is drawn as a crosshair with its own word beside it rather than a coloured dot,
+because `COLOR_SUCCESS` is the same green as the accent on a theme like Dark-Hacker and shape is
+the one difference a theme cannot take away. A move shorter than `Player.TrailMinDistance` adds no
+trail point, a jump longer than `Player.TrailBreakDistance` starts a new segment rather than drawing
+a line across the map, and a teleport from the map breaks the trail itself. `Player.TrailLength`
+caps the points kept.
+
+**Following the saves.** The Teleporter tells its save listeners after every add, update, rename,
+duplicate and delete, and after a load, so the map rebuilds its markers the moment a save changes
+and never polls for it. `Teleporter:AddSaveListener(fn)` is open to any other view of the saves.
+
+**Theme.** The window is built through `Manifold.Forms`, so `ui:ApplyTheme(...)` recolours its
+controls through their roles. The canvas takes its colours from the same design palette: the
+background is `COLOR_INPUT`, the grid, the axes and the rulers are `COLOR_MUTED` mixed into the
+surface, markers are the accent and its ramp, the selection ring and hover are `COLOR_TEXT`, the
+player is `COLOR_SUCCESS`. The grid deliberately does not use `COLOR_BORDER`: in every bundled
+theme that token is the accent, so the scenery used to compete with the data. `ApplyTheme` calls
+`teleporterMap:OnThemeApplied()` after the Forms pass, which repaints from the new palette.
+
+**Remembered view.** Zoom, centre, plane, flips, the toggles, the shown area with one camera per
+area and plane, and the height band are written to
+`%LOCALAPPDATA%\Manifold\Teleporter\Teleporter.<Target>.Map.txt` a second after the camera comes
+to rest and again when the window closes, and read back the next time it opens. A file written
+before cameras were kept per plane keeps them: a camera with no plane is read as the plane the file
+was framed on. `Settings.PersistView = false` switches the whole thing off. Without a remembered
+view the first open fits the saves that sit together.
 
 ## 9. Forms, themeable controls
 
@@ -1147,6 +1359,22 @@ local root  = forms:CreatePanel(form, { align = alClient, role = "background" })
 local edit  = forms:CreateFieldRow(root, { caption = "Name:", textHint = "…" })
 local btn   = forms:CreateButton(root, { caption = "OK", onClick = function() print("ok") end })
 ```
+
+A window that closes with `caFree` must leave the registry before it does. Its controls are freed
+with it, and the next `ApplyTheme` would otherwise read `Visible` on a form that no longer exists
+and colour controls that have been destroyed, which is a use after free and an access violation
+whenever the memory has been reused. The Teleporter and the map therefore call
+`forms:UnregisterRoot(form)` from their `OnClose` before returning `caFree`; a window that only
+hides itself, like the theme creator, keeps its entries.
+
+**Menu bars.** A menu made with `createMainMenu` is a plain LCL menu. Cheat Engine's own menus are
+its dark mode subclass, which gives the menu and every submenu a dark background the first time a
+window shows, and a Lua menu never gets that step. Its dropdowns then have dark entries inside a
+light frame, with a light icon column and light separators. `forms:ThemeMenuBar(form)` performs the
+same step through the same Windows calls. Call it once the menu is complete, and again after filling
+a submenu that did not exist yet, because the background only reaches the submenus that are there
+when it is set. It does nothing outside dark mode. The Teleporter and the map call it for their menu
+bars.
 
 Available roles and their colour mapping:
 

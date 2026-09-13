@@ -42,11 +42,12 @@ Conventions used here:
 - [Manifold.Forms](#manifoldforms)
 - [Manifold.UI](#manifoldui)
 - [Manifold.Teleporter](#manifoldteleporter)
+- [Manifold.TeleporterMap](#manifoldteleportermap)
 - [Manifold.Testing](#manifoldtesting)
 
 ## Manifold.Bootstrap
 
-`Bootstrap`, version 1.0.2. It requires nothing and declares nothing, because it is the framework
+`Bootstrap`, version 1.0.3. It requires nothing and declares nothing, because it is the framework
 root and sits below `Manifold.Json`. It is a namespace rather than a class, so its functions are
 dot-called and there is no instance to create. The published table lives in the global
 `ManifoldBootstrap`.
@@ -76,7 +77,7 @@ re-executed.
 | `Bootstrap.Contract(key, value, extra)` | `boolean, string?` | The usability half of validation. Does this value answer the calls its consumers make? |
 | `Bootstrap.Validate(key, value, extra)` | `boolean, string?` | Contract plus identity. Is this global still a pristine instance of the module table loaded right now? The metatable test detects an instance orphaned by a re-executed chunk. |
 | `Bootstrap.Verify(raise)` | `boolean, table` | Proves the order of execution. Every `ORDER` key exists in `KNOWN`, every `KNOWN` key appears in `ORDER` exactly once, and every non-runtime dependency sits earlier in `ORDER`. An order that passes cannot contain a load-time cycle. |
-| `Bootstrap.Boot(options)` | `boolean, table` | Walks `Bootstrap.ORDER` and acquires every module. Entirely optional. `options` accepts `config`, `skip`, `only`, `after`, `stopOnError` and `verify` (default `true`). |
+| `Bootstrap.Boot(options)` | `boolean, table` | Walks `Bootstrap.ORDER` and acquires every module. Entirely optional. `options` accepts `config`, `skip`, `only`, `after`, `stopOnError` and `verify` (default `true`). A module whose `needs` were skipped, failed or not booted is skipped with one Info line, and so is an `optional` module whose file is not shipped; neither counts as a failure. |
 | `Bootstrap.Reload(key)` | `table\|nil, string?` | Forces one module through a full reload: drop the globals, re-require, reconstruct. The one supported way to reload during development. |
 
 ### Diagnostics
@@ -94,7 +95,7 @@ re-executed.
 
 | Field | Description |
 |---|---|
-| `Bootstrap.KNOWN` | The single source of truth for how a module is found and built: `path`, `class`, `construct`, an optional `contract` predicate and `rebuild`. |
+| `Bootstrap.KNOWN` | The single source of truth for how a module is found and built: `path`, `class`, `construct`, an optional `contract` predicate and `rebuild`. An entry may add `needs` (keys it cannot be built without) and `optional` (its file may be left out of a table); `teleporterMap` declares both. |
 | `Bootstrap.ORDER` | The order of execution as a linear array. Every load-time edge points strictly backwards in it. |
 | `Bootstrap.Settings` | `ReadyLevel` (default `"Info"`), `DegradedLevel` (`"Warning"`), `ReloadLevel` (`"Warning"`), `ConflictLevel` (`"Error"`) and `AutoLoad` (`false`). |
 | `Bootstrap.Registry` | The reload-surviving registry table itself. |
@@ -104,7 +105,7 @@ re-executed.
 Bootstrap.ORDER = {
     "json", "logger", "customIO", "helper", "memory", "forms",
     "processHandler", "ui", "utils", "state", "trampolines",
-    "assemblerCommands", "autoAssembler", "teleporter", "callbacks",
+    "assemblerCommands", "autoAssembler", "teleporter", "teleporterMap", "callbacks",
 }
 ```
 
@@ -1051,7 +1052,7 @@ exactly MSVC's inter-function padding, so without it a relay could land in `.tex
 
 ## Manifold.Forms
 
-`Forms`, version 1.0.3. It declares `logger` as an optional dependency. `New(config)` copies
+`Forms`, version 1.4.0. It declares `logger` as an optional dependency. `New(config)` copies
 recognised keys from `config` onto the instance and warns about the rest.
 
 ### Control factory
@@ -1064,6 +1065,7 @@ recognised keys from `config` onto the instance and warns about the rest.
 | `forms:CreateTextBox(parent, opts)` | `edit` | |
 | `forms:CreateMemo(parent, opts)` | `memo` | |
 | `forms:CreateTreeView(parent, opts)` | `tree` | |
+| `forms:CreateComboBox(parent, opts)` | `combo` | Read-only dropdown. `items` fills it, `itemIndex` selects, `onChange` is attached last so filling does not fire it, `dropdownStyle` picks the kind (`csDropDownList` by default; it is not called `style`, which the theming reads as the font style). Role `combo`: input colours on the closed box, the list is system drawn. |
 | `forms:CreateListView(parent, opts)` | `list` | `BorderStyle = "bsNone"` |
 | `forms:CreateButton(parent, opts)` | `button, label` | Panel plus centred label plus hover |
 | `forms:CreateMemoFrame(parent, opts)` | `memo, outer, inner` | Memo wrapped in framing panels |
@@ -1093,6 +1095,9 @@ Plus: `borderSpacing` (`{Left, Top, Right, Bottom, Around}`), `constraints`, `ro
 | `forms:SetButtonState(button, isHover)` | | Hover or normal state. |
 | `forms:RegisterControl(control, role, opts)` | `control` | |
 | `forms:RegisterForm(form, opts)` | `form` | `isRoot = true` |
+| `forms:UnregisterControl(control)` | `boolean` | Forgets one control. |
+| `forms:ThemeMenuBar(form)` | `boolean` | Gives the form's menu bar and every submenu that exists the dark background Cheat Engine gives its own menus, through `SetMenuInfo` with `MIM_BACKGROUND` and `MIM_APPLYTOSUBMENUS`. A menu made with `createMainMenu` never gets that step and draws a light frame and light separators around dark entries. Call it once the menu is complete, and again after filling a new submenu. Does nothing outside dark mode or outside Cheat Engine, and reports a failure once. |
+| `forms:UnregisterRoot(form)` | `number` | Forgets a form and every control registered under it. Call it from `OnClose` before returning `caFree`; the controls are freed with the form and the next `ApplyTheme` would walk freed memory. Returns how many entries were dropped. |
 | `forms:SetButtonOnClick(button, handler)` | `button` | Sets the handler on the panel and on the label. |
 | `forms:ApplyFont(control, color, size, style)` | | Forces `Consolas`. |
 | `forms:SetBorderSpacing(control, spacing)` | | |
@@ -1121,7 +1126,7 @@ Plus: `borderSpacing` (`{Left, Top, Right, Bottom, Around}`), `constraints`, `ro
 
 ## Manifold.UI
 
-`UI`, version 1.1.2. `logger`, `customIO` and `forms` are required, `json` is an optional
+`UI`, version 1.2.2. `logger`, `customIO` and `forms` are required, `json` is an optional
 dependency, and `teleporter` is a runtime dependency.
 
 ### Configuration
@@ -1300,7 +1305,7 @@ ui:StartTextAnimation("MANIFOLD", {
 
 ## Manifold.Teleporter
 
-`Teleporter`, version 1.4.1. `logger` and `forms` are required, and `memory` and `customIO` are
+`Teleporter`, version 1.6.2. `logger` and `forms` are required, and `memory` and `customIO` are
 optional dependencies. `ui` is a runtime dependency. The module also calls `utils` at runtime, for
 `GetTargetNoExt` and `AutoDisable`, without declaring it.
 
@@ -1314,6 +1319,11 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `Symbols` | `Saved = "SavedPositionFlt"`, `Backup = "BackupPositionFlt"` |
 | `Settings` | `ValueType`, `PauseWhileTeleporting`, `AdjustYCoordinate`, `YCoordinateIndex`, `AdjustmentAmount`, `LogVerbose` |
 | `Axes` | `{ "X", "Y", "Z" }`. Names only. The count comes from `Transform.Offsets`. |
+| `Areas` | `Names = {}`, `DeriveFromCategory = true`. The game's separate maps, for the Teleporter Map. See the guide's 8.4 and 8.6. |
+
+A `Transform`, `Waypoint` or `Additional` block given without a `ValueType` takes `Settings.ValueType`
+once, in `New`, so `{ Symbol = "PlayerPtr", Offsets = { 0x30, 0x34, 0x38 } }` reads and writes as
+singles on every path.
 | other | `Saves = {}`, `SaveFileName = "Teleporter.%s.Saves.txt"`, `SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"` |
 
 ### Dimensions
@@ -1339,7 +1349,8 @@ See [the framework guide](Manifold-Framework.md#82-dimensions).
 | `teleporter:WritePositionToMemory(symbol, offsets, pos, isPointer, valueType)` | `boolean` | |
 | `teleporter:CalculateSymbolOffsets()` | `table` | One offset per axis, sized from `Settings.ValueType`. `vtSingle` in two dimensions gives `{0, 4}`. |
 | `teleporter:SetValueType(vt)` | | Validated against the read and write tables |
-| `teleporter:GetCurrentPosition()` | `table\|nil` | |
+| `teleporter:GetCurrentPosition()` | `table\|nil` | Reports an unresolvable pointer as a warning. |
+| `teleporter:PeekCurrentPosition()` | `table\|nil` | The same read without logging, for a caller that polls. `nil` while no process is open, the pointer does not resolve, or a component cannot be read. |
 | `teleporter:GetSavedPosition()` | `table\|nil` | |
 | `teleporter:GetBackupPosition()` | `table\|nil` | |
 
@@ -1383,6 +1394,21 @@ categories.
 | `teleporter:GetSaveDisplayName(save, fallbackKey)` | `string` | `save.Name`, falling back to the key |
 | `teleporter:ResolveSaveKey(input)` | `string\|nil, string\|nil` | Exact key, else a unique display name; otherwise `nil` plus the reason |
 
+### Areas
+
+`Area` is an optional attribute of a save, never part of its key.
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporter:KnownAreas()` | `table, table` | Sorted names and a `{ [lower] = name }` lookup: `Areas.Names` plus every explicit `Area` a save carries, learned in key order so the spelling it settles on is the same on every call |
+| `teleporter:CanonicalArea(area [, known])` | `string\|nil` | The name in the spelling this table already uses, `nil` for an empty one. Every path that stores an `Area` goes through it, and `GetSaveArea` folds what it reads the same way. |
+| `teleporter:GetSaveArea(save [, known])` | `string\|nil, boolean` | The explicit `Area`; else, while `Areas.DeriveFromCategory` is on, the top category when it names a known area, spelled the known way. The boolean says it was derived. `known` is the lookup from `KnownAreas`, for a caller in a loop. |
+| `teleporter:GetAreas()` | `table, number` | Sorted `{ Name, Count }` per known area, declared ones included while empty, and how many saves have none |
+| `teleporter:SetSaveArea(keyOrName, area)` | `boolean` | Sets or clears (`""`/`nil`) the field and commits. A name already known is taken in its known spelling. |
+| `teleporter:PromptSaveArea([keyOrName])` | `boolean` | Asks for the area with `inputQuery`, then `SetSaveArea` |
+| `teleporter:AssignDerivedAreas()` | `number` | Writes the derived area into every save without one. One write, one listener call. |
+| `teleporter:RenameArea([old, new])` | `number` | Moves every save in the area, whether it carried the name or derived it from its category: a derived member has the new name written into it, because the old name derives nothing afterwards. A name that is already another area's merges into it and the old declaration goes. Asks when not given; one write. `Areas.Names` is table-script configuration, so a renamed declaration lasts the session and the log line says so. |
+
 ### Persistence
 
 | Function | Returns | Description |
@@ -1404,15 +1430,26 @@ categories.
 
 | Function | Returns |
 |---|---|
-| `teleporter:CreateSaveFromCurrentPosition([name, category, description])` | `boolean` |
+| `teleporter:CreateSaveFromCurrentPosition([name, category, description, area])` | `boolean` |
+| `teleporter:CreateSaveAtPosition(position, name [, category, description, area])` | `boolean`. One value per axis, taken as it is. `CreateSaveFromCurrentPosition` delegates to it. `area` sets the explicit field. |
 | `teleporter:AddSave()` | `boolean` |
 | `teleporter:DeleteSave([name])` | `boolean` |
 | `teleporter:RenameSave(oldName, newName)` | `boolean` |
-| `teleporter:DuplicateSelectedSave()` | `boolean` |
+| `teleporter:DuplicateSelectedSave()` | `boolean`. Delegates to `DuplicateSave` with the selection. |
+| `teleporter:DuplicateSave(keyOrName)` | `boolean`. A unique copy name in the same category, with the area. |
+| `teleporter:SetSavePosition(keyOrName, position)` | `boolean`. One value per axis; commits. What the map's Set To Player Position calls. |
 | `teleporter:UpdateSelectedSaveFromEditor()` | `boolean` |
 | `teleporter:GenerateUniqueCopyName(base, categoryInput)` | `string` |
 | `teleporter:CreateTeleporterSaves()` | |
 | `teleporter:ClearSubrecords(record)` | |
+
+### Save listeners
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporter:AddSaveListener(fn)` | `function\|nil` | Registers `fn(teleporter, key)` to be told after every add, update, rename, duplicate and delete (`key` is the save) and after a load (`key` is `nil`). The same function registers once. |
+| `teleporter:RemoveSaveListener(fn)` | `boolean` | |
+| `teleporter:_NotifySavesChanged(key)` | | Called by `_CommitSaveChange` and `SaveLookup`. A listener that raises is reported and skipped. |
 
 ### User interface
 
@@ -1431,7 +1468,151 @@ categories.
 | `teleporter:GetSaveKeyFromTreeNode(node)` | Walks back up to the author node to rebuild the key |
 | `teleporter:GetSaveNameFromTreeNode(node)` | Deprecated alias for `GetSaveKeyFromTreeNode` |
 | `teleporter:OnThemeApplied(themeData)` | Reaction to a theme change |
-| `teleporter:CreateMenuStrip/Header/StatusBar/TreePanel/EditorPanel/TreeContextMenu(...)` | UI construction |
+| `teleporter:GetMap()` | The `teleporterMap` instance when the table loaded one, looked up on every call, else `nil` |
+| `teleporter:OpenMap()` | Opens the map with the selected save focused. `false` with a warning when there is no map. |
+| `teleporter:CreateMenuStrip/Header/StatusBar/TreePanel/EditorPanel/TreeContextMenu(...)` | UI construction. The Map button and the Tools → Open Map entry are built only when `GetMap()` finds one. |
+
+## Manifold.TeleporterMap
+
+`TeleporterMap`, version 1.3.3. `logger`, `forms` and `teleporter` are required, `customIO` is
+optional, and `json`, `utils` and `ui` are runtime dependencies. See
+[the framework guide](Manifold-Framework.md#86-map) for what the window does.
+
+### Configuration
+
+Every section is copied per instance, and a config table merges into the copy key by key, so
+`TeleporterMap:New({ View = { ShowGrid = false } })` changes one option and keeps the rest.
+
+| Section | Fields |
+|---|---|
+| `Plane` | `Horizontal = nil`, `Vertical = nil` (position indexes; `nil` derives them from the up axis), `FlipHorizontal = false`, `FlipVertical = false` |
+| `Area` | `Selected = nil`: every area; `false`: the saves without one; a string: that area. Which area a save is in is `teleporter:GetSaveArea`'s answer. |
+| `View` | `Zoom = nil` (pixels per unit; `nil` fits on first open), `MinZoom = 0.0005`, `MaxZoom = 400`, `ZoomStep = 1.25`, `ZoomAnimationMs = 120` (0 applies a notch at once), `ZoomFrameMs = 16`, `GridTargetPixels = 72`, `FollowPlayer = false`, `ShowGrid`, `ShowRulers`, `ShowLabels`, `ShowTrail`, `ShowDetails` (all `true`), `OneClickTeleport = true`, `ConfirmTeleport = true`, `ScaleByHeight = true` (size, shade and the legend together), `HeightScaleMax = 1.5`, `HeightSnapRadius = 25` (world units; 0 off), `HeightBand = 0` (world units; 0 off), `MarkerRadius = 5`, `HitRadius = 13`, `FontSize = 9`, `LabelLimit = 150` |
+| `Player` | `RefreshInterval = 100` ms, `TrailLength = 400`, `TrailMinDistance = 0.25`, `TrailBreakDistance = 25`, `FailureBackoff = 5` |
+| `Settings` | `PersistView = true`, `ViewFileName = "Teleporter.%s.Map.txt"` |
+
+### Plane
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:GetUpAxis()` | `number\|nil` | `Settings.YCoordinateIndex` when the Teleporter's lift is on, else `2`; `nil` for a 2D table |
+| `teleporterMap:GetPlane()` | `h, v, hName, vName` | The two position indexes drawn and their axis names. An invalid override falls back to the derived pair. |
+| `teleporterMap:HeightAxis()` | `number\|nil` | The component marker size and shade stand for: the up axis while the plane leaves it out, else the one remaining component; `nil` for a 2D table |
+| `teleporterMap:SetPlane(h, v)` | | Rebuilds the markers, clears the trail and fits |
+| `teleporterMap:PlaneChoices()` | `table` | Every pair `{ H, V, Caption = "X / Z" }`, for the View menu |
+| `teleporterMap:FlipHorizontal()` / `FlipVertical()` | | |
+
+### Areas
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:AreaEntries()` | `table` | What the selector offers: `{ Selected, Caption }` for All Areas, each area with its count, the area being shown even when nothing knows it any more, and (No Area) while any save has none or while it is the view being shown |
+| `teleporterMap:SetArea(selected)` | `boolean` | Shows one area (string), every area (`nil`) or the saves without one (`false`). Remembers the camera being left, restores the other's or fits, drops the trail. |
+| `teleporterMap:CycleArea(step)` | `boolean` | Previous or next entry, wrapping. PageUp and PageDown. |
+| `teleporterMap:AreaCaption()` | `string` | "14 saves in Slums" and the like |
+| `teleporterMap:AreaKey([selected])` | `string` | `"all"`, `"none"` or `"area:<name>"`, each suffixed with the plane, because a camera framed on one pair of axes means nothing on another |
+
+### Markers
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:RebuildMarkers()` | `table` | One marker per save with a usable position, sorted by name: `{ Key, Name, Category, Author, Description, Area, AreaDerived, Position, X, Y, Height, HeightT, Scale, Radius, HitExtra, Search }`. `HeightT` is the mirrored height as a fraction, 0 highest and 1 lowest, which drives both the size and the shade. The selection survives when its save still exists. |
+| `teleporterMap:_ScaleMarkers([markers])` | | Sets `Scale`, `Radius`, `HitExtra` and `HeightT` from each marker's `Height` against the range over every marker, and records the range in `HeightRange`. Called by `RebuildMarkers`, `LoadView`, the toggle, and by every frame through `_EnsureScaled` when `MarkerRadius`, `HeightScaleMax` or `ScaleByHeight` was edited in place. |
+| `teleporterMap:FindMarker(key)` | `table\|nil` | |
+| `teleporterMap:MarkerAt(sx, sy)` | `table\|nil` | The closest marker within `View.HitRadius` plus its `HitExtra` pixels that is not dimmed. A marker whose disc is off the map has no screen position and cannot be hit. |
+| `teleporterMap:SetFilter(text)` | | Dims every marker whose search text does not contain it. The height band dims the same way. |
+| `teleporterMap:SetHeightBand(units)` | `boolean` | Dims every save further than this from the player's height; 0 is off. Refuses a band on a table with no height axis. |
+| `teleporterMap:CycleHeightBand(step)` | `boolean` | Steps through Off, 2, 5, 10, 25, 50. Comma and period. |
+| `teleporterMap:SelectMarker(marker\|nil)` | | Updates the details card and the status bar |
+| `teleporterMap:FocusSave(key)` | `boolean` | Selects and centres, first switching to the save's area (or (No Area)) when it is not the one being shown. A save without a usable position changes nothing. |
+
+### Camera
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:ToWorld(sx, sy)` | `wx, wy` | |
+| `teleporterMap:ZoomBy(factor [, sx, sy])` | | Around a screen point, or the middle, at once. What a script and the tests use. |
+| `teleporterMap:ZoomSmooth(factor [, sx, sy])` | | The same, arriving over `View.ZoomAnimationMs` on a timer of its own, in geometric steps that hold the anchor. Steps are paced by the clock, so the option stays milliseconds whatever a frame costs. A second call moves the target rather than restarting. Anything that scales the camera cancels it, and so do `PanBy`, `CenterOn` and a drag, but following the player does not. Falls back to `ZoomBy` with no window or with the option at 0. |
+| `teleporterMap:SettleZoom()` | `boolean` | Puts a zoom in flight at its destination at once. The view file and the closing window use it. |
+| `teleporterMap:ZoomIn()` / `ZoomOut()` | | One `View.ZoomStep`, smoothed |
+| `teleporterMap:SetZoom(scale)` | | Pixels per unit, clamped |
+| `teleporterMap:CenterOn(wx, wy)` | | |
+| `teleporterMap:PanBy(dx, dy)` | | Screen pixels |
+| `teleporterMap:FitAll([includeOutliers])` | `boolean` | Fits the saves that sit together, and says in the status bar how many far ones it left out. `true` fits every save; Shift+Home and **View → Fit Every Save** pass it. |
+| `teleporterMap:FitNote()` | `string` | What the last fit left out, as a phrase for a status line, or empty. `SetArea` and `Show` append it to their own line so a fit's warning is not overwritten. |
+| `teleporterMap:ZoomToPile()` | `boolean` | Zooms into the pile under the pointer. `Z`. |
+| `teleporterMap:CenterOnPlayer()` | `boolean` | |
+| `teleporterMap:SetFollow(enabled)` | | |
+| `teleporterMap:Toggle(option)` | | Flips a boolean `View` option by name |
+
+### Player
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:PeekPlayerPosition()` | `table\|nil` | `teleporter:PeekCurrentPosition()`, or the same quiet read done locally on a Teleporter older than 1.5.0 |
+| `teleporterMap:Tick()` | | One poll: read, trail, follow, repaint when something moved, and the deferred view write. Runs on the window's timer. |
+| `teleporterMap:ClearTrail()` | | |
+
+### Teleport
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:TeleportToMarker(marker)` | `boolean` | Asks first, then `teleporter:TeleportToSave(marker.Key)` with the trail broken |
+| `teleporterMap:TeleportToSelected()` | `boolean` | |
+| `teleporterMap:PositionForPoint(wx, wy [, keepPlayerHeight, source])` | `table\|nil, table\|nil` | The plane components from the point, the height from the nearest shown save within `View.HeightSnapRadius` (returned as the second value), every other component from the player. `keepPlayerHeight` skips the snap; `source` is a marker the caller already resolved, so the height a question named is the height that is written. |
+| `teleporterMap:TeleportToPoint(wx, wy [, keepPlayerHeight])` | `boolean` | Names the height source in the question, asks, then reads the player's other components |
+| `teleporterMap:AddSaveAtPoint(wx, wy)` | `boolean` | Asks for a name, then `teleporter:CreateSaveAtPosition` with the snapped height and the shown area |
+| `teleporterMap:OpenInEditor()` | `boolean` | Opens the Teleporter window with the selection loaded |
+| `teleporterMap:DuplicateMarker(marker)` | `boolean` | `teleporter:DuplicateSave` |
+| `teleporterMap:MoveSaveToPlayer(marker, heightOnly)` | `boolean` | Asks every time, then `teleporter:SetSavePosition` |
+| `teleporterMap:CopyCoordinates(marker)` | `boolean` | Comma separated, in axis order, to the clipboard |
+| `teleporterMap:DeleteSelectedSave()` / `RenameSelectedSave()` | `boolean` | Through the Teleporter's own question and prompt. Delete and F2. |
+
+### Persistence
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:GetViewFilePath()` | `string\|nil` | `<Teleporter dir>\Teleporter.<Target>.Map.txt`; `nil` when persistence is off or `customIO`, `utils` or the directory are unavailable |
+| `teleporterMap:SaveView()` | `boolean` | Zoom, centre, plane, flips, the boolean toggles, `HeightBand`, the shown area as `{ Kind, Name }` and `AreaViews`, one camera per area and plane |
+| `teleporterMap:LoadView()` | `boolean` | Reads it back. A camera key written before cameras were kept per plane is carried over under the plane the file was framed on; one that already names a plane wins. |
+
+### Window
+
+| Function | Returns | Description |
+|---|---|---|
+| `teleporterMap:Show()` | `form` | Opens or focuses the window. `InitMapUI()` is an alias. |
+| `teleporterMap:Close()` | | |
+| `teleporterMap:Redraw()` | `boolean` | Paints one frame into the off-screen buffer and presents it. One `pcall` per frame; five consecutive failures stop the map. |
+| `teleporterMap:Invalidate()` | | Repaint on the next tick |
+| `teleporterMap:HandleKey(key)` | `boolean` | The window's key handler. Keys pass through while the filter box, the area dropdown or one of the details boxes has focus, except Escape in the filter. With the map focused: Home and Shift+Home fit, Z zooms into a pile, PageUp/PageDown switch the area, comma and period step the height band, Delete and F2 act on the selected save, Escape clears the selection. |
+| `teleporterMap:Palette()` / `Colors()` | `table` | The Forms design palette, and the canvas colours derived from it, cached against the palette. `Colors().Ramp` is the height ramp, empty when the palette cannot carry one. |
+| `teleporterMap:OnThemeApplied()` | `boolean` | Drops the colour cache and repaints. Whether the window was open. |
+| `teleporterMap:SetStatus(text)` | | |
+| `teleporterMap:EnsureUiState()` | `table` | |
+
+### Geometry
+
+`TeleporterMap.Geometry` is pure arithmetic over plain tables and runs without Cheat Engine. A
+view is `{ Width, Height, CenterX, CenterY, Scale, SignX, SignY }`; `Scale` is pixels per world
+unit and `SignY` is `-1` unless the vertical axis is flipped.
+
+| Function | Returns | Description |
+|---|---|---|
+| `Geometry.Project(view, wx, wy)` | `sx, sy` | |
+| `Geometry.Unproject(view, sx, sy)` | `wx, wy` | |
+| `Geometry.ZoomAt(view, factor, sx, sy, min, max)` | `boolean` | Scales in place, keeping the world point under `(sx, sy)` where it is |
+| `Geometry.NiceStep(scale, targetPixels)` | `number` | 1, 2 or 5 times a power of ten, so grid lines sit about `targetPixels` apart |
+| `Geometry.Bounds(points)` | `table\|nil` | `{ MinX, MaxX, MinY, MaxY }` over `{ X, Y }` points |
+| `Geometry.CoreBounds(points, spread)` | `table\|nil, number` | The bounds of the points that sit together, and how many were left out. What Fit All uses so one far save cannot squeeze the rest into a corner. An axis whose middle half shares one value decides nothing, and a box that would drop more than a fifth of the points is refused in favour of the full bounds. |
+| `Geometry.Fit(bounds, w, h, padding, minSpan, min, max)` | `scale, cx, cy` | A box with no extent gets `minSpan` |
+| `Geometry.Nearest(markers, sx, sy, radius)` | `table\|nil` | By the markers' `SX`, `SY`, each reaching `radius` plus its `HitExtra`; dimmed markers are skipped |
+| `Geometry.HeightScale(value, low, high, maxScale)` | `number` | 1 at `low`, `maxScale` at `high`, linear between and clamped. The caller mirrors the value, so the lowest save is the largest disc. |
+| `Geometry.HeightBandIndex(value, low, high, count)` | `number` | Which of `count` bands a value falls in, for the colour ramp |
+| `Geometry.FormatUnits(value)` | `string` | Three decimals, no trailing zeros. The exact one: the clipboard, the details card, the status bar. |
+| `Geometry.FormatRounded(value)` | `string` | Whole numbers above ten, one decimal below. The short one, for what the canvas paints. |
+| `Geometry.RoundUnits(value, span, up)` | `number` | A human end value for the legend and the scale bar |
+| `Geometry.Overlaps(a, b)` | `boolean` | Rectangles `{ X1, Y1, X2, Y2 }` |
+| `Geometry.ClampToRect(x, y, w, h, margin)` | `x, y, outside` | |
 
 ## Manifold.Testing
 

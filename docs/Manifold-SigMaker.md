@@ -1,11 +1,12 @@
 # Manifold SigMaker
 
 > File: [`Manifold-SigMaker/Manifold-SigMaker.lua`](../Manifold-SigMaker/Manifold-SigMaker.lua)
-> Version: 1.0.0 · License: MIT · Author: Leunsel
+> Version: 1.1.0 · License: MIT · Author: Leunsel
 
-An autorun segment that turns the instruction selected in Cheat Engine's disassembler into an
-array of bytes signature and puts it on the clipboard. It has no dependency on the Manifold
-Framework and works on its own. One optional coupling: it logs through
+An autorun segment for the two directions of a signature. It turns the instruction selected in
+Cheat Engine's disassembler into an array of bytes signature and puts it on the clipboard, and it
+reads a signature back in, scans the process for it and goes to where it matched. It has no
+dependency on the Manifold Framework and works on its own. One optional coupling: it logs through
 [Manifold Logger](Manifold-Logger.md) when that is installed, and falls back to a timestamped
 print when it is not.
 
@@ -37,13 +38,18 @@ autorun/
   Manifold-SigMaker-Modules/
     Manifold-SigMaker-CE.lua
     Manifold-SigMaker-Decoder.lua
+    Manifold-SigMaker-Find.lua
     Manifold-SigMaker-Format.lua
     Manifold-SigMaker-Host.lua
     Manifold-SigMaker-Log.lua
     Manifold-SigMaker-Menu.lua
+    Manifold-SigMaker-Pattern.lua
     Manifold-SigMaker-Settings.lua
     Manifold-SigMaker-Signature.lua
     Manifold-SigMaker-Version.lua
+    Manifold-Icons/
+      Manifold-Copy.png
+      Manifold-Search.png
 ```
 
 The script runs on the next Cheat Engine start and publishes the host twice under the same
@@ -59,33 +65,52 @@ instead of a require traceback on every Cheat Engine start.
 
 Executing the entry file again from the Lua Engine rebuilds everything from fresh module code.
 Cheat Engine's require is standard Lua require, so package.loaded survives a re-execution. The
-nine module names this tree owns are dropped from it first, otherwise an edited module keeps
-running the code it was loaded with. The previous generation's menu entry is taken down before
+eleven module names this tree owns are dropped from it first, otherwise an edited module keeps
+running the code it was loaded with. The previous generation's menu entries are taken down before
 that happens, so nothing accumulates, and the startup line reads re-executed instead of ready.
 
 ### When the memory view is not open yet
 
-The entry lives in the memory view's context menu, and at autorun time that window may never have
-been opened. Installing then fails with a reason, which is logged at debug level rather than
+The entries live in the memory view's context menu, and at autorun time that window may never
+have been opened. Installing then fails with a reason, which is logged at debug level rather than
 thrown. Open the Memory Viewer once and run:
 
 ```lua
 ManifoldSigMaker:Install()
 ```
 
-## 2. The menu entry
+## 2. The menu entries
 
-Right-click an instruction in the Memory Viewer's disassembler and pick
-**Manifold: Copy Signature**. The caption is the MenuCaption setting.
+Right-click an instruction in the Memory Viewer's disassembler. Two entries are there:
 
-The item is added to the memory view form's own published TPopupMenu, the component named
+| Entry | Does |
+|---|---|
+| **Manifold: Copy Signature** | Builds a signature for the selected instruction, sections 3 and 4 |
+| **Manifold: Find Signature** | Asks for a signature, scans for it and goes there, section 7 |
+
+Both captions are settings, MenuCaption and Find.MenuCaption.
+
+The items are added to the memory view form's own published TPopupMenu, the component named
 debuggerpopup. The disassembler control's PopupMenu property is nil, and getVisibleDisassembler
 is deprecated and returns a stub whose PopupMenu is nil as well, so the form's component is the
-way in. Section 9 has the detail.
+way in. Section 10 has the detail.
 
-Clicking calls Copy on the address currently selected in the disassembler. An error raised
-anywhere below that is caught and logged with the caption in front of it, so a failure shows up
-in the console rather than as a Cheat Engine error dialog over the memory view.
+Clicking one calls Copy on the address currently selected in the disassembler, or Find. An error
+raised anywhere below that is caught and logged with the caption in front of it, so a failure
+shows up in the console rather than as a Cheat Engine error dialog over the memory view.
+
+### The shortcut, and why there is a second menu
+
+Find Signature also answers **Ctrl+Shift+F** while the Memory Viewer has focus. Find.Shortcut is
+the key and ManifoldSigMaker:SetFindShortcut rebinds it.
+
+A shortcut is dispatched by the focused form through its main menu. An item sitting in a popup
+menu is never asked about a key, whatever its Shortcut property says, so a shortcut needs an item
+in a menu bar to live in. That is what the small **Manifold** entry in the Memory Viewer's own
+menu bar is: it carries the same two actions, and the finding one carries the key. The context
+menu entry then prints the same key beside its caption, but only once that menu bar entry is
+really there, because a key printed next to an entry that cannot be triggered by it would be a
+lie. Find.MenuBar false leaves the entry out, and the shortcut with it.
 
 Every item created here carries Tag 1297374332. Removal sweeps the popup for that tag rather
 than trusting the reference it kept, so a generation whose item reference was lost, or a
@@ -292,7 +317,16 @@ Manifold-SigMaker-Settings.lua holds the defaults:
 | StopAtFunctionEnd | false | Refuse to reach past a ret or a jmp rather than warning, section 3.2 |
 | ScanProtection | "+X" | Executable pages only. An empty string searches everything |
 | CopyToClipboard | true | Off returns the text without touching the clipboard |
-| MenuCaption | "Manifold: Copy Signature" | The context menu entry |
+| MenuCaption | "Manifold: Copy Signature" | The first context menu entry |
+| Find.Protection | "+X" | Where a search looks first, in AOBScan protection flags |
+| Find.Fallback | true | Widen a search that found nothing to all memory once, section 7.2 |
+| Find.MinFixedBytes | 4 | Refuse to scan for a pattern with fewer fixed bytes than this |
+| Find.MaxResults | 100 | How many hits the picker is given |
+| Find.PrefillFromClipboard | true | Open the prompt on the clipboard when it holds a signature |
+| Find.MenuCaption | "Manifold: Find Signature" | The second context menu entry |
+| Find.Shortcut | "Ctrl+Shift+F" | The key, empty for none |
+| Find.MenuBar | true | The Memory Viewer menu bar entry that carries the key |
+| Find.MenuBarCaption | "Manifold" | Its caption |
 
 MinPatternBytes is five because one instruction can trim to a single structural byte. A call
 rel32 trims to E8 on its own, and a one byte scan matches roughly one address in 256, so Cheat
@@ -313,11 +347,12 @@ local host = Host:New({
 
 ### 5.1 Persistence
 
-Seven settings are written through getSettings("Manifold SigMaker") whenever a setter changes
+Thirteen settings are written through getSettings("Manifold SigMaker") whenever a setter changes
 them and read back on the next start: Output, StopAtFunctionEnd, Scope, CopyToClipboard,
-Mask.Displacement, Mask.BranchTarget and Mask.Immediate. The bounds, the threshold, the scan
-protection and the caption are override only, because they are tuning and not choices a user
-makes twice.
+Mask.Displacement, Mask.BranchTarget, Mask.Immediate, Find.Protection, Find.Fallback,
+Find.MinFixedBytes, Find.MaxResults, Find.PrefillFromClipboard and Find.Shortcut. The bounds, the
+threshold, the signature scan protection and the captions are override only, because they are
+tuning and not choices a user makes twice.
 
 A dotted key reaches into a nested table and is stored under that name, dot included, so the
 registry holds one flat entry named Mask.Immediate. Values are stored as strings, with a boolean
@@ -326,6 +361,11 @@ string first, because it is the one tri-state value and the word large has to su
 trip. Cheat Engine answers an empty string, never nil, for a value that was never written, which
 is read as absent, so a fresh install keeps every default. Passing Persist false to the host
 keeps everything for the session only.
+
+That last rule is why an empty string cannot be stored as itself. Find.Protection is empty when a
+search is meant to cover all memory, which is a real choice and has to survive a restart, so an
+empty value goes into the registry as the marker `<empty>` and comes back out as an empty
+string.
 
 ## 6. The output parts
 
@@ -390,7 +430,131 @@ The counts of displacements, branch targets and immediates appear only when they
 A Warning row appears when the signature reached past the end of a function, and a Notes row
 carries anything the decoder had to say.
 
-## 7. The public object
+## 7. Finding a signature again
+
+The other direction. **Manifold: Find Signature**, or the shortcut with the Memory Viewer
+focused, asks for a signature, scans the attached process for it, and goes to where it matched.
+
+The prompt opens on the clipboard when what is on it reads as a signature, so copying one in one
+Cheat Engine and finding it in another is a keystroke and a return. Only the pattern is offered,
+because inputQuery is a single line and the three line form of a signature would show its header
+and hide the bytes.
+
+### 7.1 What it accepts
+
+Every shape the copying half writes, and the ones the rest of the world writes:
+
+| Pasted | Read as |
+|---|---|
+| `48 8B 4C 24 ? 48 83 EC 28` | the bare pattern |
+| `"48 8B 4C 24 ?? 48 83 EC 28"` | the same, quoted |
+| `"\x48\x8B\x4C\x24\x00", "xxxx?"` | the C string and its mask |
+| `\x48\x8B\x4C\x24\x00` | a C string with no mask, so its zeroes are real bytes |
+| `{ 0x48, 0x8B, 0x4C, 0x24, 0x00 }` | a C array |
+| `488B4C2408` | one unbroken run of hex |
+| `48 8? 4C 24` | a nibble wildcard, passed through untouched |
+
+A wildcard may be written `?`, `??`, `*` or `.`, a byte may carry an `0x` in front or an `h`
+behind, case does not matter, and braces, brackets, commas, semicolons and quotes are
+punctuation. Header lines and `//`, `--`, `#` and `;` comments are dropped, so the whole of what
+the copying half put on the clipboard pastes straight back in, whichever parts it was set to.
+That round trip is in the test run for all five combinations of them.
+
+Two details decide how a text is read.
+
+**A mask is only meaningful next to a C string.** `\x00` is a wildcard in `"xxxx?"` and a real
+zero byte without it, and nothing in the string itself says which. A C string that arrives alone
+is therefore read literally, and the block says how many zero bytes were taken at face value
+rather than guessing at them.
+
+**A nibble wildcard survives.** Cheat Engine's scanner understands half a byte, so widening `4?`
+to a whole wildcard or dropping the known nibble would both change the search. It does not count
+towards the fixed length below, because half a byte of certainty is not what that judgement is
+about.
+
+### 7.2 Where it looks
+
+The scan starts in executable memory, which is Find.Protection "+X". That is where code is, a
+signature from this tool describes code, and restricting the scan is what keeps it quick in a
+process carrying a gigabyte of heap.
+
+A signature that describes data matches nothing there. Rather than report that as a miss, a scan
+that came back empty is widened to all memory once, and both halves are reported, so a miss never
+hides which memory was actually searched. Find.Fallback false turns the second attempt off.
+
+A pattern with fewer than Find.MinFixedBytes fixed bytes is refused instead of scanned for. Cheat
+Engine builds the complete result list before a caller can look at any of it, so a scan for two
+fixed bytes allocates millions of entries and takes the interface with it for as long as that
+lasts. The refusal names the way round it:
+
+```
+Find signature: the pattern has 2 fixed byte(s) and 4 are needed. A pattern that short
+matches in thousands of places, and Cheat Engine builds every one of them before the first
+can be read. ManifoldSigMaker:SetFindMinimum(2) allows it anyway.
+```
+
+The scan runs on the thread it was called from, which is the interface thread when it came from
+the menu, so a large process freezes Cheat Engine for as long as the scan takes. The elapsed time
+is in the block, which is the honest way to see what a given pattern costs.
+
+### 7.3 What happens to the hits
+
+Nothing found is a warning that says where it looked. One hit is a jump, with nothing to
+confirm. More than one is a list:
+
+```
+2 matches:
+  1.  game.exe+100  (140000100)
+  2.  game.exe+400  (140000400)
+```
+
+That is Cheat Engine's own showSelectionList, and custom input is not offered. Cancelling it goes
+nowhere and moves nothing.
+
+Every hit reaches the log either way, before the picker is shown, so the list is still there once
+the picker is gone:
+
+```
+Find signature
+  Pattern  : 48 8B 0D 11 ?? ?? 44
+  Bytes    : 7, 2 wildcarded
+  Searched : executable memory
+  Hits     : 2
+  Time     : 0.06 s
+
+  1.  game.exe+100  (140000100)
+  2.  game.exe+400  (140000400)
+```
+
+The block lists the first 25 hits and then says how many more there are. Find.MaxResults, 100 by
+default, is how many the picker itself is given; past that the block reports the real total and
+offers the first ones, so a pattern with 40000 matches says 40000 rather than pretending there
+were 100.
+
+On a Cheat Engine without showSelectionList the first hit is not offered as a guess. The scan
+still logged every address, and the warning says the way out:
+
+```lua
+ManifoldSigMaker:Goto("game.exe+1A2B3C")
+```
+
+### 7.4 The jump
+
+The memory view is shown and brought to the front, the disassembler's TopAddress and
+SelectedAddress are moved to the hit, the hex view is pointed at it, and the bytes the pattern
+covers are selected there, so a match is visible as a block and not as one address.
+
+Every one of those writes goes through the property first and through the published setter,
+setSelectedAddress and the like, after it. Which of the two a given build accepts is not
+something a caller can know. None of it past the form itself is required: a build whose hex view
+will not take a selection still gets the jump, it just does not get the highlight.
+
+Goto takes the same three forms as everything else in Cheat Engine: a number, hexadecimal with or
+without `0x`, or a module and an offset like `game.exe+1A2B`. It resolves plain hexadecimal
+itself and asks getAddressSafe about anything else, which is the documented resolver that answers
+nil instead of raising.
+
+## 8. The public object
 
 ManifoldSigMaker is the host. Everything the menu entry does is a method on it, so a table's Lua
 script or the Lua console can use it with no menu at all:
@@ -400,11 +564,23 @@ ManifoldSigMaker:Copy()                 -- the selected address, to the clipboar
 ManifoldSigMaker:Copy(0x14D762ED9)      -- a given address
 ManifoldSigMaker:Pattern(0x14D762ED9)   -- just the scan pattern, plus the signature
 ManifoldSigMaker:Make(0x14D762ED9)      -- the signature table, nothing copied
+
+ManifoldSigMaker:Find()                      -- ask, scan, go there
+ManifoldSigMaker:Find("48 8B ? ? ? 66")      -- the same without the prompt
+ManifoldSigMaker:Scan("48 8B ? ? ? 66")      -- the addresses, no prompt, picker or jump
+ManifoldSigMaker:Goto("game.exe+1A2B")       -- just the memory view
+
 ManifoldSigMaker:SetMaskDisplacement(false)
 ManifoldSigMaker:SetMaskBranchTarget(false)
 ManifoldSigMaker:SetMaskImmediate(true)      -- true, false or "large"
 ManifoldSigMaker:SetOutput("aob")            -- aob, aobq, code, header
 ManifoldSigMaker:SetScope("process")         -- "module" or "process"
+ManifoldSigMaker:SetFindProtection("")       -- "" searches all memory, "+X" executable only
+ManifoldSigMaker:SetFindFallback(false)      -- never widen a search that found nothing
+ManifoldSigMaker:SetFindMinimum(2)           -- allow a shorter pattern
+ManifoldSigMaker:SetFindMaxResults(20)       -- how many hits the picker lists
+ManifoldSigMaker:SetFindPrefill(false)       -- do not offer the clipboard
+ManifoldSigMaker:SetFindShortcut("Ctrl+Alt+G")
 ManifoldSigMaker:Status()                    -- a table
 ManifoldSigMaker:Install()                   -- also Uninstall and Reinstall
 ManifoldSigMaker:Shutdown()
@@ -416,33 +592,42 @@ anything went wrong, and the reason has already been logged.
 
 Pattern is the one to feed straight into AOBScan or an Auto Assembler script.
 
-Status reports the version, whether the menu entry is installed, whether the Logger was found,
-and the settings that matter. StatusRows is the same thing shaped for a log block, which is what
-the startup line prints:
+Find returns the address it went to, or nil and a reason. A cancelled prompt and a cancelled
+picker are both "cancelled", which is not a failure and is not logged as one. Scan is the same
+search with no interface at all: it returns the addresses and the whole result beside them, and
+touches neither the memory view nor a dialog. Goto only moves the memory view.
+
+Status reports the version, whether the menu entries are installed, whether the shortcut is
+really answered by something, whether the Logger was found, and the settings that matter.
+StatusRows is the same thing shaped for a log block, which is what the startup line prints:
 
 ```
-Manifold SigMaker 1.0.0 ready
+Manifold SigMaker 1.1.0 ready
   Menu      : in the disassembler context menu
+  Shortcut  : Ctrl+Shift+F
   Logger    : Manifold Logger
   Wildcards : displacements, branch targets, large immediates
   Unique in : the containing module
   Clipboard : aob
+  Search    : executable memory, widened to all memory when nothing matches, at least 4 fixed byte(s)
   Settings  : persisted in the registry
 ```
 
-Shutdown removes the menu entry and releases both globals.
+Shutdown removes the menu entries and releases both globals.
 
-## 8. Internal structure
+## 9. Internal structure
 
 | Module | Owns |
 |---|---|
-| -CE | Defensive wrappers over the Cheat Engine API: Call, Get, RunInMain, the form and popup accessors, SplitDisassembly, Disassemble, DisassembleBytes, ReadBytes, ModuleAt, CountMatches, Clipboard. Every global is looked up at call time. |
+| -CE | Defensive wrappers over the Cheat Engine API: Call, Get, Write, RunInMain, the form, popup and menu bar accessors, SplitDisassembly, Disassemble, DisassembleBytes, ReadBytes, ModuleAt, ScanMatches, CountMatches, ShowAddress, AddressName, Resolve, Input, Select, Clipboard. Every global is looked up at call time. |
 | -Log | The Manifold Logger channel named SigMaker or the print fallback, and Block. |
 | -Settings | Defaults, overrides, dotted keys, the registry store. |
 | -Decoder | The probe, the skeleton, the classification of a byte, and the policy that turns it into a mask. |
 | -Signature | The growth loop, the trimming, the bounds and the function end rule. |
 | -Format | The four output parts, Compose, and the rows of the report block. |
-| -Menu | The entry in the disassembler context menu and the tag sweep that removes it. |
+| -Pattern | Reading a pasted signature in any of its shapes. Syntax only, no policy. |
+| -Find | The search: the minimum length, the protection, the widening, and the rows of its block. |
+| -Menu | The entries in the context menu, the shortcut carrier in the menu bar, and the tag sweep that removes both. |
 | -Host | Wiring, the actions, the setters, Status and Shutdown. |
 | -Version | The version number. Nothing else in the tree carries one. |
 
@@ -455,7 +640,7 @@ Autorun files run in an order nobody controls, and the Logger can be shut down a
 Cheat Engine is running, so a channel captured once would end up writing into a buffer no window
 shows.
 
-### 8.1 The tests
+### 9.1 The tests
 
 Manifold-SigMaker-Tests/Run.lua runs the whole segment headlessly on any Lua 5.3:
 
@@ -464,8 +649,11 @@ lua Run.lua <projectDir>
 ```
 
 It covers the API wrappers, the settings and their persistence, the classification of a byte, the
-masking policy, the growth loop and its bounds, the output parts, the menu entry, and the entry
-file executed twice. There are 167 checks.
+masking policy, the growth loop and its bounds, the output parts, the reading of a pasted
+signature, the search and where it looks, the picker and the jump, the menu entries and the
+shortcut, and the entry file executed twice. There are 296 checks, and one of them is the round
+trip: what the copying half writes, in all five combinations of output parts, is read back by the
+finding half as the same pattern.
 
 CEStub.lua is the Cheat Engine it runs against, and the interesting thing about it is that it
 carries a small model of an x86-64 decoder rather than a table of canned answers. A canned table
@@ -476,15 +664,16 @@ changes only a number. Flipping a ModRM, SIB or REX byte changes registers or th
 Flipping an opcode byte changes the mnemonic or the length. Anything it does not know decodes as
 db, which the decoder correctly reads as structural.
 
-It also models the Cheat Engine behaviour of section 9 faithfully, including the ones that are
+It also models the Cheat Engine behaviour of section 10 faithfully, including the ones that are
 easy to get right by accident: the trailing spaces and the doubled separator in a disassembly
 line, the reversed return values of splitDisassembledString, the string form of disassembleBytes
 reading one byte and then zeroes, the minimum buffer a disassembly needs, AOBScan answering nil
-rather than an empty list, getSettings answering an empty string, and getVisibleDisassembler
-handing back a stub whose PopupMenu is nil. A caller that regresses to any of those fails in the
+rather than an empty list and hiding everything outside executable memory under "+X", getSettings
+answering an empty string, a hex view whose selection is writable only through its setters, and
+getVisibleDisassembler handing back a stub whose PopupMenu is nil. A caller that regresses to any of those fails in the
 test run instead of quietly producing a signature that masks nothing.
 
-## 9. Cheat Engine behaviours that contradict celua.txt
+## 10. Cheat Engine behaviours that contradict celua.txt
 
 Everything below was measured on Cheat Engine 7.5. Each one differs from what the documentation
 says, or is not in the documentation at all, and each one broke something before it was found.
