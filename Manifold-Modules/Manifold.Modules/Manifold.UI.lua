@@ -1,37 +1,16 @@
 local NAME = "Manifold.UI.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.0"
+local VERSION = "1.2.2"
 local DESCRIPTION = "Manifold Framework UI"
  --
 
 --[[
-    ∂ v1.2.0 (2026-09-07)
-        Themes can colour the address list selection.
-        AddressList.SelectedBackgroundColor fills the focused
-        row, AddressList.SelectedSecondaryBackgroundColor the
-        remaining rows of a multi selection - the split Cheat
-        Engine itself makes when it paints them. Both are
-        optional: a theme that omits them has them derived from
-        its own border colour instead of being reported as
-        incomplete, so every theme written before this version
-        gains the colour without being touched.
+    ∂ v1.2.2 (2026-09-10)
+        SetTeleporterControlColors themes the identity rows the
+        Teleporter actually built, read from UiState.IdentityFieldKeys,
+        which since Teleporter 1.6.0 include the Area row.
 
-    ∂ v1.1.2 (2026-09-01)
-        SetTeleporterControlColors themes the buttons the
-        Teleporter declares in UiState.ButtonKeys, and its panel
-        wall is one spec table. setMemo is gone, it was byte for
-        byte the same function as setEdit.
-
-    ∂ v1.1.1 (2026-09-01)
-        SetTeleporterControlColors themes the coordinate rows the
-        Teleporter actually built, read from UiState.AxisFieldKeys,
-        rather than assuming X, Y and Z.
-
-    ∂ v1.1.0 (2026-09-01)
-        Applying a theme is one entry instead of seven, and loading
-        themes one entry instead of roughly four per theme. The
-        ApplyThemeTo* functions return what they did rather than
-        logging it. Every line uses MODULE_PREFIX.
+    ...
 
     ∂ v1.0.6 (2026-08-23)
         Implemented the Bootstrap handshake so this module
@@ -1167,10 +1146,15 @@ function UI:SetTeleporterControlColors(uiState, theme)
         setPanel(control, entry[2])
         if entry[3] then setBevel(control, entry[3], borderColor, 1) end
     end
+    -- IdentityFieldKeys says which identity rows were built. The fallback
+    -- is the fixed three a Teleporter older than the Area row had.
+    local fieldKeys = {}
+    for _, key in ipairs(uiState.IdentityFieldKeys or { "Name", "Author", "Category" }) do
+        fieldKeys[#fieldKeys + 1] = key
+    end
     -- The coordinate rows are one per axis, and a 2D table has two of them.
     -- AxisFieldKeys says which were built. The fallback covers a Teleporter
     -- older than this function, which always had exactly X, Y and Z.
-    local fieldKeys = { "Name", "Author", "Category" }
     for _, axis in ipairs(uiState.AxisFieldKeys or { "X", "Y", "Z" }) do
         fieldKeys[#fieldKeys + 1] = axis
     end
@@ -1338,6 +1322,14 @@ function UI:ApplyTheme(themeName, allowReapply)
         if teleporter and type(self.ApplyThemeToTeleporter) == "function" then
             teleporterThemed = self:ApplyThemeToTeleporter(teleporter, theme)
         end
+        -- The map's controls were recoloured by ApplyThemeToForms through
+        -- their roles. This tells it to repaint its canvas from the new
+        -- palette. Guarded: a table without the map has no global.
+        local mapThemed = false
+        local teleporterMap = rawget(_G, "teleporterMap")
+        if type(teleporterMap) == "table" and type(teleporterMap.OnThemeApplied) == "function" then
+            mapThemed = teleporterMap:OnThemeApplied(theme) == true
+        end
         -- One entry for the whole apply. The six functions above used to log
         -- a line each, so switching a theme wrote seven lines that together
         -- said what these five rows say, and said none of it in one place.
@@ -1348,6 +1340,7 @@ function UI:ApplyTheme(themeName, allowReapply)
             { "Lua Engine",  luaEngine and "themed" or "not open" },
             { "Slogan",      slogan and "themed" or "absent" },
             { "Teleporter",  teleporterThemed and "themed" or "not open" },
+            { "Map",         mapThemed and "themed" or "not open" },
         })
         return true
     end)
