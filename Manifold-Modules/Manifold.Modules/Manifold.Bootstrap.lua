@@ -1,16 +1,21 @@
 local NAME        = "Manifold.Bootstrap.lua"
 local AUTHOR      = {"Leunsel", "LeFiXER"}
-local VERSION     = "1.0.2"
+local VERSION     = "1.0.3"
 local DESCRIPTION = "Manifold Framework Bootstrap - dependency lookup, module registry, collision detection"
 
 --[[
-    ∂ v1.0.2 (2026-08-27)
-        Draining the pre-logger queue no longer forces every line.
-        Only Warning and above are promoted; a queued Info is a
-        startup banner and ReadyLevel already decides whether it
-        shows. Manifold.Json and Manifold.Logger were the only two
-        modules built before the logger, so they were the only
-        banners that ignored that setting.
+    ∂ v1.0.3 (2026-09-10)
+        Manifold.TeleporterMap is a known module. It sits after
+        the Teleporter it draws and before Callbacks, which must
+        stay last. It is also the first OPTIONAL module: a KNOWN
+        entry may say what it `needs` and that it is `optional`,
+        and Boot then skips it, with one line, when a need was
+        skipped or failed, or when its file is not shipped,
+        instead of reporting the boot as incomplete. A table
+        that boots with skip = { teleporter = true }, as the
+        documentation shows, therefore keeps working.
+
+    ...
 
     ∂ v1.0.0 (2026-08-23)
         Initial release. One dependency lookup for every production module.
@@ -390,6 +395,11 @@ registerLuaFunctionHighlight('Once')
 ---               stated ONCE.
 ---     rebuild   true only for modules that hold no live state and may
 ---               therefore be safely reconstructed after a reload.
+---     needs     optional list of keys this module cannot be built without.
+---               Boot skips the module when one of them was skipped, failed
+---               or is otherwise not there, rather than failing the boot.
+---     optional  true for a module a table may leave out of its files. Boot
+---               treats a missing file as a skip, not a failure.
 --
 Bootstrap.KNOWN = {
     json = {
@@ -471,6 +481,13 @@ Bootstrap.KNOWN = {
         path = "Manifold.Teleporter", class = "Teleporter", rebuild = false,
         construct = function(config) return Teleporter:New(config) end,
     },
+    teleporterMap = {
+        path = "Manifold.TeleporterMap", class = "TeleporterMap", rebuild = false,
+        construct = function(config) return TeleporterMap:New(config) end,
+        -- The Teleporter treats the map as optional (the button and the
+        -- menu entry appear only when it is there), so Boot agrees.
+        needs = { "teleporter" }, optional = true,
+    },
     callbacks = {
         path = "Manifold.Callbacks", class = "Callbacks", rebuild = false,
         construct = function() return Callbacks:New() end,
@@ -499,7 +516,7 @@ Bootstrap.KNOWN = {
 Bootstrap.ORDER = {
     "json", "logger", "customIO", "helper", "memory", "forms",
     "processHandler", "ui", "utils", "state", "trampolines",
-    "assemblerCommands", "autoAssembler", "teleporter", "callbacks",
+    "assemblerCommands", "autoAssembler", "teleporter", "teleporterMap", "callbacks",
 }
 
 --- Why utils sits AFTER ui, though nothing forces it to:
@@ -1171,6 +1188,27 @@ end
 registerLuaFunctionHighlight('Verify')
 
 --
+--- ∑ The first key in spec.needs that Boot cannot satisfy: skipped, failed,
+---   or simply not there, which is what an `only` list that omits it looks
+---   like. nil when every need is met, or the spec names none.
+--
+local function _unmetNeed(spec, skip, failedKeys)
+    for _, need in ipairs(spec.needs or {}) do
+        if skip[need] or failedKeys[need] or rawget(_G, need) == nil then
+            return need
+        end
+    end
+    return nil
+end
+
+--- Whether an Acquire failure means the module file is not there at all.
+--- Bootstrap.Require words that case the same way every time, and a file
+--- that exists but fails to load raises with a different message.
+local function _isMissingFile(err)
+    return type(err) == "string" and err:find("did not define the global", 1, true) ~= nil
+end
+
+--
 --- ∑ Walks Bootstrap.ORDER and acquires every module: the order of execution,
 ---   executed. Entirely optional - the hand-written CETrequire sequence in
 ---   docs/Manifold-Framework.md keeps working unchanged, because it produces
@@ -1194,24 +1232,43 @@ function Bootstrap.Boot(options)
         only = {}
         for _, key in ipairs(options.only) do only[key] = true end
     end
-    local skip, failed = options.skip or {}, {}
+    local skip, failed, failedKeys = options.skip or {}, {}, {}
     for index = 1, #Bootstrap.ORDER do
         local key = Bootstrap.ORDER[index]
         if not skip[key] and (only == nil or only[key]) then
-            local instance, err = Bootstrap.Acquire(key)
-            if instance == nil then
-                failed[#failed + 1] = key .. " (" .. tostring(err) .. ")"
-                if options.stopOnError then
-                    Bootstrap.Flush()
-                    error(string.format("%s boot stopped at '%s': %s", MODULE_PREFIX, key, tostring(err)), 2)
-                end
+            local spec = Bootstrap.KNOWN[key]
+            -- A module whose prerequisite was skipped, failed or left out of
+            -- `only` cannot be built, and its required-dependency gate would
+            -- say so as an error. Skipping it here says the same in one
+            -- Info line and keeps the boot complete.
+            local unmet = spec and _unmetNeed(spec, skip, failedKeys)
+            if unmet then
+                _log("Info", string.format("%s '%s' skipped: it needs '%s', which was not booted.",
+                                           MODULE_PREFIX, key, unmet))
             else
-                local after = options.after and options.after[key]
-                if type(after) == "function" then
-                    local ok, hookErr = pcall(after, instance)
-                    if not ok then
-                        _log("Error", string.format("%s post-load hook for '%s' failed: %s",
-                                                    MODULE_PREFIX, key, tostring(hookErr)))
+                local instance, err = Bootstrap.Acquire(key)
+                if instance == nil then
+                    if spec and spec.optional and _isMissingFile(err) then
+                        -- Not shipped with this table. Optional means that
+                        -- is a choice, not a failure.
+                        _log("Info", string.format("%s '%s' is optional and not shipped; skipped.",
+                                                   MODULE_PREFIX, key))
+                    else
+                        failedKeys[key] = true
+                        failed[#failed + 1] = key .. " (" .. tostring(err) .. ")"
+                        if options.stopOnError then
+                            Bootstrap.Flush()
+                            error(string.format("%s boot stopped at '%s': %s", MODULE_PREFIX, key, tostring(err)), 2)
+                        end
+                    end
+                else
+                    local after = options.after and options.after[key]
+                    if type(after) == "function" then
+                        local ok, hookErr = pcall(after, instance)
+                        if not ok then
+                            _log("Error", string.format("%s post-load hook for '%s' failed: %s",
+                                                        MODULE_PREFIX, key, tostring(hookErr)))
+                        end
                     end
                 end
             end
