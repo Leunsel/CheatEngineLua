@@ -2,14 +2,25 @@
     The host. Wires the modules together and is the object published as
     ManifoldSigMaker.
 
+    The tool has two halves. One turns an address into a signature, the other
+    turns a signature back into an address, and they share everything below
+    them: the same wrappers, the same log channel, the same settings and the
+    same scanner.
+
     Build order:
 
       CE         the defensive API wrappers
       Log        the Manifold Logger channel, or print
-      Settings   defaults, overrides, the persisted masking choices
+      Settings   defaults, overrides, the persisted choices
       Decoder    which bytes of an instruction are operands
       Signature  growing a pattern until it is unique
-      Menu       the entry in the disassembler context menu
+      Pattern    reading a pasted signature back in
+      Finder     scanning for one and reporting what was hit
+      Menu       the entries in the memory view
+
+    The finder is held as Finder and not as Find, which every other module is
+    named after, because Find is the method that uses it and an instance field
+    would shadow it.
 
     Everything the menu does is a method here, so a table's Lua script or the
     Lua console can do the same work without ever opening the menu:
@@ -18,6 +29,10 @@
         ManifoldSigMaker:Make(0x14D762ED9)       -- a given one
         ManifoldSigMaker:Copy()                  -- make and put on the clipboard
         ManifoldSigMaker:Pattern(address)        -- just the scan pattern
+        ManifoldSigMaker:Find()                  -- ask, scan, go there
+        ManifoldSigMaker:Find("48 8B ? ? ? 66")  -- scan for a given one
+        ManifoldSigMaker:Scan(pattern)           -- the addresses, no interface
+        ManifoldSigMaker:Goto("game.exe+1A2B")   -- just the memory view
         ManifoldSigMaker:Status()
 ]]
 
@@ -27,6 +42,8 @@ local Settings  = require("Manifold-SigMaker-Settings")
 local Decoder   = require("Manifold-SigMaker-Decoder")
 local Signature = require("Manifold-SigMaker-Signature")
 local Format    = require("Manifold-SigMaker-Format")
+local Pattern   = require("Manifold-SigMaker-Pattern")
+local Find      = require("Manifold-SigMaker-Find")
 local Menu      = require("Manifold-SigMaker-Menu")
 local Icons     = require("Manifold-SigMaker-Icons")
 local Version   = require("Manifold-SigMaker-Version")
@@ -58,6 +75,10 @@ function Host:New(options)
         Started = os.time()
     }, Host)
     instance.Signature = Signature:New({ CE = ce, Log = log, Settings = settings, Decoder = decoder })
+    -- The Pattern module is deliberately not held as a field. Pattern is
+    -- already a method here, and an instance field would shadow it. Every
+    -- caller inside this file reads it as the upvalue instead.
+    instance.Finder = Find:New({ CE = ce, Log = log, Settings = settings })
     instance.Icons = Icons:New({ Root = options.Root })
     instance.Menu = Menu:New({ CE = ce, Log = log, Settings = settings,
         Icons = instance.Icons, MenuTag = Host.MenuTag })
@@ -68,8 +89,26 @@ end
 --                        The menu                    --
 --------------------------------------------------------
 
+--- The two entries, in the order they are shown.
+function Host:MenuSpec()
+    local settings = self.Settings
+    return {
+        {
+            Caption = settings.MenuCaption,
+            Icon = Icons.Files.Copy,
+            OnClick = function() self:Copy() end
+        },
+        {
+            Caption = settings.Find.MenuCaption,
+            Icon = Icons.Files.Find,
+            Shortcut = settings.Find.Shortcut,
+            OnClick = function() self:Find() end
+        }
+    }
+end
+
 function Host:Install()
-    return self.Menu:Install(function() self:Copy() end)
+    return self.Menu:Install(self:MenuSpec())
 end
 
 function Host:Uninstall()
@@ -139,6 +178,143 @@ function Host:Pattern(address)
 end
 
 --------------------------------------------------------
+--                    Finding one again               --
+--------------------------------------------------------
+
+--
+--- ∑ Asks for a signature, offering the clipboard when what is on it reads
+---   as one. Only the pattern is offered, because inputQuery is a single
+---   line and the three line form of a signature would show its header and
+---   hide the bytes.
+--- @return string|nil, string|nil
+--
+function Host:Ask()
+    local default = ""
+    if self.Settings.Find.PrefillFromClipboard then
+        local clipboard = self.CE:ClipboardText()
+        local parsed = clipboard and Pattern.Parse(clipboard) or nil
+        if parsed and parsed.Fixed > 0 then default = parsed.Pattern end
+    end
+    local text, reason = self.CE:Input(self.Settings.Find.MenuCaption,
+        "Paste a signature. A wildcard is ? or ??.", default)
+    if text == nil then
+        if reason then
+            self.Log:Warning("Find signature: " .. tostring(reason) .. ".")
+            return nil, reason
+        end
+        return nil, "cancelled"
+    end
+    if text:gsub("%s", "") == "" then return nil, "nothing was given" end
+    return text
+end
+
+--
+--- ∑ Which of several hits to go to.
+---
+---   Without a picker the first hit is not offered as a guess. Every address
+---   is already in the log block by the time this is asked, so the way out is
+---   ManifoldSigMaker:Goto(address) and not a coin toss.
+--- @param result table
+--- @return number|nil, string|nil
+--
+function Host:Pick(result)
+    local caption = result.Total > result.Count
+        and string.format("%d matches, the first %d of them:", result.Total, result.Count)
+        or string.format("%d matches:", result.Count)
+    local index, reason = self.CE:Select(self.Settings.Find.MenuCaption, caption,
+        self.Finder:Lines(result))
+    if index == nil then
+        if reason then
+            self.Log:Warning(string.format(
+                "Find signature: %s, so the hits are only in the log. " ..
+                "ManifoldSigMaker:Goto(address) goes to one of them.", tostring(reason)))
+            return nil, reason
+        end
+        return nil, "cancelled"
+    end
+    local address = result.Addresses[index]
+    if not address then return nil, "cancelled" end
+    return address
+end
+
+--
+--- ∑ Scans for a signature and goes to where it matched.
+---
+---   With no text it asks for one. One hit is a jump, several are a list to
+---   pick from, and the whole list reaches the log either way, so it is still
+---   there once the picker is gone.
+--- @param text string|nil # Any form Manifold-SigMaker-Pattern reads.
+--- @return number|nil, string|nil # The address, or nil and a reason.
+--
+function Host:Find(text)
+    if text == nil then
+        local asked, askReason = self:Ask()
+        if not asked then return nil, askReason end
+        text = asked
+    end
+
+    local result, scanReason = self.Finder:Scan(text)
+    if not result then
+        self.Log:Warning("Find signature: " .. tostring(scanReason) .. ".")
+        return nil, scanReason
+    end
+    self.Log:Info(self.Log:Block("Find signature", self.Finder:Rows(result)))
+    if result.Count == 0 then
+        local nothing = self.Finder:NothingFound(result)
+        self.Log:Warning("Find signature: " .. nothing .. ".")
+        return nil, nothing
+    end
+
+    local address = result.Addresses[1]
+    if result.Count > 1 then
+        local picked, pickReason = self:Pick(result)
+        if not picked then return nil, pickReason end
+        address = picked
+    end
+
+    -- The whole pattern is selected in the hex view, so what matched is
+    -- visible as a block rather than as one address.
+    local shown, showReason = self.CE:ShowAddress(address, result.Pattern.Tokens)
+    if not shown then
+        self.Log:Warning("Find signature: " .. tostring(showReason) .. ".")
+        return address, showReason
+    end
+    return address
+end
+
+--
+--- ∑ The scan on its own: no prompt, no picker, no jump. This is what a
+---   table's Lua script asks for when it wants the addresses.
+--- @param text string
+--- @return table|nil, table|string # The addresses and the whole result, or
+---         nil and a reason.
+--
+function Host:Scan(text)
+    local result, reason = self.Finder:Scan(text)
+    if not result then return nil, reason end
+    return result.Addresses, result
+end
+
+--
+--- ∑ Puts the memory view on an address.
+--- @param where number|string # 14D762ED9, "0x14D762ED9" or "game.exe+1A2B".
+--- @return number|nil, string|nil
+--
+function Host:Goto(where)
+    local address, reason = self.CE:Resolve(where)
+    if not address then
+        self.Log:Warning("Go to: " .. tostring(reason) .. ".")
+        return nil, reason
+    end
+    local shown, showReason = self.CE:ShowAddress(address)
+    if not shown then
+        self.Log:Warning("Go to: " .. tostring(showReason) .. ".")
+        return nil, showReason
+    end
+    return address
+end
+
+--------------------------------------------------------
 --                       Settings                     --
 --------------------------------------------------------
 
@@ -187,6 +363,70 @@ function Host:SetScope(scope)
     return self.Settings.Scope
 end
 
+--
+--- ∑ Which memory a search covers, in the protection flag form celua.txt
+---   documents under AOBScan: a sign, + - or *, followed by X, W or C. "+X"
+---   is executable memory, "" is everything.
+--- @param flags string
+--- @return string|nil, string|nil
+--
+function Host:SetFindProtection(flags)
+    flags = tostring(flags or "")
+    -- Every valid pair is removed, and whatever is left over is what makes it
+    -- invalid. A Lua pattern cannot repeat a group, so the obvious
+    -- "^([%+%-%*][XWC])+$" quietly matches nothing at all.
+    if (flags:gsub("[%+%-%*][XWCxwc]", "")) ~= "" then
+        return nil, string.format(
+            "'%s' is not a protection filter. It is a sign, + - or *, and then X, W or C, " ..
+            "as in '+X-C'. An empty one searches all memory", flags)
+    end
+    self.Settings:Set("Find.Protection", flags:upper())
+    return self.Settings.Find.Protection
+end
+
+--- Whether a search that found nothing in executable memory is repeated over
+--- all of it before it gives up.
+function Host:SetFindFallback(enabled)
+    self.Settings:Set("Find.Fallback", enabled == true)
+    return self.Settings.Find.Fallback
+end
+
+--- The shortest pattern a search will accept, counted in fixed bytes.
+function Host:SetFindMinimum(bytes)
+    local count = tonumber(bytes)
+    if not count or count < 1 then return nil, "the minimum is a count of bytes, at least 1" end
+    self.Settings:Set("Find.MinFixedBytes", math.floor(count))
+    return self.Settings.Find.MinFixedBytes
+end
+
+--- How many hits the picker lists.
+function Host:SetFindMaxResults(count)
+    local limit = tonumber(count)
+    if not limit or limit < 1 then return nil, "the limit is a count of hits, at least 1" end
+    self.Settings:Set("Find.MaxResults", math.floor(limit))
+    return self.Settings.Find.MaxResults
+end
+
+--- Whether the prompt opens on the clipboard when it holds a signature.
+function Host:SetFindPrefill(enabled)
+    self.Settings:Set("Find.PrefillFromClipboard", enabled == true)
+    return self.Settings.Find.PrefillFromClipboard
+end
+
+--
+--- ∑ The key that opens the search, written the way Cheat Engine writes one:
+---   "Ctrl+Shift+F". An empty string takes the key away. The entries are
+---   rebuilt, because a shortcut is read off a menu item when it is created.
+--- @param shortcut string
+--- @return string|nil, string|nil
+--
+function Host:SetFindShortcut(shortcut)
+    shortcut = tostring(shortcut or "")
+    self.Settings:Set("Find.Shortcut", shortcut)
+    if self.Menu:Installed() then self:Reinstall() end
+    return self.Settings.Find.Shortcut
+end
+
 --------------------------------------------------------
 --                       Lifecycle                    --
 --------------------------------------------------------
@@ -195,6 +435,7 @@ function Host:Status()
     return {
         Version = Version.Full(),
         Menu = self.Menu:Installed(),
+        Shortcut = self.Menu:ShortcutInstalled(),
         Logger = self.Log:Attached(),
         Settings = self.Settings:Summary()
     }
@@ -207,17 +448,31 @@ function Host:StatusRows()
     if status.Settings.BranchTarget then mask[#mask + 1] = "branch targets" end
     if status.Settings.Immediate == true then mask[#mask + 1] = "immediates"
     elseif status.Settings.Immediate == "large" then mask[#mask + 1] = "large immediates" end
+    local settings = status.Settings
+    local shortcut = settings.FindShortcut
+    if shortcut == nil or shortcut == "" then
+        shortcut = "none"
+    elseif not status.Shortcut then
+        shortcut = shortcut .. ", not installed"
+    end
     return {
         { "Menu", status.Menu and "in the disassembler context menu" or "not installed" },
+        { "Shortcut", shortcut },
         { "Logger", status.Logger and "Manifold Logger" or "print fallback" },
         { "Wildcards", #mask > 0 and table.concat(mask, ", ") or "none" },
-        { "Unique in", status.Settings.Scope == "module" and "the containing module" or "the whole process" },
-        { "Clipboard", status.Settings.Output },
-        { "Settings", status.Settings.Persist and "persisted in the registry" or "session only" },
+        { "Unique in", settings.Scope == "module" and "the containing module" or "the whole process" },
+        { "Clipboard", settings.Output },
+        { "Search", string.format("%s, %s, at least %d fixed byte(s)",
+            Find.Where(settings.FindProtection),
+            settings.FindFallback and "widened to all memory when nothing matches"
+                or "never widened",
+            settings.FindMinFixedBytes) },
+        { "Settings", settings.Persist and "persisted in the registry" or "session only" },
         "",
         "ManifoldSigMaker:Copy() makes a signature for the selected address.",
-        "ManifoldSigMaker:Pattern(address) returns just the scan pattern.",
-        "ManifoldSigMaker:SetOutput('header,code,aobq') restores the defaults."
+        "ManifoldSigMaker:Find() scans for one and goes to where it matched.",
+        "ManifoldSigMaker:Goto(address) just moves the memory view.",
+        "ManifoldSigMaker:SetOutput('header,code,aobq') restores the old three lines."
     }
 end
 

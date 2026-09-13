@@ -1,5 +1,5 @@
 --[[
-    The one icon this tool needs.
+    The pictures on the menu entries.
 
     A context menu entry does not carry its own picture. A TMenuItem resolves
     its ImageIndex against the nearest ancestor that has an image list, and for
@@ -10,16 +10,16 @@
         TPopupMenu debuggerpopup Images mvImageList OnPopup debuggerpopupPopup
 
     So the picture has to go into a list that belongs to Cheat Engine. This
-    module adds exactly one image to it, once per session, and remembers the
-    index it was given.
+    module adds each image it is asked for once per session and remembers the
+    index it was given for it.
 
-    The index is kept in a global slot rather than in this module. Re-executing
-    the entry point drops every module from package.loaded, so a value held
-    here would be lost and the same picture would be added again on every
-    reload until the list filled up with copies. The list object is remembered
-    alongside the index, and the pair is only reused when the same list comes
-    back, so a rebuilt memory view gets a fresh entry instead of an index that
-    no longer means anything.
+    The indexes are kept in a global slot rather than in this module.
+    Re-executing the entry point drops every module from package.loaded, so a
+    value held here would be lost and the same pictures would be added again
+    on every reload until the list filled up with copies. The list object is
+    remembered alongside each index, and a pair is only reused when the same
+    list comes back, so a rebuilt memory view gets fresh entries instead of
+    indexes that no longer mean anything.
 
     Four things about Cheat Engine's image handling that this depends on, all
     of them learned the hard way in the sibling segments:
@@ -54,30 +54,38 @@ Icons.__index = Icons
 
 Icons.Folder = "Manifold-Icons"
 Icons.ModulesFolder = "Manifold-SigMaker-Modules"
-Icons.FileName = "Manifold-Copy.png"
 Icons.IconSize = 16
 
---- The slot that survives a reload. It holds the list the image went into and
---- the index it was given.
+--- The pictures, by the entry that wears them.
+Icons.Files = {
+    Copy = "Manifold-Copy.png",
+    Find = "Manifold-Search.png"
+}
+
+--- The slot that survives a reload. It holds, per file name, the list the
+--- image went into and the index it was given. Version is what tells a slot
+--- written by an older generation of this file apart from one of ours.
 Icons.GlobalKey = "__MANIFOLD_SIGMAKER_ICON__"
+Icons.CacheVersion = 2
 
 function Icons:New(options)
     options = options or {}
-    return setmetatable({ Root = options.Root, Reason = nil }, Icons)
+    return setmetatable({ Root = options.Root, Reasons = {} }, Icons)
 end
 
 --
---- ∑ The full path of the icon file.
+--- ∑ The full path of one icon file.
+--- @param fileName string|nil # Defaults to the copy picture.
 --- @return string
 --
-function Icons:Path()
+function Icons:Path(fileName)
     local root = self.Root
     if not root then
         local getPath = rawget(_G, "getAutorunPath")
         root = type(getPath) == "function" and getPath() or ""
         root = root .. Icons.ModulesFolder .. sep
     end
-    return root .. Icons.Folder .. sep .. Icons.FileName
+    return root .. Icons.Folder .. sep .. (fileName or Icons.Files.Copy)
 end
 
 --
@@ -95,11 +103,12 @@ local function looksLikePng(path)
 end
 
 --
---- ∑ Loads the file into a picture object Cheat Engine can put in a list.
+--- ∑ Loads one file into a picture object Cheat Engine can put in a list.
+--- @param fileName string|nil
 --- @return userdata|nil, string|nil
 --
-function Icons:Load()
-    local path = self:Path()
+function Icons:Load(fileName)
+    local path = self:Path(fileName)
     local okMagic, magicReason = looksLikePng(path)
     if not okMagic then return nil, path .. " is " .. tostring(magicReason) end
     local createPNG = rawget(_G, "createPNG")
@@ -115,23 +124,32 @@ function Icons:Load()
 end
 
 --
---- ∑ The index of our picture inside the given list, adding it the first time
----   it is asked for. A failure is remembered so a broken installation does
----   not retry on every menu build.
+--- ∑ The index of one picture inside the given list, adding it the first time
+---   it is asked for. A failure is remembered per file, so a broken
+---   installation does not retry on every menu build and a missing picture
+---   does not cost the entries whose picture is there.
 --- @param list userdata # An image list belonging to Cheat Engine.
+--- @param fileName string|nil
 --- @return number|nil, string|nil
 --
-function Icons:IndexIn(list)
+function Icons:IndexIn(list, fileName)
     if list == nil then return nil, "the menu has no image list" end
-    local cached = rawget(_G, Icons.GlobalKey)
-    if type(cached) == "table" and cached.List == list and type(cached.Index) == "number" then
-        return cached.Index
-    end
-    if self.Reason then return nil, self.Reason end
+    fileName = fileName or Icons.Files.Copy
 
-    local png, loadReason = self:Load()
+    local cached = rawget(_G, Icons.GlobalKey)
+    if type(cached) ~= "table" or cached.Version ~= Icons.CacheVersion then
+        cached = { Version = Icons.CacheVersion }
+        _G[Icons.GlobalKey] = cached
+    end
+    local entry = cached[fileName]
+    if type(entry) == "table" and entry.List == list and type(entry.Index) == "number" then
+        return entry.Index
+    end
+    if self.Reasons[fileName] then return nil, self.Reasons[fileName] end
+
+    local png, loadReason = self:Load(fileName)
     if not png then
-        self.Reason = loadReason
+        self.Reasons[fileName] = loadReason
         return nil, loadReason
     end
 
@@ -143,21 +161,22 @@ function Icons:IndexIn(list)
     pcall(function() png.destroy() end)
 
     if not added or after <= before or type(index) ~= "number" then
-        self.Reason = "the image list would not take the picture"
-        return nil, self.Reason
+        self.Reasons[fileName] = "the image list would not take the picture"
+        return nil, self.Reasons[fileName]
     end
-    _G[Icons.GlobalKey] = { List = list, Index = index }
+    cached[fileName] = { List = list, Index = index }
     return index
 end
 
 --
---- ∑ Puts the picture on a menu item.
+--- ∑ Puts a picture on a menu item.
 --- @param item userdata
 --- @param list userdata # The list the item resolves its index against.
+--- @param fileName string|nil
 --- @return boolean, string|nil
 --
-function Icons:Apply(item, list)
-    local index, reason = self:IndexIn(list)
+function Icons:Apply(item, list, fileName)
+    local index, reason = self:IndexIn(list, fileName)
     if not index or item == nil then return false, reason end
     pcall(function() item.ImageIndex = -1 end)
     local ok = pcall(function() item.ImageIndex = index end)

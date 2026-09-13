@@ -29,10 +29,12 @@
 
     This is the entry point. Copy this file and the Manifold-SigMaker-Modules
     folder side by side into Cheat Engine's autorun directory. The next time
-    Cheat Engine starts, the context menu in the disassembler carries a new
-    entry called "Manifold: Copy Signature".
+    Cheat Engine starts, the context menu in the disassembler carries two new
+    entries, "Manifold: Copy Signature" and "Manifold: Find Signature", and
+    the memory view's menu bar carries a small "Manifold" entry that holds the
+    keyboard shortcut for the second one.
 
-    Everything that entry does is also available as a method.
+    Everything those entries do is also available as a method.
 
         ManifoldSigMaker:Copy()
             Builds a signature for the address selected in the disassembler
@@ -41,17 +43,31 @@
         ManifoldSigMaker:Pattern(0x14D762ED9)
             Returns only the scan pattern for the address it is given.
 
+        ManifoldSigMaker:Find()
+            Asks for a signature, offering the clipboard, scans the process
+            for it and goes to where it matched. One hit is a jump, several
+            are a list to pick from.
+
+        ManifoldSigMaker:Find("48 8B 4C 24 ? 48 83 EC 28")
+            The same without the prompt.
+
+        ManifoldSigMaker:Scan(pattern)
+            The addresses on their own, with no prompt, picker or jump.
+
+        ManifoldSigMaker:Goto("game.exe+1A2B")
+            Puts the memory view on an address.
+
         ManifoldSigMaker:Status()
             Reports what is loaded and how it is currently configured.
 
     Executing this file a second time is safe and is the normal way to pick up
-    an edit. The menu entry from the previous run is taken down before the new
-    one is built, and the modules are read from disk again, so nothing
+    an edit. The menu entries from the previous run are taken down before the
+    new ones are built, and the modules are read from disk again, so nothing
     accumulates and no old code stays behind.
 
-    The masking policy keeps its defaults in Manifold-SigMaker-Settings.lua.
-    They can be overridden below. The version number lives in
-    Manifold-SigMaker-Version.lua.
+    The masking policy and the search keep their defaults in
+    Manifold-SigMaker-Settings.lua. They can be overridden below. The version
+    number lives in Manifold-SigMaker-Version.lua.
 ]]
 
 local sep = package.config:sub(1, 1)
@@ -73,6 +89,8 @@ local MODULES = {
     "Manifold-SigMaker-Decoder",
     "Manifold-SigMaker-Signature",
     "Manifold-SigMaker-Format",
+    "Manifold-SigMaker-Pattern",
+    "Manifold-SigMaker-Find",
     "Manifold-SigMaker-Icons",
     "Manifold-SigMaker-Menu",
     "Manifold-SigMaker-Host"
@@ -113,7 +131,7 @@ end
 -- keeps the menu entry working without forcing that window open at startup.
 local installed, reason = host:Install()
 if not installed then
-    host.Log:Debug("The disassembler menu entry is not installed yet: " .. tostring(reason) ..
+    host.Log:Debug("The disassembler menu entries are not installed yet: " .. tostring(reason) ..
         ". Call ManifoldSigMaker:Install() once the memory view is open.")
 end
 

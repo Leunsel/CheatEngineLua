@@ -1,8 +1,9 @@
 # Manifold SigMaker
 
-Manifold SigMaker is an autorun extension for Cheat Engine. It takes the address selected in the
-disassembler, grows an array-of-bytes signature that matches it and nothing else, and puts that
-signature on the clipboard.
+Manifold SigMaker is an autorun extension for Cheat Engine, and it works in both directions. It
+takes the address selected in the disassembler, grows an array-of-bytes signature that matches it
+and nothing else, and puts that signature on the clipboard. It also takes a signature back,
+scans the process for it, and puts the Memory Viewer on the address it matched.
 
 It replaces the GH SigMaker plugin. It exists because that plugin's masking rule is wrong in ways
 that change which bytes you end up scanning for, and because a plugin that carries its own length
@@ -75,6 +76,57 @@ already consumed that tool's output. Hex is uppercase throughout, the module off
 to eight digits, and a masked byte is written as a zero byte in the code style string and as a
 question mark in the pattern.
 
+## Finding one again
+
+The same signature, pasted back in, becomes an address. Right-click in the disassembler and pick
+**Manifold: Find Signature**, or press **Ctrl+Shift+F** with the Memory Viewer focused. The
+prompt opens on the clipboard when what is on it reads as a signature, so copying one in one
+Cheat Engine and finding it in another is a keystroke and a return.
+
+One hit is a jump: the disassembler and the hex view both go to it, and the bytes the pattern
+covers are selected in the hex view. Several hits are a list to pick from. Either way every hit
+reaches the log first, so it is still there when the picker is gone.
+
+```
+Find signature
+  Pattern  : 48 8B 0D 11 ?? ?? 44
+  Bytes    : 7, 2 wildcarded
+  Searched : executable memory
+  Hits     : 2
+  Time     : 0.06 s
+
+  1.  game.exe+100  (140000100)
+  2.  game.exe+400  (140000400)
+```
+
+**It reads every shape a signature is written in**, which includes all four of the output parts
+above, header line and all, so whatever the copying half put on the clipboard pastes straight
+back in:
+
+| Pasted | Read as |
+|---|---|
+| `48 8B 4C 24 ? 48 83 EC 28` | the bare pattern |
+| `"48 8B 4C 24 ?? 48 83 EC 28"` | the same, quoted |
+| `"\x48\x8B\x4C\x24\x00", "xxxx?"` | the C string and its mask |
+| `\x48\x8B\x4C\x24\x00` | a C string with no mask, so its zeroes are real bytes |
+| `{ 0x48, 0x8B, 0x4C, 0x24, 0x00 }` | a C array |
+| `488B4C2408` | one unbroken run of hex |
+| `48 8? 4C 24` | a nibble wildcard |
+
+A wildcard is `?`, `??`, `*` or `.`. A nibble wildcard like `8?` is passed through untouched,
+because Cheat Engine's scanner understands half a byte. A C string that arrives without its mask
+is read literally, since `\x00` only means a wildcard when a mask says so, and the log block says
+how many zero bytes were taken at face value.
+
+**It searches executable memory first.** That is where code is, and it is what keeps a scan quick
+in a process with a gigabyte of heap. A signature that describes data matches nothing there, so a
+search that comes back empty is widened to all memory once before it reports a miss, and the
+block says which of the two found it.
+
+**It refuses a pattern that is too short.** Cheat Engine builds the complete result list before a
+caller can read any of it, so scanning for two fixed bytes is a freeze rather than a search. Four
+is the minimum, and the refusal names the call that lowers it.
+
 ## Installation
 
 Place Manifold-SigMaker.lua and the Manifold-SigMaker-Modules folder next to each other in the
@@ -93,32 +145,43 @@ autorun/
   Manifold-SigMaker-Modules/
     Manifold-SigMaker-CE.lua
     Manifold-SigMaker-Decoder.lua
+    Manifold-SigMaker-Find.lua
     Manifold-SigMaker-Format.lua
     Manifold-SigMaker-Host.lua
     Manifold-SigMaker-Log.lua
     Manifold-SigMaker-Menu.lua
+    Manifold-SigMaker-Pattern.lua
     Manifold-SigMaker-Settings.lua
     Manifold-SigMaker-Signature.lua
     Manifold-SigMaker-Version.lua
+    Manifold-Icons/
+      Manifold-Copy.png
+      Manifold-Search.png
 ```
 
 If only the single file is copied, Cheat Engine prints one readable line naming the folder it
 could not find, rather than a require traceback on every start. Re-running the file rebuilds
-everything from fresh module code and takes the previous generation's menu entry down first, so
+everything from fresh module code and takes the previous generation's menu entries down first, so
 nothing accumulates while you edit.
 
 ## Using it
 
-Right-click an instruction in the Memory Viewer's disassembler and pick **Manifold: Copy
-Signature**.
+Right-click an instruction in the Memory Viewer's disassembler. **Manifold: Copy Signature**
+builds one, **Manifold: Find Signature** goes looking for one, and Ctrl+Shift+F is the same
+search from the keyboard.
 
-The entry is added to the memory view's own menu component, the one named debuggerpopup. If the
-memory view has never been opened when Cheat Engine starts, there is nothing to attach to yet.
-Open it once and run:
+The entries are added to the memory view's own menu component, the one named debuggerpopup. If
+the memory view has never been opened when Cheat Engine starts, there is nothing to attach to
+yet. Open it once and run:
 
 ```lua
 ManifoldSigMaker:Install()
 ```
+
+The shortcut lives somewhere else, and it has to. A key is dispatched by the focused form through
+its main menu, and an item in a context menu is never asked about one, so the small **Manifold**
+entry in the Memory Viewer's own menu bar is what answers it. The context menu entry prints the
+key beside its caption only when that entry is really there.
 
 Everything the menu does is also a method, so a table's Lua script or the console can use it
 without the menu:
@@ -128,6 +191,10 @@ ManifoldSigMaker:Copy()                 -- selected address, to the clipboard
 ManifoldSigMaker:Copy(0x14D762ED9)      -- a given address
 ManifoldSigMaker:Pattern(0x14D762ED9)   -- just "48 8B 4C 24 ? 66 C1 E8 08 66 8B"
 ManifoldSigMaker:Make(0x14D762ED9)      -- the signature as a table
+ManifoldSigMaker:Find()                 -- ask for one, scan, go there
+ManifoldSigMaker:Find("48 8B 4C 24 ?")  -- the same without the prompt
+ManifoldSigMaker:Scan("48 8B 4C 24 ?")  -- the addresses, nothing else
+ManifoldSigMaker:Goto("game.exe+1A2B")  -- just the memory view
 ManifoldSigMaker:Status()
 ```
 
@@ -156,7 +223,15 @@ persisted values, and are changed in the file or as overrides.
 | MinPatternBytes | 5 | Do not scan below this. One instruction can trim to a single byte, and a one byte scan matches roughly one address in every 256 |
 | ScanProtection | +X | Executable pages only. An empty string searches everything |
 | CopyToClipboard | true | Off returns the text without touching the clipboard |
-| MenuCaption | Manifold: Copy Signature | The wording of the context menu entry |
+| MenuCaption | Manifold: Copy Signature | The wording of the first context menu entry |
+| Find.Protection | +X | Where a search looks first. An empty string searches all memory |
+| Find.Fallback | true | Widen a search that found nothing to all memory once |
+| Find.MinFixedBytes | 4 | Refuse to scan for a pattern with fewer fixed bytes than this |
+| Find.MaxResults | 100 | How many hits the picker lists |
+| Find.PrefillFromClipboard | true | Open the prompt on the clipboard when it holds a signature |
+| Find.MenuCaption | Manifold: Find Signature | The wording of the second context menu entry |
+| Find.Shortcut | Ctrl+Shift+F | The key. An empty string takes it away |
+| Find.MenuBar | true | The Memory Viewer menu bar entry that carries the key |
 
 The large setting for immediates reads a value the way the instruction means it. Cheat Engine
 prints an immediate unsigned and at its encoded width, so FFFFFFFF is minus one rather than four
@@ -171,6 +246,9 @@ ManifoldSigMaker:SetOutput("header,code,aobq")  -- the old tool's three lines
 ManifoldSigMaker:SetMaskImmediate(true)         -- mask every immediate
 ManifoldSigMaker:SetMaskDisplacement(false)     -- keep displacements literal
 ManifoldSigMaker:SetScope("process")            -- unique in the whole process
+ManifoldSigMaker:SetFindProtection("")          -- search all memory from the start
+ManifoldSigMaker:SetFindMinimum(2)              -- allow a shorter pattern
+ManifoldSigMaker:SetFindShortcut("Ctrl+Alt+G")  -- rebind the key
 ```
 
 Anything without a setter is reachable as an override where the host is built in
