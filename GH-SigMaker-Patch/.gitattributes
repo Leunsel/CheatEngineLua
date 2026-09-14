@@ -1,0 +1,3 @@
+# cmd.exe misreads batch files with bare line feeds, so they are always
+# checked out with carriage returns, also when downloaded from GitHub.
+*.cmd text eol=crlf

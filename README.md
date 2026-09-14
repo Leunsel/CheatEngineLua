@@ -38,6 +38,10 @@ and goes to where it matched.
 
 The documentation for all of them lives in [`docs/`](docs/README.md).
 
+[GH SigMaker Patch](https://github.com/Leunsel/CheatEngineLua/tree/main/GH-SigMaker-Patch)
+is not a Manifold segment. It is a small script for owners of the GH SigMaker plugin that makes its
+Copy Signature entry copy only the wildcard pattern. The plugin itself is not included.
+
 ## Credits
 
 Thanks to the following people and resources.
