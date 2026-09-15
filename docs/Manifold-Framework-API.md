@@ -858,7 +858,9 @@ Per option: `callbacks:Get<Option>()`, `callbacks:Set<Option>(bool)` and
 
 ## Manifold.AssemblerCommands
 
-`AssemblerCommands`, version 1.2.8. `logger` and `trampolines` are both required.
+`AssemblerCommands`, version 1.2.9. `logger` and `trampolines` are both required.
+
+Every command runs on the main thread. A script marked Execute Asynchronous assembles on its own worker thread, so its commands are handed to the main thread with `synchronize` and finish one after another. Two async scripts can therefore no longer pick the same relay slot or hook the same instruction at once. A failing command still reports its reason.
 
 | Function | Returns | Description |
 |---|---|---|
