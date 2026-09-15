@@ -584,7 +584,7 @@ logger.DataDir   = "D:\\Manifold"   -- the logger keeps its own copy!
 | Module | Version | Purpose |
 |---|---|---|
 | Manifold.Teleporter | 1.6.2 | Save/load positions in any number of dimensions, optional areas, own UI, CE record generation |
-| Manifold.TeleporterMap | 1.3.3 | Interactive canvas map over the Teleporter's saves: one area at a time, height in size and shade, readable crowds |
+| Manifold.TeleporterMap | 1.3.4 | Interactive canvas map over the Teleporter's saves: one area at a time, height in size and shade, readable crowds |
 
 ### Developer modules (`Manifold.Dev/`)
 

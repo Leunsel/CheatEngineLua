@@ -1474,7 +1474,7 @@ categories.
 
 ## Manifold.TeleporterMap
 
-`TeleporterMap`, version 1.3.3. `logger`, `forms` and `teleporter` are required, `customIO` is
+`TeleporterMap`, version 1.3.4. `logger`, `forms` and `teleporter` are required, `customIO` is
 optional, and `json`, `utils` and `ui` are runtime dependencies. See
 [the framework guide](Manifold-Framework.md#86-map) for what the window does.
 
@@ -1487,7 +1487,7 @@ Every section is copied per instance, and a config table merges into the copy ke
 |---|---|
 | `Plane` | `Horizontal = nil`, `Vertical = nil` (position indexes; `nil` derives them from the up axis), `FlipHorizontal = false`, `FlipVertical = false` |
 | `Area` | `Selected = nil`: every area; `false`: the saves without one; a string: that area. Which area a save is in is `teleporter:GetSaveArea`'s answer. |
-| `View` | `Zoom = nil` (pixels per unit; `nil` fits on first open), `MinZoom = 0.0005`, `MaxZoom = 400`, `ZoomStep = 1.25`, `ZoomAnimationMs = 120` (0 applies a notch at once), `ZoomFrameMs = 16`, `GridTargetPixels = 72`, `FollowPlayer = false`, `ShowGrid`, `ShowRulers`, `ShowLabels`, `ShowTrail`, `ShowDetails` (all `true`), `OneClickTeleport = true`, `ConfirmTeleport = true`, `ScaleByHeight = true` (size, shade and the legend together), `HeightScaleMax = 1.5`, `HeightSnapRadius = 25` (world units; 0 off), `HeightBand = 0` (world units; 0 off), `MarkerRadius = 5`, `HitRadius = 13`, `FontSize = 9`, `LabelLimit = 150` |
+| `View` | `Zoom = nil` (pixels per unit; `nil` fits on first open), `MinZoom = 0.0005`, `MaxZoom = 400`, `ZoomStep = 1.25`, `ZoomAnimationMs = 120` (0 applies a notch at once), `ZoomFrameMs = 15`, `FrameMs = 15` (how often mouse moves, the player poll, a resize and `Invalidate` may repaint; Windows rounds a timer up to its 15.6 ms tick, so 16 fires about every 30 ms), `GridTargetPixels = 72`, `FollowPlayer = false`, `ShowGrid`, `ShowRulers`, `ShowLabels`, `ShowTrail`, `ShowDetails` (all `true`), `OneClickTeleport = true`, `ConfirmTeleport = true`, `ScaleByHeight = true` (size, shade and the legend together), `HeightScaleMax = 1.5`, `HeightSnapRadius = 25` (world units; 0 off), `HeightBand = 0` (world units; 0 off), `MarkerRadius = 3`, `HitRadius = 13`, `FontSize = 9`, `LabelLimit = 150` |
 | `Player` | `RefreshInterval = 100` ms, `TrailLength = 400`, `TrailMinDistance = 0.25`, `TrailBreakDistance = 25`, `FailureBackoff = 5` |
 | `Settings` | `PersistView = true`, `ViewFileName = "Teleporter.%s.Map.txt"` |
 
@@ -1583,7 +1583,7 @@ Every section is copied per instance, and a config table merges into the copy ke
 | `teleporterMap:Show()` | `form` | Opens or focuses the window. `InitMapUI()` is an alias. |
 | `teleporterMap:Close()` | | |
 | `teleporterMap:Redraw()` | `boolean` | Paints one frame into the off-screen buffer and presents it. One `pcall` per frame; five consecutive failures stop the map. |
-| `teleporterMap:Invalidate()` | | Repaint on the next tick |
+| `teleporterMap:Invalidate()` | | Repaint with the next frame, within `View.FrameMs` while the window is open. Many calls in one interval paint one frame. |
 | `teleporterMap:HandleKey(key)` | `boolean` | The window's key handler. Keys pass through while the filter box, the area dropdown or one of the details boxes has focus, except Escape in the filter. With the map focused: Home and Shift+Home fit, Z zooms into a pile, PageUp/PageDown switch the area, comma and period step the height band, Delete and F2 act on the selected save, Escape clears the selection. |
 | `teleporterMap:Palette()` / `Colors()` | `table` | The Forms design palette, and the canvas colours derived from it, cached against the palette. `Colors().Ramp` is the height ramp, empty when the palette cannot carry one. |
 | `teleporterMap:OnThemeApplied()` | `boolean` | Drops the colour cache and repaints. Whether the window was open. |
