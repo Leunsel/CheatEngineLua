@@ -84,8 +84,11 @@ prompt opens on the clipboard when what is on it reads as a signature, so copyin
 Cheat Engine and finding it in another is a keystroke and a return.
 
 One hit is a jump: the disassembler and the hex view both go to it, and the bytes the pattern
-covers are selected in the hex view. Several hits are a list to pick from. Either way every hit
-reaches the log first, so it is still there when the picker is gone.
+covers are selected in the hex view. Several hits are a list that stays open. A click on a line
+goes to that hit and leaves the list where it is, so you can try one hit after another without
+scanning again, and the arrow keys do the same. The list goes away when you close it or when the
+next search replaces it. Either way every hit reaches the log first, so it is still there when the
+list is gone.
 
 ```
 Find signature
@@ -227,7 +230,7 @@ persisted values, and are changed in the file or as overrides.
 | Find.Protection | +X | Where a search looks first. An empty string searches all memory |
 | Find.Fallback | true | Widen a search that found nothing to all memory once |
 | Find.MinFixedBytes | 4 | Refuse to scan for a pattern with fewer fixed bytes than this |
-| Find.MaxResults | 100 | How many hits the picker lists |
+| Find.MaxResults | 100 | How many hits the list of hits shows |
 | Find.PrefillFromClipboard | true | Open the prompt on the clipboard when it holds a signature |
 | Find.MenuCaption | Manifold: Find Signature | The wording of the second context menu entry |
 | Find.Shortcut | Ctrl+Shift+F | The key. An empty string takes it away |

@@ -1,7 +1,7 @@
 # Manifold SigMaker
 
 > File: [`Manifold-SigMaker/Manifold-SigMaker.lua`](../Manifold-SigMaker/Manifold-SigMaker.lua)
-> Version: 1.1.0 · License: MIT · Author: Leunsel
+> Version: 1.2.0 · License: MIT · Author: Leunsel
 
 An autorun segment for the two directions of a signature. It turns the instruction selected in
 Cheat Engine's disassembler into an array of bytes signature and puts it on the clipboard, and it
@@ -66,8 +66,9 @@ instead of a require traceback on every Cheat Engine start.
 Executing the entry file again from the Lua Engine rebuilds everything from fresh module code.
 Cheat Engine's require is standard Lua require, so package.loaded survives a re-execution. The
 eleven module names this tree owns are dropped from it first, otherwise an edited module keeps
-running the code it was loaded with. The previous generation's menu entries are taken down before
-that happens, so nothing accumulates, and the startup line reads re-executed instead of ready.
+running the code it was loaded with. The previous generation's menu entries, and its list of hits
+when one is open, are taken down before that happens, so nothing accumulates, and the startup line
+reads re-executed instead of ready.
 
 ### When the memory view is not open yet
 
@@ -321,7 +322,7 @@ Manifold-SigMaker-Settings.lua holds the defaults:
 | Find.Protection | "+X" | Where a search looks first, in AOBScan protection flags |
 | Find.Fallback | true | Widen a search that found nothing to all memory once, section 7.2 |
 | Find.MinFixedBytes | 4 | Refuse to scan for a pattern with fewer fixed bytes than this |
-| Find.MaxResults | 100 | How many hits the picker is given |
+| Find.MaxResults | 100 | How many hits the list of hits is given |
 | Find.PrefillFromClipboard | true | Open the prompt on the clipboard when it holds a signature |
 | Find.MenuCaption | "Manifold: Find Signature" | The second context menu entry |
 | Find.Shortcut | "Ctrl+Shift+F" | The key, empty for none |
@@ -500,19 +501,44 @@ is in the block, which is the honest way to see what a given pattern costs.
 ### 7.3 What happens to the hits
 
 Nothing found is a warning that says where it looked. One hit is a jump, with nothing to
-confirm. More than one is a list:
+confirm. More than one is a list in a window of its own, titled with the count and the pattern:
 
 ```
-2 matches:
+2 matches for 48 8B 0D 11 ?? ?? 44
   1.  game.exe+100  (140000100)
   2.  game.exe+400  (140000400)
 ```
 
-That is Cheat Engine's own showSelectionList, and custom input is not offered. Cancelling it goes
-nowhere and moves nothing.
+The window is not modal. A click on a line goes to that hit and the window stays, so the hits of
+one scan can be tried one after another, and the arrow keys walk through them the same way. None
+of that scans again. The list holds the addresses the scan found, and a click only moves the
+memory view.
 
-Every hit reaches the log either way, before the picker is shown, so the list is still there once
-the picker is gone:
+The list goes away when its own close button closes it, or when the next Find that runs a scan
+replaces it. Several new hits are listed in the same window, which keeps the place and the size it
+was given. One hit or none closes it, so the list never shows hits older than the latest scan. A
+cancelled prompt, or a pattern refused as too short, scans nothing and leaves the list alone. A
+list that was closed opens again where it was, for as long as SigMaker stays loaded.
+
+Three things make that work:
+
+* **The list belongs to the memory view.** Its PopupParent is the memory view form, and Windows
+  keeps an owned window above its owner, so a jump that brings the memory view up cannot bury
+  the list. createForm leaves PopupMode at pmAuto and LCL applies ownership when the window
+  handle is made, so it is set before anything else touches the form.
+* **A click leaves the keyboard with the list.** It moves a memory view that is already on screen
+  without raising it, section 7.4, so the next arrow key still reaches the list.
+* **A click is OnClick.** LCL's list box calls it for a click on a line, for a click on the line
+  that is already selected, and for the arrow keys, and never when ItemIndex is set in code.
+  Going back to a hit after looking around is one more click on the same line, and filling the
+  list jumps nowhere.
+
+A list that opens for the first time sits over the right hand side of the memory view, below its
+menu and toolbar. The jump puts the hit on the top line of the disassembler, with the bytes and the
+instruction on the left, so that is where the window is least in the way.
+
+Every hit reaches the log either way, before the list is shown, so the addresses are still there
+once the window is gone:
 
 ```
 Find signature
@@ -527,12 +553,12 @@ Find signature
 ```
 
 The block lists the first 25 hits and then says how many more there are. Find.MaxResults, 100 by
-default, is how many the picker itself is given; past that the block reports the real total and
-offers the first ones, so a pattern with 40000 matches says 40000 rather than pretending there
-were 100.
+default, is how many the list itself is given; past that the block reports the real total and
+the window lists the first ones under a title like "The first 100 of 40000 matches for ...", so a
+pattern with 40000 matches says 40000 rather than pretending there were 100.
 
-On a Cheat Engine without showSelectionList the first hit is not offered as a guess. The scan
-still logged every address, and the warning says the way out:
+On a Cheat Engine without createForm or createListBox the first hit is not offered as a guess.
+The scan still logged every address, and the warning says the way out:
 
 ```lua
 ManifoldSigMaker:Goto("game.exe+1A2B3C")
@@ -543,6 +569,11 @@ ManifoldSigMaker:Goto("game.exe+1A2B3C")
 The memory view is shown and brought to the front, the disassembler's TopAddress and
 SelectedAddress are moved to the hit, the hex view is pointed at it, and the bytes the pattern
 covers are selected there, so a match is visible as a block and not as one address.
+
+A click in the list of hits skips the first step when the memory view is already on screen.
+Showing a form raises it and hands it the keyboard, so every click would take the focus from the
+list and send the next arrow key to the disassembler. A memory view that is not on screen is still
+shown and brought up, because a jump nobody can see is no jump at all.
 
 Every one of those writes goes through the property first and through the published setter,
 setSelectedAddress and the like, after it. Which of the two a given build accepts is not
@@ -567,7 +598,9 @@ ManifoldSigMaker:Make(0x14D762ED9)      -- the signature table, nothing copied
 
 ManifoldSigMaker:Find()                      -- ask, scan, go there
 ManifoldSigMaker:Find("48 8B ? ? ? 66")      -- the same without the prompt
-ManifoldSigMaker:Scan("48 8B ? ? ? 66")      -- the addresses, no prompt, picker or jump
+ManifoldSigMaker:ShowHit(2)                  -- line 2 of the open list of hits, like a click
+ManifoldSigMaker:CloseHits()                 -- close that list
+ManifoldSigMaker:Scan("48 8B ? ? ? 66")      -- the addresses, no prompt, list or jump
 ManifoldSigMaker:Goto("game.exe+1A2B")       -- just the memory view
 
 ManifoldSigMaker:SetMaskDisplacement(false)
@@ -578,7 +611,7 @@ ManifoldSigMaker:SetScope("process")         -- "module" or "process"
 ManifoldSigMaker:SetFindProtection("")       -- "" searches all memory, "+X" executable only
 ManifoldSigMaker:SetFindFallback(false)      -- never widen a search that found nothing
 ManifoldSigMaker:SetFindMinimum(2)           -- allow a shorter pattern
-ManifoldSigMaker:SetFindMaxResults(20)       -- how many hits the picker lists
+ManifoldSigMaker:SetFindMaxResults(20)       -- how many hits the list of hits shows
 ManifoldSigMaker:SetFindPrefill(false)       -- do not offer the clipboard
 ManifoldSigMaker:SetFindShortcut("Ctrl+Alt+G")
 ManifoldSigMaker:Status()                    -- a table
@@ -592,17 +625,21 @@ anything went wrong, and the reason has already been logged.
 
 Pattern is the one to feed straight into AOBScan or an Auto Assembler script.
 
-Find returns the address it went to, or nil and a reason. A cancelled prompt and a cancelled
-picker are both "cancelled", which is not a failure and is not logged as one. Scan is the same
-search with no interface at all: it returns the addresses and the whole result beside them, and
-touches neither the memory view nor a dialog. Goto only moves the memory view.
+Find returns the address it went to, or nil and a reason. A cancelled prompt is "cancelled",
+which is not a failure and is not logged as one. Several hits go into the list rather than
+anywhere, and Find returns nil and "listed", which is not a failure either. Before 1.2.0 the list
+was modal and Find returned the hit that was picked. A script that wants the addresses asks Scan
+for them. ShowHit goes to one line of the open list the way a click does, and CloseHits closes
+the list. Scan is the same search with no interface at all: it returns the addresses and the whole
+result beside them, and touches neither the memory view nor a window. Goto only moves the memory
+view.
 
 Status reports the version, whether the menu entries are installed, whether the shortcut is
 really answered by something, whether the Logger was found, and the settings that matter.
 StatusRows is the same thing shaped for a log block, which is what the startup line prints:
 
 ```
-Manifold SigMaker 1.1.0 ready
+Manifold SigMaker 1.2.0 ready
   Menu      : in the disassembler context menu
   Shortcut  : Ctrl+Shift+F
   Logger    : Manifold Logger
@@ -613,22 +650,24 @@ Manifold SigMaker 1.1.0 ready
   Settings  : persisted in the registry
 ```
 
-Shutdown removes the menu entries and releases both globals.
+Uninstall closes the list of hits along with the menu entries. Reinstall leaves the list open, so
+rebinding the key does not take it away. Shutdown removes the menu entries, closes the list and
+releases both globals.
 
 ## 9. Internal structure
 
 | Module | Owns |
 |---|---|
-| -CE | Defensive wrappers over the Cheat Engine API: Call, Get, Write, RunInMain, the form, popup and menu bar accessors, SplitDisassembly, Disassemble, DisassembleBytes, ReadBytes, ModuleAt, ScanMatches, CountMatches, ShowAddress, AddressName, Resolve, Input, Select, Clipboard. Every global is looked up at call time. |
+| -CE | Defensive wrappers over the Cheat Engine API: Call, Get, Write, RunInMain, the form, popup and menu bar accessors, SplitDisassembly, Disassemble, DisassembleBytes, ReadBytes, ModuleAt, ScanMatches, CountMatches, ShowAddress, AddressName, Resolve, Input, the list window with OpenList, RefillList and CloseList, Clipboard. Every global is looked up at call time. |
 | -Log | The Manifold Logger channel named SigMaker or the print fallback, and Block. |
 | -Settings | Defaults, overrides, dotted keys, the registry store. |
 | -Decoder | The probe, the skeleton, the classification of a byte, and the policy that turns it into a mask. |
 | -Signature | The growth loop, the trimming, the bounds and the function end rule. |
 | -Format | The four output parts, Compose, and the rows of the report block. |
 | -Pattern | Reading a pasted signature in any of its shapes. Syntax only, no policy. |
-| -Find | The search: the minimum length, the protection, the widening, and the rows of its block. |
+| -Find | The search: the minimum length, the protection, the widening, the rows of its block, and the title and lines of the list of hits. |
 | -Menu | The entries in the context menu, the shortcut carrier in the menu bar, and the tag sweep that removes both. |
-| -Host | Wiring, the actions, the setters, Status and Shutdown. |
+| -Host | Wiring, the actions, the list of hits and what a click on it does, the setters, Status and Shutdown. |
 | -Version | The version number. Nothing else in the tree carries one. |
 
 Globals are never captured at load time. A test can therefore stub the whole API, and an older
@@ -650,8 +689,8 @@ lua Run.lua <projectDir>
 
 It covers the API wrappers, the settings and their persistence, the classification of a byte, the
 masking policy, the growth loop and its bounds, the output parts, the reading of a pasted
-signature, the search and where it looks, the picker and the jump, the menu entries and the
-shortcut, and the entry file executed twice. There are 296 checks, and one of them is the round
+signature, the search and where it looks, the list of hits and the jump, the menu entries and the
+shortcut, and the entry file executed twice. There are 340 checks, and one of them is the round
 trip: what the copying half writes, in all five combinations of output parts, is read back by the
 finding half as the same pattern.
 
@@ -672,6 +711,14 @@ rather than an empty list and hiding everything outside executable memory under 
 answering an empty string, a hex view whose selection is writable only through its setters, and
 getVisibleDisassembler handing back a stub whose PopupMenu is nil. A caller that regresses to any of those fails in the
 test run instead of quietly producing a signature that masks nothing.
+
+The windows are modelled the same way. createForm leaves PopupMode at pmAuto, and an owner set
+once the window handle exists is counted, because LCL only applies ownership when the handle is
+made, and showing a form or reading its canvas makes it. A list box calls OnClick for a user's
+click and never for an ItemIndex set in code. A window closed with caFree is gone together with
+its list, and touching either afterwards raises, where the real Cheat Engine would read freed
+memory. That is how the tests hold the list of hits to never outliving its window, a new scan,
+an Uninstall, or the entry file executed again.
 
 ## 10. Cheat Engine behaviours that contradict celua.txt
 
