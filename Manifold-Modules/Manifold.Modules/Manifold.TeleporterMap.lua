@@ -1,18 +1,35 @@
 local NAME = "Manifold.TeleporterMap.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.3.3"
+local VERSION = "1.3.4"
 local DESCRIPTION = "Manifold Framework Teleporter Map"
 
 --[[
-    ∂ v1.3.3 (2026-09-13)
-        The menu bar is dark all the way through. A menu made in
-        Lua misses the step that gives Cheat Engine's own menus
-        their dark background, so the dropdowns had a light
-        frame and light separators around dark entries. The
-        menu strip asks Manifold.Forms for that step once it is
-        built, and again when the Area submenu gets a changed
-        list of areas, because a submenu that did not exist yet
-        has no background of its own.
+    ∂ v1.3.4 (2026-09-15)
+        The map keeps up with the mouse at a hundred saves and
+        more. A mouse move painted the whole map inside the event,
+        so dragging or moving over a crowd kept the window busy
+        with frames the screen never showed, and the player poll
+        and the zoom could not get a turn. Mouse moves, the player
+        poll and a resize now only ask for a frame, and a frame
+        timer paints one every View.FrameMs however many asked. A
+        zoom in flight still paints each of its own steps.
+
+        A frame reads the canvas brush, pen, font and drawing calls
+        once. Cheat Engine builds a new Lua object for every read
+        of canvas.Font, and the labels alone read it hundreds of
+        times a frame, which was most of what they cost and most of
+        the garbage behind the slow frames. Label placement tries
+        its eight spots without building a table for each, a pile
+        keeps its own discs instead of copies, and the status bar
+        readout follows the frames instead of every mouse move. The
+        picture is the same as before.
+
+        FrameMs and ZoomFrameMs are 15. Windows only lets a timer
+        fire on its clock tick of about 15.6 ms, so a timer asked
+        for 16 ms waited for the second tick and fired about every
+        30 ms, which halved the frames of a drag and the steps of a
+        zoom. Growing the window still paints at once, because the
+        strip that just became visible has no frame behind it yet.
 
     ...
 
@@ -70,7 +87,16 @@ TeleporterMap = {
         --- The animation's own frame time. It is a second timer on purpose:
         --- the window's other one polls the player, and drawing frames must
         --- not make it read memory six times as often.
-        ZoomFrameMs      = 16,
+        --- Windows only fires a timer on its clock tick of about 15.6 ms and
+        --- rounds the interval up to it, so 15 means every tick and 16 means
+        --- about every second one.
+        ZoomFrameMs      = 15,
+        --- How often the map may repaint while the mouse moves, the player
+        --- walks or the window is resized. Those only ask for a frame, and
+        --- one frame per interval paints everything that asked, so a fast
+        --- mouse cannot make the map paint more often than a screen shows.
+        --- The same clock tick applies as for ZoomFrameMs.
+        FrameMs          = 15,
         --- How far apart grid lines should sit on screen. The world spacing
         --- is the nearest 1, 2 or 5 times a power of ten that lands here.
         GridTargetPixels = 72,
@@ -1340,7 +1366,7 @@ function TeleporterMap:RebuildMarkers()
     self:_UpdateHeader()
     self:_UpdateDetails()
     self:_RefreshAreaControls()
-    self.Dirty = true
+    self:Invalidate()
     return markers
 end
 registerLuaFunctionHighlight('RebuildMarkers')
@@ -1360,7 +1386,7 @@ end
 --
 function TeleporterMap:_EnsureScaled()
     local key = self.ScaleKey
-    local base = tonumber(self.View.MarkerRadius) or 5
+    local base = tonumber(self.View.MarkerRadius) or 3
     local maxScale = self:_HeightScaleMax()
     local on = self.View.ScaleByHeight == true
     if key and key.Base == base and key.Max == maxScale and key.On == on then return end
@@ -1377,7 +1403,7 @@ end
 --
 function TeleporterMap:_ScaleMarkers(markers)
     markers = markers or self.Markers
-    local base = tonumber(self.View.MarkerRadius) or 5
+    local base = tonumber(self.View.MarkerRadius) or 3
     local maxScale = self:_HeightScaleMax()
     -- What the sizes were computed from, so _EnsureScaled can tell when a
     -- View field was edited in place and the markers are stale.
@@ -1595,7 +1621,7 @@ function TeleporterMap:_FollowHeightBand()
     if last ~= nil and math.abs(height - last) <= band / 4 then return end
     self:_ApplyFilter()
     self:_UpdateHeader()
-    self.Dirty = true
+    self:Invalidate()
 end
 
 function TeleporterMap:SetFilter(text)
@@ -2265,8 +2291,10 @@ function TeleporterMap:Tick()
         if position then self.PlayerStale = false end
     end
     if moved or self.Dirty then
-        self:Redraw()
-        self:_UpdateInfo()
+        -- Asked for rather than painted here, so a poll that lands inside a
+        -- drag joins the frame the drag already asked for.
+        self:_RequestFrame()
+        self:_RequestInfo()
     end
     self:_FlushViewFile()
 end
@@ -2881,10 +2909,13 @@ function TeleporterMap:_AcquireCanvas(width, height)
     if self.Buffer and (self.BufferWidth < width or self.BufferHeight < height) then
         pcall(function() self.Buffer.destroy() end)
         self.Buffer = nil
+        self.PaintedWidth, self.PaintedHeight = nil, nil
     end
     if not self.Buffer then
-        local needWidth = math.max(width, self.BufferWidth or 0)
-        local needHeight = math.max(height, self.BufferHeight or 0)
+        -- Rounded up, so dragging the window larger makes a new bitmap every
+        -- 256 pixels and not on every step of the drag.
+        local needWidth = math.max(math.ceil(width / 256) * 256, self.BufferWidth or 0)
+        local needHeight = math.max(math.ceil(height / 256) * 256, self.BufferHeight or 0)
         local ok, bitmap = pcall(create, needWidth, needHeight)
         if not ok or not bitmap then return nil end
         self.Buffer = bitmap
@@ -2904,8 +2935,17 @@ end
 function TeleporterMap:_OnResize()
     if not self.Camera.Fitted then
         self:FitAll()
-    else
+        return
+    end
+    -- Growing uncovers a strip no frame has painted yet, and the paint box
+    -- shows it before any timer fires, so that is painted at once. Shrinking
+    -- only hides part of a painted frame and waits for the frame timer,
+    -- because a window being dragged resizes many times a second.
+    local width, height = self:Size()
+    if width > (self.PaintedWidth or 0) or height > (self.PaintedHeight or 0) then
         self:Redraw()
+    else
+        self:_RequestFrame()
     end
 end
 
@@ -3025,11 +3065,71 @@ function TeleporterMap:Colors()
 end
 registerLuaFunctionHighlight('Colors')
 
---- Schedules a repaint for the next tick, for changes that arrive in bursts.
+--- Schedules a repaint for the next frame, for changes that arrive in bursts.
 function TeleporterMap:Invalidate()
     self.Dirty = true
+    self:_FrameTimerEnabled(true)
 end
 registerLuaFunctionHighlight('Invalidate')
+
+--- The frame timer, which only exists while the window does.
+function TeleporterMap:_FrameTimer()
+    local ui = self.UiState
+    return ui and ui.FrameTimer or nil
+end
+
+--- Switches the frame timer and says whether there is one. The LCL is only
+--- told when the state really changes, because every mouse move asks.
+function TeleporterMap:_FrameTimerEnabled(enabled)
+    local timer = self:_FrameTimer()
+    if not timer then return false end
+    enabled = enabled == true
+    if self.FrameTimerOn ~= enabled then
+        self.FrameTimerOn = enabled
+        safeSet(timer, "Enabled", enabled)
+    end
+    return true
+end
+
+--
+--- ∑ Asks for a frame from an event that can arrive many times a second.
+---   With the window open the frame timer paints it, one frame per
+---   View.FrameMs however many events asked. With no timer to wait for, the
+---   frame is painted right away, as it always was.
+--
+function TeleporterMap:_RequestFrame()
+    self.Dirty = true
+    if not self:_FrameTimerEnabled(true) then self:Redraw() end
+end
+
+--- Asks for the status bar readout to be brought up to date with the next
+--- frame. A new caption makes the LCL measure and realign the status bar,
+--- which is too much work for every single mouse move.
+function TeleporterMap:_RequestInfo()
+    self.InfoDirty = true
+    if not self:_FrameTimerEnabled(true) then self:_UpdateInfo() end
+end
+
+--
+--- ∑ One fire of the frame timer. It paints when a frame was asked for and
+---   brings the readout up to date, and switches itself off when a fire finds
+---   nothing to do. While a zoom is in flight its own timer paints every
+---   step and picks up whatever else changed, so this one waits for it.
+--
+function TeleporterMap:_OnFrame()
+    local busy = false
+    if self.Dirty and not self:_ZoomStillOurs() then
+        -- A map that stopped painting clears the request, or the timer would
+        -- keep firing for a frame that never comes.
+        if not self:Redraw() then self.Dirty = false end
+        busy = true
+    end
+    if self.InfoDirty then
+        self:_UpdateInfo()
+        busy = true
+    end
+    if not busy and not self.Dirty then self:_FrameTimerEnabled(false) end
+end
 
 --
 --- ∑ Renders a frame. One protected call for the whole frame, not one per
@@ -3073,16 +3173,37 @@ registerLuaFunctionHighlight('Redraw')
 function TeleporterMap:_DiscScale(view)
     local spacing = tonumber(self.Spacing)
     if not spacing or not isFinite(spacing) or spacing <= 0 then return 1 end
-    local base = tonumber(self.View.MarkerRadius) or 5
+    local base = tonumber(self.View.MarkerRadius) or 3
     local widest = base * self:_HeightScaleMax() + MARKER_HALO
     if widest <= 0 then return 1 end
     return clamp(spacing * view.Scale / (2 * widest), DISC_FLOOR, 1)
+end
+
+--
+--- ∑ The canvas for one frame, with its brush, pen, font and drawing calls
+---   read once. In Cheat Engine every read of canvas.Font or canvas.Brush
+---   builds a new Lua object for the same brush or font, and a frame read
+---   them several hundred times, which was most of what a label cost and most
+---   of the garbage a frame left behind. Anything not listed here is still
+---   looked up on the canvas itself.
+--
+local FRAME_CANVAS_FIELDS = {
+    "Brush", "Pen", "Font", "ellipse", "line", "rect", "fillRect", "roundRect",
+    "textOut", "getTextWidth", "getTextHeight",
+}
+local function frameCanvas(canvas)
+    local cached = {}
+    for _, name in ipairs(FRAME_CANVAS_FIELDS) do
+        cached[name] = canvas[name]
+    end
+    return setmetatable(cached, { __index = canvas })
 end
 
 function TeleporterMap:_Frame()
     local width, height = self:Size()
     local canvas, present = self:_AcquireCanvas(width, height)
     if not canvas then return end
+    canvas = frameCanvas(canvas)
     local view = self:_View(width, height)
     local colors = self:Colors()
     self:_EnsureScaled()
@@ -3095,6 +3216,9 @@ function TeleporterMap:_Frame()
     font.Style = self.EmptyStyle
     canvas.Brush.Color = colors.Background
     canvas.fillRect(0, 0, width, height)
+    -- How much of the buffer this frame covers. A resize that grows past it
+    -- would show pixels no frame painted, so that one is painted at once.
+    self.PaintedWidth, self.PaintedHeight = width, height
     self.DiscScale = self:_DiscScale(view)
     local step = Geometry.NiceStep(view.Scale, self.View.GridTargetPixels or 72)
     if self.View.ShowGrid then self:_PaintGrid(canvas, view, colors, step) end
@@ -3275,16 +3399,24 @@ local function occupancyAdd(index, rect)
     end
 end
 
-local function occupancyHits(index, rect)
-    local x0, x1, y0, y1 = occupancyCells(rect)
-    if not x0 then return true end
-    for cx = x0, x1 do
-        for cy = y0, y1 do
-            local cell = index.Cells[occupancyKey(cx, cy)]
+--- Whether a box given by its corners would cover anything in the index. The
+--- same test as Geometry.Overlaps against every rectangle in its cells, taking
+--- four numbers so a candidate that is thrown away never becomes a table.
+local function occupancyHitsAt(index, x1, y1, x2, y2)
+    local cx0, cx1 = math.floor(x1 / CELL), math.floor(x2 / CELL)
+    local cy0, cy1 = math.floor(y1 / CELL), math.floor(y2 / CELL)
+    -- A rectangle wider than the map is a corrupt measurement, not a label.
+    if cx1 - cx0 > 32 or cy1 - cy0 > 32 then return true end
+    local cells = index.Cells
+    for cx = cx0, cx1 do
+        for cy = cy0, cy1 do
+            local cell = cells[occupancyKey(cx, cy)]
             if cell then
                 if cell.Full then return true end
                 for _, other in ipairs(cell) do
-                    if Geometry.Overlaps(rect, other) then return true end
+                    if not (x2 < other.X1 or other.X2 < x1 or y2 < other.Y1 or other.Y2 < y1) then
+                        return true
+                    end
                 end
             end
         end
@@ -3314,23 +3446,21 @@ local function occupancyCount(index, rect)
 end
 
 --
---- ∑ The places a box may go around a mark, the most readable first:
----   beside it, then above and below, then the four corners. A label that
----   fits nowhere is dropped, never clipped and never painted over a mark.
+--- ∑ The places a box may go around a mark, the most readable first. Beside
+---   it, then above and below, then the four corners. A label that fits
+---   nowhere is dropped, never clipped and never painted over a mark. Given as
+---   the top left corner of spot one to eight, so trying them builds nothing.
 --
-local function boxCandidates(x, y, r, width, height)
-    local half = math.floor(height / 2)
-    local middle = math.floor(width / 2)
-    return {
-        { X = x + r + 5,             Y = y - half },
-        { X = x - r - 5 - width,     Y = y - half },
-        { X = x - middle,            Y = y - r - 4 - height },
-        { X = x - middle,            Y = y + r + 4 },
-        { X = x + r + 3,             Y = y - r - 3 - height },
-        { X = x - r - 3 - width,     Y = y - r - 3 - height },
-        { X = x + r + 3,             Y = y + r + 3 },
-        { X = x - r - 3 - width,     Y = y + r + 3 },
-    }
+local CANDIDATE_SPOTS = 8
+local function boxCandidate(spot, x, y, r, width, height)
+    if spot == 1 then return x + r + 5, y - math.floor(height / 2) end
+    if spot == 2 then return x - r - 5 - width, y - math.floor(height / 2) end
+    if spot == 3 then return x - math.floor(width / 2), y - r - 4 - height end
+    if spot == 4 then return x - math.floor(width / 2), y + r + 4 end
+    if spot == 5 then return x + r + 3, y - r - 3 - height end
+    if spot == 6 then return x - r - 3 - width, y - r - 3 - height end
+    if spot == 7 then return x + r + 3, y + r + 3 end
+    return x - r - 3 - width, y + r + 3
 end
 
 --
@@ -3342,19 +3472,24 @@ end
 --- @return table|nil # { X1, Y1, X2, Y2 }
 --
 local function placeBox(index, view, x, y, r, width, height, force)
-    local candidates = boxCandidates(x, y, r, width, height)
-    local fallback
-    for _, candidate in ipairs(candidates) do
-        local box = { X1 = candidate.X, Y1 = candidate.Y,
-                      X2 = candidate.X + width, Y2 = candidate.Y + height }
-        if box.X1 >= EDGE_MARGIN and box.Y1 >= EDGE_MARGIN
-           and box.X2 <= view.Width - EDGE_MARGIN and box.Y2 <= view.Height - EDGE_MARGIN then
-            if not occupancyHits(index, box) then return box end
-            fallback = fallback or box
+    local right, bottom = view.Width - EDGE_MARGIN, view.Height - EDGE_MARGIN
+    local fallbackX, fallbackY
+    for spot = 1, CANDIDATE_SPOTS do
+        local x1, y1 = boxCandidate(spot, x, y, r, width, height)
+        local x2, y2 = x1 + width, y1 + height
+        if x1 >= EDGE_MARGIN and y1 >= EDGE_MARGIN and x2 <= right and y2 <= bottom then
+            -- Only a box that is returned becomes a table, and it is always a
+            -- new one, because the index keeps the box it is given.
+            if not occupancyHitsAt(index, x1, y1, x2, y2) then
+                return { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2 }
+            end
+            if not fallbackX then fallbackX, fallbackY = x1, y1 end
         end
     end
     if force then
-        if fallback then return fallback end
+        if fallbackX then
+            return { X1 = fallbackX, Y1 = fallbackY, X2 = fallbackX + width, Y2 = fallbackY + height }
+        end
         -- Wider than the map, or against a corner: clamp it on, because a
         -- name the user just asked for is worth one overlap.
         local bx = clamp(x + r + 5, EDGE_MARGIN, math.max(EDGE_MARGIN, view.Width - EDGE_MARGIN - width))
@@ -3564,7 +3699,7 @@ local function clusterDiscs(draw, cell)
         -- stop at and what the hover card has to stay off. Every drawn disc,
         -- the filtered out ones included: they are painted, so they can be
         -- crossed and they can be covered.
-        group.Discs[#group.Discs + 1] = { X = item.X, Y = item.Y, R = item.R }
+        group.Discs[#group.Discs + 1] = item
         -- Only the saves a click could land on are counted and zoomed to: a
         -- filtered out save is not part of the crowd the user is fighting.
         if not item.Marker.Dimmed then
@@ -3592,7 +3727,7 @@ end
 ---   of it.
 --
 function TeleporterMap:_PaintMarkers(canvas, view, colors)
-    local radius = tonumber(self.View.MarkerRadius) or 5
+    local radius = tonumber(self.View.MarkerRadius) or 3
     local pen, brush = canvas.Pen, canvas.Brush
     pen.Width = 1
     local textHeight = tonumber(canvas.getTextHeight("0")) or 12
@@ -4171,7 +4306,7 @@ function TeleporterMap:_PaintHeightLegend(canvas, view, colors, reserve)
     local up = self:HeightAxis()
     if not up then return nil end
     local axes = teleporter:GetAxes()
-    local base = tonumber(self.View.MarkerRadius) or 5
+    local base = tonumber(self.View.MarkerRadius) or 3
     local maxScale = self:_HeightScaleMax()
     local pen, brush = canvas.Pen, canvas.Brush
     canvas.Font.Style = self.EmptyStyle
@@ -4400,18 +4535,22 @@ function TeleporterMap:_MouseMove(x, y)
             local view = self:_View()
             self.Camera.X = drag.CenterX - dx / (view.Scale * view.SignX)
             self.Camera.Y = drag.CenterY - dy / (view.Scale * view.SignY)
-            self:Redraw()
+            -- A mouse reports far more often than a frame can be painted, and
+            -- painting inside the event kept the window too busy to take the
+            -- next one. The frame timer paints wherever the camera is by then.
+            self:_RequestFrame()
         end
-        self:_UpdateInfo()
+        self:_RequestInfo()
         return
     end
     local marker = self:MarkerAt(x, y)
     if marker ~= self.Hover then
+        -- The cursor changes at once, the card follows with the next frame.
         self.Hover = marker
         safeSet(self.Surface, "Cursor", marker and -21 or 0) -- crHandPoint / crDefault
-        self:Redraw()
+        self:_RequestFrame()
     end
-    self:_UpdateInfo()
+    self:_RequestInfo()
 end
 
 function TeleporterMap:_MouseUp(button, x, y)
@@ -4442,7 +4581,7 @@ function TeleporterMap:_MouseLeave()
     if self.Hover then
         self.Hover = nil
         safeSet(self.Surface, "Cursor", 0)
-        self:Redraw()
+        self:_RequestFrame()
     end
 end
 
@@ -4580,6 +4719,7 @@ registerLuaFunctionHighlight('SetStatus')
 
 --- The right hand side of the status bar: cursor, zoom and player.
 function TeleporterMap:_UpdateInfo()
+    self.InfoDirty = false
     local ui = self.UiState
     if not ui or not ui.InfoLabel then return end
     local _, _, hName, vName = self:GetPlane()
@@ -5250,7 +5390,7 @@ function TeleporterMap:Show()
     -- above reads the player's position and must keep its own cadence; a
     -- zoom needs frames, not memory reads.
     local zoomTimer = createTimer(form)
-    local zoomFrame = math.max(8, math.floor(tonumber(self.View.ZoomFrameMs) or 16))
+    local zoomFrame = math.max(8, math.floor(tonumber(self.View.ZoomFrameMs) or 15))
     zoomTimer.Interval = zoomFrame
     -- Paced by the clock rather than by the interval. See _ZoomStepMs.
     zoomTimer.OnTimer = self:_Guard("zoom", function()
@@ -5259,6 +5399,16 @@ function TeleporterMap:Show()
     zoomTimer.Enabled = false
     ui.ZoomTimer = zoomTimer
 
+    -- The third timer paints the frames that mouse moves, the poll and a
+    -- resize asked for, one per interval, and switches itself off when a
+    -- fire finds nothing to do.
+    local frameTimer = createTimer(form)
+    frameTimer.Interval = math.max(8, math.floor(tonumber(self.View.FrameMs) or 15))
+    frameTimer.OnTimer = self:_Guard("frame", function() self:_OnFrame() end)
+    frameTimer.Enabled = false
+    self.FrameTimerOn = false
+    ui.FrameTimer = frameTimer
+
     form.OnClose = function()
         -- The file should hold the zoom that was asked for, not the frame
         -- the animation happened to be on when the window closed.
@@ -5266,6 +5416,8 @@ function TeleporterMap:Show()
         self:SaveView()
         pcall(function() timer.Enabled = false end)
         pcall(function() zoomTimer.Enabled = false end)
+        pcall(function() frameTimer.Enabled = false end)
+        self.FrameTimerOn, self.Dirty, self.InfoDirty = false, false, false
         self.ZoomAnim = nil
         if self.SaveListener and type(teleporter.RemoveSaveListener) == "function" then
             teleporter:RemoveSaveListener(self.SaveListener)
@@ -5273,6 +5425,7 @@ function TeleporterMap:Show()
         if self.Buffer then
             pcall(function() self.Buffer.destroy() end)
             self.Buffer, self.BufferWidth, self.BufferHeight = nil, nil, nil
+            self.PaintedWidth, self.PaintedHeight = nil, nil
         end
         self.Surface, self.SurfaceParent, self.PictureBitmap = nil, nil, nil
         self.Hover, self.Drag, self.Mouse = nil, nil, nil
