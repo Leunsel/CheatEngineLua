@@ -1,12 +1,24 @@
 local NAME = "Manifold.AssemblerCommands.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.2.8"
+local VERSION = "1.2.9"
 local DESCRIPTION = "Manifold Framework Assembler Commands"
 
 --[[
-    ∂ v1.2.8 (2026-09-01)
-        Log messages carry the module prefix by concatenation,
-        matching the rest of the framework.
+    ∂ v1.2.9 (2026-09-16)
+        Every command now runs on the main thread. Cheat Engine gives each
+        script marked Execute Asynchronous its own worker thread, and nothing
+        stops several of them from assembling at once. Lua lets those threads
+        take turns at every Cheat Engine call. Two ManifoldInstallDetour
+        commands could therefore both find the same PE-header relay slot free
+        before either of them had stored it. Both scripts wrote their jump into
+        that one slot, one hook ran into the other hook's code, and the process
+        died. The patch store behind ManifoldPatch and ManifoldNop was shared
+        the same way.
+        synchronize hands back a single value and turns an error into that
+        value. The results cross over packed in a table, so a failing command
+        still reports its reason instead of an empty success.
+
+    ...
 
     ∂ v1.2.7 (2026-08-23)
         Implemented the Bootstrap handshake so this module
@@ -1041,7 +1053,39 @@ function AssemblerCommands:_aobScanModuleUnique(moduleName, signature, protectio
 end
 
 --
+--- ∑ Runs a command handler on the main thread and returns everything it returned.
+---   Cheat Engine gives each script marked Execute Asynchronous its own worker
+---   thread, and several of them can assemble at the same moment. Lua lets those
+---   threads take turns at every Cheat Engine call, so a command could read shared
+---   state, get interrupted, and act on it after another command had changed it.
+---   Two detours could pick the same relay slot that way.
+---   On the main thread each command runs to its end before the next one starts.
+---   synchronize hands back only one value and turns an error into that value, so
+---   the results travel in a table and an error comes back as nil and a reason.
+--- @param handler function
+--- @param parameters any
+--- @param syntaxcheck boolean
+--- @return string|nil, string|nil
+--
+function AssemblerCommands:_runOnMainThread(handler, parameters, syntaxcheck)
+    local inMainThreadFn = rawget(_G, "inMainThread")
+    local synchronizeFn = rawget(_G, "synchronize")
+    if type(inMainThreadFn) ~= "function" or type(synchronizeFn) ~= "function" or inMainThreadFn() then
+        return handler(parameters, syntaxcheck)
+    end
+    local packed = synchronizeFn(function()
+        return table.pack(pcall(handler, parameters, syntaxcheck))
+    end)
+    if type(packed) ~= "table" then
+        return nil, "the command failed on the main thread. " .. tostring(packed)
+    end
+    if not packed[1] then return nil, tostring(packed[2]) end
+    return table.unpack(packed, 2, packed.n)
+end
+
+--
 --- ∑ Registers one Auto Assembler command handler.
+---   The handler is wrapped so it always runs on the main thread.
 --- @param commandName string
 --- @param handler function
 --- @return boolean
@@ -1052,7 +1096,9 @@ function AssemblerCommands:_registerCommand(commandName, handler)
         logger:ForceCritical(MODULE_PREFIX .. " registerAutoAssemblerCommand not available")
         return false
     end
-    reg(commandName, handler)
+    reg(commandName, function(parameters, syntaxcheck)
+        return self:_runOnMainThread(handler, parameters, syntaxcheck)
+    end)
     logger:InfoF(MODULE_PREFIX .. " Registered Assembler Command: %s", commandName)
     return true
 end
