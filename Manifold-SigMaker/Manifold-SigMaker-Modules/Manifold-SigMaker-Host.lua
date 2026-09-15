@@ -72,7 +72,11 @@ function Host:New(options)
         Decoder = decoder,
         Version = Version,
         Format = Format,
-        Started = os.time()
+        Started = os.time(),
+        -- The list of hits while one is open, and the place the last one had
+        -- when it was closed.
+        HitList = nil,
+        HitBounds = nil
     }, Host)
     instance.Signature = Signature:New({ CE = ce, Log = log, Settings = settings, Decoder = decoder })
     -- The Pattern module is deliberately not held as a field. Pattern is
@@ -111,14 +115,19 @@ function Host:Install()
     return self.Menu:Install(self:MenuSpec())
 end
 
+--- Takes the entries down and closes the list of hits. Executing the entry
+--- file again calls this on the generation before it, so neither the entries
+--- nor a list can outlive the code that made them.
 function Host:Uninstall()
+    self:CloseHits()
     return self.Menu:Remove()
 end
 
 --- Rebuilds the entry. Worth calling after Cheat Engine has rebuilt the
---- memory view form, because the old item went with it.
+--- memory view form, because the old item went with it. A list of hits that
+--- is open stays open, so rebinding the key does not take it away.
 function Host:Reinstall()
-    self:Uninstall()
+    self.Menu:Remove()
     return self:Install()
 end
 
@@ -209,42 +218,96 @@ function Host:Ask()
 end
 
 --
---- ∑ Which of several hits to go to.
+--- ∑ Lists several hits in a window that stays open. A click on a line goes
+---   to that hit and leaves the list where it is, so the hits of one scan can
+---   be compared one after another without scanning for them again.
 ---
----   Without a picker the first hit is not offered as a guess. Every address
----   is already in the log block by the time this is asked, so the way out is
+---   A list that is still open is filled again rather than built again, so it
+---   keeps the place and the size it was given. A list that was closed opens
+---   again where it was.
+---
+---   Without a list the first hit is not offered as a guess. Every address is
+---   already in the log block by the time this runs, so the way out is
 ---   ManifoldSigMaker:Goto(address) and not a coin toss.
 --- @param result table
+--- @return boolean|nil, string|nil
+--
+function Host:ListHits(result)
+    local title, lines = self.Finder:Title(result), self.Finder:Lines(result)
+    local current = self.HitList
+    if current then
+        current.Result = result
+        if self.CE:RefillList(current.Window, title, lines) then return true end
+        self:CloseHits()
+    end
+
+    local state = { Result = result }
+    local window, reason = self.CE:OpenList({
+        Title = title,
+        Lines = lines,
+        Owner = self.CE:MemoryView(),
+        Bounds = self.HitBounds,
+        OnPick = function(index)
+            if self.HitList ~= state then return end
+            local ok, err = pcall(self.ShowHit, self, index)
+            if not ok then
+                self.Log:Error(string.format("Going to hit %d failed: %s", index, tostring(err)))
+            end
+        end,
+        OnClose = function(bounds)
+            self.HitBounds = bounds
+            if self.HitList == state then self.HitList = nil end
+        end
+    })
+    if not window then
+        self.Log:Warning(string.format(
+            "Find signature: %s, so the hits are only in the log. " ..
+            "ManifoldSigMaker:Goto(address) goes to one of them.", tostring(reason)))
+        return nil, reason
+    end
+    state.Window = window
+    self.HitList = state
+    return true
+end
+
+--
+--- ∑ Goes to one hit of the list that is open. A memory view that is already
+---   on screen is moved without being raised, so the list keeps the keyboard.
+--- @param index number # The line, counted from one.
 --- @return number|nil, string|nil
 --
-function Host:Pick(result)
-    local caption = result.Total > result.Count
-        and string.format("%d matches, the first %d of them:", result.Total, result.Count)
-        or string.format("%d matches:", result.Count)
-    local index, reason = self.CE:Select(self.Settings.Find.MenuCaption, caption,
-        self.Finder:Lines(result))
-    if index == nil then
-        if reason then
-            self.Log:Warning(string.format(
-                "Find signature: %s, so the hits are only in the log. " ..
-                "ManifoldSigMaker:Goto(address) goes to one of them.", tostring(reason)))
-            return nil, reason
-        end
-        return nil, "cancelled"
+function Host:ShowHit(index)
+    local current = self.HitList
+    if not current then return nil, "no list of hits is open" end
+    local result = current.Result
+    local address = result.Addresses[tonumber(index) or 0]
+    if not address then return nil, "the list has no hit " .. tostring(index) end
+    local shown, reason = self.CE:ShowAddress(address, result.Pattern.Tokens, true)
+    if not shown then
+        self.Log:Warning("Find signature: " .. tostring(reason) .. ".")
+        return nil, reason
     end
-    local address = result.Addresses[index]
-    if not address then return nil, "cancelled" end
     return address
+end
+
+--- Closes the list of hits when one is open.
+function Host:CloseHits()
+    local current = self.HitList
+    if not current then return false end
+    self.HitList = nil
+    self.CE:CloseList(current.Window)
+    return true
 end
 
 --
 --- ∑ Scans for a signature and goes to where it matched.
 ---
----   With no text it asks for one. One hit is a jump, several are a list to
----   pick from, and the whole list reaches the log either way, so it is still
----   there once the picker is gone.
+---   With no text it asks for one. One hit is a jump. Several are a list that
+---   stays open, and a click on one of its lines goes there. The whole list
+---   reaches the log either way, so it is still there once the window is gone.
 --- @param text string|nil # Any form Manifold-SigMaker-Pattern reads.
---- @return number|nil, string|nil # The address, or nil and a reason.
+--- @return number|nil, string|nil # The address, or nil and a reason. The
+---         reason is "listed" when the hits went into the list.
 --
 function Host:Find(text)
     if text == nil then
@@ -259,6 +322,17 @@ function Host:Find(text)
         return nil, scanReason
     end
     self.Log:Info(self.Log:Block("Find signature", self.Finder:Rows(result)))
+
+    -- A list on screen holds the hits of the scan before this one. Several
+    -- new hits take it over, and anything else closes it, so a list never
+    -- shows hits that are not the latest.
+    if result.Count > 1 then
+        local listed, listReason = self:ListHits(result)
+        if not listed then return nil, listReason end
+        return nil, "listed"
+    end
+    self:CloseHits()
+
     if result.Count == 0 then
         local nothing = self.Finder:NothingFound(result)
         self.Log:Warning("Find signature: " .. nothing .. ".")
@@ -266,12 +340,6 @@ function Host:Find(text)
     end
 
     local address = result.Addresses[1]
-    if result.Count > 1 then
-        local picked, pickReason = self:Pick(result)
-        if not picked then return nil, pickReason end
-        address = picked
-    end
-
     -- The whole pattern is selected in the hex view, so what matched is
     -- visible as a block rather than as one address.
     local shown, showReason = self.CE:ShowAddress(address, result.Pattern.Tokens)
@@ -283,7 +351,7 @@ function Host:Find(text)
 end
 
 --
---- ∑ The scan on its own: no prompt, no picker, no jump. This is what a
+--- ∑ The scan on its own, with no prompt, no list and no jump. This is what a
 ---   table's Lua script asks for when it wants the addresses.
 --- @param text string
 --- @return table|nil, table|string # The addresses and the whole result, or
@@ -399,7 +467,7 @@ function Host:SetFindMinimum(bytes)
     return self.Settings.Find.MinFixedBytes
 end
 
---- How many hits the picker lists.
+--- How many hits a scan hands to the list of hits.
 function Host:SetFindMaxResults(count)
     local limit = tonumber(count)
     if not limit or limit < 1 then return nil, "the limit is a count of hits, at least 1" end

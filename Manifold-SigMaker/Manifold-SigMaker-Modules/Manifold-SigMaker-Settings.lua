@@ -112,8 +112,8 @@ Settings.Defaults = {
         -- than a search. A nibble wildcard does not count as a fixed byte.
         MinFixedBytes = 4,
 
-        -- How many hits the picker is willing to list. Past this the scan
-        -- reports the total and offers the first ones.
+        -- How many hits the list of hits is given. Past this the scan
+        -- reports the total and lists the first ones.
         MaxResults = 100,
 
         -- The prompt opens on whatever is on the clipboard, as long as it
