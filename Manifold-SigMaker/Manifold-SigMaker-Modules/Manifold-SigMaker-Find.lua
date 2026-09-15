@@ -110,7 +110,7 @@ function Find.Where(protection)
 end
 
 --
---- ∑ How one hit is written, both in the picker and in the log.
+--- ∑ How one hit is written, both in the list of hits and in the log.
 --- @param address number
 --- @return string
 --
@@ -121,13 +121,28 @@ function Find:Name(address)
     return string.format("%s  (%s)", name, hex)
 end
 
---- The lines the picker offers, in the order the scanner found them.
+--- The lines of the list of hits, in the order the scanner found them.
 function Find:Lines(result)
     local lines = {}
     for index, address in ipairs(result.Addresses) do
         lines[index] = string.format("%d.  %s", index, self:Name(address))
     end
     return lines
+end
+
+--
+--- ∑ The title of the list of hits. The count comes first and the pattern
+---   after it, because a title too long for its window loses its end.
+--- @param result table
+--- @return string
+--
+function Find:Title(result)
+    local pattern = result.Pattern and result.Pattern.Pattern or ""
+    if result.Total > result.Count then
+        return string.format("The first %d of %d matches for %s",
+            result.Count, result.Total, pattern)
+    end
+    return string.format("%d matches for %s", result.Count, pattern)
 end
 
 --

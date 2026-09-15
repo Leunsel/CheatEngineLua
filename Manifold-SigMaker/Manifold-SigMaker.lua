@@ -45,14 +45,14 @@
 
         ManifoldSigMaker:Find()
             Asks for a signature, offering the clipboard, scans the process
-            for it and goes to where it matched. One hit is a jump, several
-            are a list to pick from.
+            for it and goes to where it matched. One hit is a jump. Several
+            are a list that stays open, and a click on a line goes there.
 
         ManifoldSigMaker:Find("48 8B 4C 24 ? 48 83 EC 28")
             The same without the prompt.
 
         ManifoldSigMaker:Scan(pattern)
-            The addresses on their own, with no prompt, picker or jump.
+            The addresses on their own, with no prompt, list or jump.
 
         ManifoldSigMaker:Goto("game.exe+1A2B")
             Puts the memory view on an address.
@@ -61,9 +61,9 @@
             Reports what is loaded and how it is currently configured.
 
     Executing this file a second time is safe and is the normal way to pick up
-    an edit. The menu entries from the previous run are taken down before the
-    new ones are built, and the modules are read from disk again, so nothing
-    accumulates and no old code stays behind.
+    an edit. The menu entries and any open list of hits from the previous run
+    are taken down before the new ones are built, and the modules are read
+    from disk again, so nothing accumulates and no old code stays behind.
 
     The masking policy and the search keep their defaults in
     Manifold-SigMaker-Settings.lua. They can be overridden below. The version

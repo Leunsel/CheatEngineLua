@@ -446,17 +446,27 @@ end
 ---   Every step past the form itself is optional. A build whose hex view will
 ---   not take a selection still gets the jump; it just does not get the
 ---   highlight.
+---
+---   Showing a form raises it and hands it the keyboard. A click in the list
+---   of hits asks for the background instead, and a memory view that is
+---   already on screen is then only moved. The list keeps the keyboard that
+---   way, so the arrow keys go on walking through the hits. A memory view
+---   that is not on screen is still brought up, because a jump nobody can see
+---   is no jump at all.
 --- @param address number
 --- @param length number|nil # How many bytes to select in the hex view.
+--- @param background boolean|nil # Move a memory view that is on screen without raising it.
 --- @return boolean, string|nil
 --
-function CE:ShowAddress(address, length)
+function CE:ShowAddress(address, length, background)
     if type(address) ~= "number" then return false, "no address was given" end
     local form = self:MemoryView()
     if not form then return false, "the memory view is not available" end
     local ok, result = self:RunInMain(function()
-        pcall(function() form.show() end)
-        pcall(function() form.bringToFront() end)
+        if not background or self:Get(form, "Visible") ~= true then
+            pcall(function() form.show() end)
+            pcall(function() form.bringToFront() end)
+        end
         local view = self:Get(form, "DisassemblerView")
         if view then
             -- TopAddress first. It decides what is on screen, and setting it
@@ -525,40 +535,217 @@ function CE:Input(caption, prompt, default)
     return result
 end
 
+--------------------------------------------------------
+--                    The list of hits                --
+--------------------------------------------------------
+
+--- How many lines a list shows before it scrolls, and how wide it may open,
+--- in pixels at 96 DPI.
+CE.ListSize = { FewestRows = 4, MostRows = 16, MinWidth = 280, MaxWidth = 900 }
+
+--- The scale of the screen, which is 1 at 96 DPI.
+local function scaleOf(self)
+    local dpi = tonumber((self:Call("getScreenDPI")))
+    if not dpi or dpi <= 0 then return 1 end
+    return dpi / 96
+end
+
 --
---- ∑ Shows a list and answers which line was picked.
----
----   celua.txt:347 documents showSelectionList(title, caption, stringlist,
----   allowCustomInput, formname) as returning the line number, counted from
----   zero, and the string. The line number is -1 when the user typed
----   something of their own instead of picking, which cannot happen here
----   because custom input is not offered, and a cancel answers nothing at
----   all. Both are read as "no choice was made".
---- @param title string
---- @param caption string
---- @param lines table # The lines, in the order they are to be shown.
---- @return number|nil, string|nil # The 1 based index, or nil and a reason
----         when the dialog was not available.
+--- ∑ Puts lines into a list box in place of the ones it had. The update is
+---   bracketed, so a long list is drawn once and not once per line, and the
+---   bracket is closed even when a line could not be added.
+--- @param list userdata
+--- @param lines table
 --
-function CE:Select(title, caption, lines)
-    local show = rawget(_G, "showSelectionList")
-    if type(show) ~= "function" then return nil, "showSelectionList is not available" end
-    local make = rawget(_G, "createStringlist")
-    if type(make) ~= "function" then return nil, "createStringlist is not available" end
-    local ok, result = self:RunInMain(function()
-        local list = make()
-        if list == nil then return nil end
-        for _, line in ipairs(lines or {}) do
-            pcall(function() list.add(tostring(line)) end)
-        end
-        local index = show(title, caption, list, false)
-        pcall(function() list.destroy() end)
-        return index
+local function fillList(list, lines)
+    local items = list.Items
+    pcall(function() items.beginUpdate() end)
+    local ok, err = pcall(function()
+        items.clear()
+        for _, line in ipairs(lines or {}) do items.add(tostring(line)) end
     end)
-    if not ok then return nil, tostring(result) end
-    local index = tonumber(result)
-    if index == nil or index < 0 then return nil end
-    return index + 1
+    pcall(function() items.endUpdate() end)
+    if not ok then error(err, 0) end
+end
+
+--
+--- ∑ The size a list opens at. It is as wide as its longest line or its title
+---   needs, within bounds, and tall enough for a handful of lines. A longer
+---   list scrolls. The title needs room for the icon and the buttons beside
+---   it as well.
+--- @param form userdata
+--- @param title string
+--- @param lines table
+--
+local function fitList(self, form, title, lines)
+    local size, scale = CE.ListSize, scaleOf(self)
+    local canvas = form.Canvas
+    local widest = canvas.getTextWidth(title) + math.floor(160 * scale)
+    for _, line in ipairs(lines) do
+        widest = math.max(widest, canvas.getTextWidth(tostring(line)) + math.floor(40 * scale))
+    end
+    local rows = math.max(size.FewestRows, math.min(#lines, size.MostRows))
+    local row = canvas.getTextHeight("Xg") + math.floor(3 * scale)
+    form.ClientWidth = math.max(math.floor(size.MinWidth * scale),
+        math.min(widest, math.floor(size.MaxWidth * scale)))
+    form.ClientHeight = rows * row + math.floor(6 * scale)
+end
+
+--
+--- ∑ Where a list opens. Once a list has been closed, the next one opens
+---   where that one was and at its size. A first list opens over the right
+---   hand side of its owner, below the menu and the toolbar. The memory view
+---   puts a hit on its top line, with the bytes and the instruction on the
+---   left, so the right hand side is where a list is least in the way. With
+---   no owner on screen it opens in the middle of the screen.
+--- @param form userdata
+--- @param owner userdata|nil
+--- @param bounds table|nil # Left, Top, Width and Height.
+--
+local function placeList(self, form, owner, bounds)
+    form.Position = "poDesigned"
+    if type(bounds) == "table" and tonumber(bounds.Left) and tonumber(bounds.Top)
+        and tonumber(bounds.Width) and tonumber(bounds.Height) then
+        form.Left, form.Top = bounds.Left, bounds.Top
+        form.Width, form.Height = bounds.Width, bounds.Height
+        return
+    end
+    local left, top = tonumber(self:Get(owner, "Left")), tonumber(self:Get(owner, "Top"))
+    local width = tonumber(self:Get(owner, "Width"))
+    if self:Get(owner, "Visible") ~= true or not (left and top and width) then
+        form.Position = "poScreenCenter"
+        return
+    end
+    local scale = scaleOf(self)
+    local formWidth = tonumber(form.Width) or 0
+    form.Left = left + math.max(0, width - formWidth - math.floor(24 * scale))
+    form.Top = top + math.floor(110 * scale)
+end
+
+--
+--- ∑ Opens a window with a list in it that stays open. It is not modal. The
+---   caller gets control back as soon as the window is on screen, and every
+---   click on a line calls OnPick with the number of that line, counted from
+---   one. The window goes away when it is closed and not before.
+---
+---   Ownership is the first thing set on the form. createForm leaves
+---   PopupMode at pmAuto, and an Owner makes the window belong to that form
+---   instead. Windows keeps a window above the form that owns it, so a jump
+---   that raises the memory view cannot bury the list. LCL applies ownership
+---   when the window handle is made, and measuring text makes the handle, so
+---   nothing may come before it. PopupMode and PopupParent are not in
+---   celua.txt. They are published properties of the LCL form, and that is
+---   what Cheat Engine's object bridge reads.
+---
+---   A click arrives as OnClick. LCL's list box calls it whenever the user
+---   moves the selection, with the mouse or with the arrow keys, and for a
+---   click on the line that is already selected. It does not call it when
+---   ItemIndex is changed in code, so filling the list never jumps anywhere.
+---
+---   createForm gives a form an OnClose that frees it. The one set here frees
+---   it too, and before that it marks the window Closed and hands the bounds
+---   it had to the spec. Nothing may touch the form or the list after that.
+--- @param spec table # Title, Lines, Owner, Bounds, OnPick and OnClose.
+--- @return table|nil, string|nil # The window, holding Form, List and
+---         Closed, or nil and a reason.
+--
+function CE:OpenList(spec)
+    spec = spec or {}
+    local makeForm, makeList = rawget(_G, "createForm"), rawget(_G, "createListBox")
+    if type(makeForm) ~= "function" then return nil, "createForm is not available" end
+    if type(makeList) ~= "function" then return nil, "createListBox is not available" end
+    local title, lines = tostring(spec.Title or ""), spec.Lines or {}
+    local window = { Closed = false }
+
+    local ok, err = self:RunInMain(function()
+        local form = makeForm(false)
+        window.Form = form
+        if spec.Owner ~= nil then
+            self:Write(form, "PopupMode", "pmExplicit")
+            self:Write(form, "PopupParent", spec.Owner)
+        end
+        form.BorderStyle = "bsSizeable"
+        form.Caption = title
+
+        local list = makeList(form)
+        window.List = list
+        list.Align = "alClient"
+        fillList(list, lines)
+        fitList(self, form, title, lines)
+        placeList(self, form, spec.Owner, spec.Bounds)
+
+        list.OnClick = function()
+            if window.Closed then return end
+            local index = tonumber(self:Get(list, "ItemIndex"))
+            if index and index >= 0 and type(spec.OnPick) == "function" then
+                pcall(spec.OnPick, index + 1)
+            end
+        end
+        form.OnClose = function()
+            if not window.Closed then
+                window.Closed = true
+                local bounds = {
+                    Left = self:Get(form, "Left"), Top = self:Get(form, "Top"),
+                    Width = self:Get(form, "Width"), Height = self:Get(form, "Height")
+                }
+                window.Form, window.List = nil, nil
+                if type(spec.OnClose) == "function" then pcall(spec.OnClose, bounds) end
+            end
+            return rawget(_G, "caFree") or 2
+        end
+
+        form.show()
+        pcall(function() list.setFocus() end)
+    end)
+    if not ok then
+        -- A window that failed half way is destroyed outright. No OnClose
+        -- runs for it, because there is nothing a caller could want from it.
+        if window.Form ~= nil and not window.Closed then
+            local form = window.Form
+            window.Closed, window.Form, window.List = true, nil, nil
+            pcall(function() form.destroy() end)
+        end
+        return nil, tostring(err)
+    end
+    return window
+end
+
+--
+--- ∑ Puts new lines and a new title into a list that is still open. The
+---   window keeps the place and the size it has, and it comes back to the
+---   front, so new hits are never listed out of sight.
+--- @param window table # What OpenList returned.
+--- @param title string
+--- @param lines table
+--- @return boolean, string|nil
+--
+function CE:RefillList(window, title, lines)
+    if type(window) ~= "table" or window.Closed or window.Form == nil then
+        return false, "the list is closed"
+    end
+    local form, list = window.Form, window.List
+    local ok, err = self:RunInMain(function()
+        fillList(list, lines)
+        form.Caption = tostring(title or "")
+        form.show()
+        pcall(function() list.setFocus() end)
+    end)
+    if not ok then return false, tostring(err) end
+    return true
+end
+
+--
+--- ∑ Closes a list. Its OnClose runs inside the call, so the window is marked
+---   Closed by the time this returns. The form frees itself a moment later.
+--- @param window table|nil # What OpenList returned.
+--- @return boolean # Whether there was an open list to close.
+--
+function CE:CloseList(window)
+    if type(window) ~= "table" or window.Closed or window.Form == nil then return false end
+    local form = window.Form
+    self:RunInMain(function() form.close() end)
+    window.Closed, window.Form, window.List = true, nil, nil
+    return true
 end
 
 --------------------------------------------------------
