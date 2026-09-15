@@ -313,6 +313,7 @@ The `Force` variants bypass the level filter and tag the line with `[FORCED]`.
 | `logger:Log(level, message)` | Direct variant, honours `Level`. |
 | `logger:ForceLog(level, message)` | Direct variant without filtering. |
 | `logger:BuildBlock(title, rows [, options])` | Renders a block without logging it. Pure, so it can be tested and reused. |
+| `logger:Stringify(value [, processed])` | Recursive text representation. A cycle becomes `{...}` and a null byte becomes `\0`. |
 
 ### Blocks
 
@@ -339,7 +340,6 @@ logger:InfoBlock(MODULE_PREFIX .. " InstallDetour OK", {
   stops at the first hole.
 - Values run through `Stringify`, and a value containing newlines hangs under its own label.
 - `options`: `indent` (default `"   "`), `separator` (default `" : "`), `align` (default `true`).
-| `logger:Stringify(value [, processed])` | Recursive text representation. A cycle becomes `{...}` and a null byte becomes `\0`. |
 
 Format: `[HH:MM:SS] [LEVEL] [FORCED] <message>`
 
@@ -701,8 +701,12 @@ dependency. Since 1.0.5 every Cheat Engine access is main-thread synchronized.
 | `state:SaveTableState(name)` | `boolean` | Saves active records and records with hotkeys. With neither present it returns `false` plus a warning. |
 | `state:LoadTableState(name)` | `boolean` | Reads the file and calls `RestoreState`. |
 | `state:RestoreState(stateData)` | `table` | `{activatedCount, deactivatedCount, unchangedCount, failedCount}`. Exclusive, so records not listed get deactivated. Reports the whole run as one log entry. |
-| `state:RestoreOriginalState()` | `table` | Deactivates everything that is active. Reports as one entry too. |
+| `state:RestoreOriginalState()` | `table` | Deactivates everything that is active, iterating backwards. Returns `{deactivatedCount, unchangedCount, failedCount}` and reports as one entry too. |
 | `state:FormatRestoreReport(stateOutcomes, hotkeyOutcomes, stats [, title])` | `table` | `{ Lines, Summary }`. Pure, so the layout can be tested without the logger. The summary names only the counters present in `stats`, so an operation that cannot activate anything does not report `0 activated`. |
+| `state:SetMemoryRecordState(mr, state [, timeoutMs])` | `boolean` | The default timeout for async records is 10,000 ms. |
+| `state:WriteStateFile(path, data)` | `boolean` | |
+| `state:ReadStateFile(path)` | `table\|nil` | |
+| `state:CheckDependencies()` | `boolean, table` | |
 
 A restore touching forty records used to produce forty log entries, each with its own timestamp and
 module prefix, all inside the same second. It is now one entry, grouped by outcome, with the record
@@ -725,11 +729,6 @@ Group headers stay flush left and everything else indents under them, so the blo
 address list. Records that did not change are counted in the summary rather than listed; there are
 usually hundreds of them. Sections appear only when they have rows, so a clean restore shows
 `Activated` and nothing else.
-| `state:RestoreOriginalState()` | `table` | Deactivates everything, iterating backwards. Returns `{deactivatedCount, unchangedCount, failedCount}`. |
-| `state:SetMemoryRecordState(mr, state [, timeoutMs])` | `boolean` | The default timeout for async records is 10,000 ms. |
-| `state:WriteStateFile(path, data)` | `boolean` | |
-| `state:ReadStateFile(path)` | `table\|nil` | |
-| `state:CheckDependencies()` | `boolean, table` | |
 
 ### Internal helpers
 
@@ -1320,11 +1319,11 @@ optional dependencies. `ui` is a runtime dependency. The module also calls `util
 | `Settings` | `ValueType`, `PauseWhileTeleporting`, `AdjustYCoordinate`, `YCoordinateIndex`, `AdjustmentAmount`, `LogVerbose` |
 | `Axes` | `{ "X", "Y", "Z" }`. Names only. The count comes from `Transform.Offsets`. |
 | `Areas` | `Names = {}`, `DeriveFromCategory = true`. The game's separate maps, for the Teleporter Map. See the guide's 8.4 and 8.6. |
+| other | `Saves = {}`, `SaveFileName = "Teleporter.%s.Saves.txt"`, `SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"` |
 
 A `Transform`, `Waypoint` or `Additional` block given without a `ValueType` takes `Settings.ValueType`
 once, in `New`, so `{ Symbol = "PlayerPtr", Offsets = { 0x30, 0x34, 0x38 } }` reads and writes as
 singles on every path.
-| other | `Saves = {}`, `SaveFileName = "Teleporter.%s.Saves.txt"`, `SaveMemoryRecordName = "[— Teleporter : Saves —] ()->"` |
 
 ### Dimensions
 
