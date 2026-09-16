@@ -1,13 +1,13 @@
 # Manifold CE Utility
 
 > File: [`Manifold-CE-Utility/Manifold-CE-Utility.lua`](../Manifold-CE-Utility/Manifold-CE-Utility.lua)
-> Version: 2.0.0 · License: MIT · Authors: Leunsel, LeFiXER
+> Version: 2.1.0 · License: MIT · Authors: Leunsel, LeFiXER
 
 An autorun segment that extends the Cheat Engine user interface itself with a menu of
 frequently used actions. It has no dependency on the Manifold Framework and works on its own.
 Two optional couplings: it logs through [Manifold Logger](Manifold-Logger.md) when that is
-installed, and it contributes the menu entries that open [Manifold Table Files](Manifold-TableFiles.md)
-and the Logger's console.
+installed, and it contributes the menu entries that open [Manifold Table Files](Manifold-TableFiles.md),
+[Manifold Address List](Manifold-AddressList.md) and the Logger's console.
 
 Version 2.0.0 is a rewrite. The 1.x file was one flat script; 2.0.0 is an entry file plus a
 `-Modules` folder of `:New()` classes with dependency injection, the same shape as the Logger and
@@ -44,7 +44,7 @@ autorun/
     Manifold-CE-Utility-Shell.lua
     Manifold-CE-Utility-Structures.lua
     Manifold-CE-Utility-Version.lua
-    Manifold-Icons/            fourteen 16x16 PNGs
+    Manifold-Icons/            fifteen 16x16 PNGs
 ```
 
 The script runs on the next Cheat Engine start and publishes `ManifoldCEUtility`.
@@ -83,6 +83,7 @@ The entry `[— Manifold —]` appears in the main menu bar.
 | Remove All Structures | | Removes every global structure, destructive |
 | Open Table File Viewer | | `ManifoldTableFiles:Open()`, with an install hint when absent |
 | Open Log Console | | `ManifoldLogger:Open()`, with an install hint when absent |
+| Open Address List | | `ManifoldAddressList:Open()`, with an install hint when absent |
 | *(separator)* | | |
 | Deactivate All Scripts | `Ctrl+D` | `Active = false` on every active `vtAutoAssembler` record, destructive |
 | Deactivate Everything | `Ctrl+F` | `Active = false` on every active record, destructive |
@@ -311,7 +312,7 @@ ManifoldCEUtility:NormalizeIDs()
 ManifoldCEUtility:ToggleCompactMode()
 ManifoldCEUtility:SetCompactMode(true)
 ManifoldCEUtility:OpenLuaEngine()                 -- also OpenMemoryViewer, OpenStructureDissect,
-                                                  -- OpenTableFiles, OpenLogConsole,
+                                                  -- OpenTableFiles, OpenLogConsole, OpenAddressList,
                                                   -- OpenAutorunFolder, OpenProcessFolder
 ManifoldCEUtility:SetAnimatedCaption(true)
 ManifoldCEUtility:SetAnimationInterval(200)

@@ -84,6 +84,7 @@ autorun/
 | Remove All Structures | | Removes every global structure, destructive |
 | Open Table File Viewer | | Opens [Manifold Table Files](../Manifold-TableFiles), if installed |
 | Open Log Console | | Opens the [Manifold Logger](../Manifold-Logger) console, if installed |
+| Open Address List | | Opens [Manifold Address List](../Manifold-AddressList), if installed |
 | Deactivate All Scripts | `Ctrl+D` | Deactivates every active Auto Assembler script, destructive |
 | Deactivate Everything | `Ctrl+F` | Deactivates every active record, destructive |
 | Normalize Cheat Table IDs | | Renumbers every record 1..N in tree order, destructive |
