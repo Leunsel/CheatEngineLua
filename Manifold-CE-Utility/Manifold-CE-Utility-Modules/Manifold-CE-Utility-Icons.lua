@@ -54,6 +54,7 @@ Icons.Files = {
     Remove        = "Manifold-Clear.png",
     TableFiles    = "Manifold-File.png",
     LogConsole    = "Manifold-Logging.png",
+    AddressList   = "Manifold-Status.png",
     Deactivate    = "Manifold-Pause.png",
     DeactivateAll = "Manifold-Reset.png",
     Normalize     = "Manifold-Validate.png",

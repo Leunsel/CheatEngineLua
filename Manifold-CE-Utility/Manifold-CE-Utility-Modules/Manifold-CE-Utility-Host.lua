@@ -99,6 +99,8 @@ function Host:MenuSpec()
           OnClick = function() self.Shell:OpenTableFiles() end },
         { Caption = "Open Log Console", Icon = "LogConsole",
           OnClick = function() self.Shell:OpenLogConsole() end },
+        { Caption = "Open Address List", Icon = "AddressList",
+          OnClick = function() self.Shell:OpenAddressList() end },
         "-",
         { Caption = "Deactivate All Scripts", Icon = "Deactivate", Shortcut = shortcuts.DeactivateScripts,
           OnClick = function() self.Records:Deactivate(true) end },
@@ -211,6 +213,7 @@ function Host:OpenMemoryViewer() return self.Shell:OpenMemoryViewer() end
 function Host:OpenStructureDissect() return self.Shell:OpenStructureDissect() end
 function Host:OpenTableFiles() return self.Shell:OpenTableFiles() end
 function Host:OpenLogConsole() return self.Shell:OpenLogConsole() end
+function Host:OpenAddressList() return self.Shell:OpenAddressList() end
 function Host:OpenAutorunFolder() return self.Shell:OpenAutorunFolder() end
 function Host:OpenProcessFolder() return self.Shell:OpenProcessFolder() end
 

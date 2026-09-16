@@ -89,6 +89,24 @@ function Shell:OpenLogConsole()
     return ok
 end
 
+--
+--- ∑ Opens the Manifold Address List editor. Like the Table File Viewer it
+---   is its own autorun segment and adds no menu of its own, so this entry
+---   is how anyone reaches it.
+--- @return boolean
+--
+function Shell:OpenAddressList()
+    local editor = rawget(_G, "ManifoldAddressList")
+    if type(editor) ~= "table" or type(editor.Open) ~= "function" then
+        self.Log:Warning("Manifold Address List is not installed. Copy Manifold-AddressList.lua " ..
+            "and its -Modules folder into Cheat Engine's autorun directory.")
+        return false
+    end
+    local ok, err = pcall(editor.Open, editor)
+    if not ok then self.Log:Error("Open Address List: " .. tostring(err)) end
+    return ok
+end
+
 --------------------------------------------------------
 --                        Folders                     --
 --------------------------------------------------------
