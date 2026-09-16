@@ -15,6 +15,8 @@ It has no dependency on the Manifold Framework and works on its own. Two optiona
 logs through [Manifold Logger](../Manifold-Logger) when that is installed and falls back to a
 timestamped print when it is not, and it adopts the Cheat Table's active theme when one is loaded.
 
+![Preview](https://i.imgur.com/9DI1SiO.png)
+
 ## Highlights
 
 **Everything is one selection.** Select fourteen records, type a new description, and it is one
