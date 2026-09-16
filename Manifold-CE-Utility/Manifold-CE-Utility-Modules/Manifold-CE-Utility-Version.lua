@@ -7,7 +7,7 @@
 
 local Version = {
     Major = 2,
-    Minor = 0,
+    Minor = 1,
     Patch = 0,
     Name = "Manifold CE Utility"
 }
