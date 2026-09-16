@@ -75,6 +75,9 @@ The coloured circle in front of an item is its priority.
 - [X] T22. No fix required. Unit tests are not relevant in this context.
 - [ ] [T24. Teleporter assigns to a `for` control variable](#t24-teleporter-assigns-to-a-for-control-variable) · Framework. The Template Loader occurrences are all fixed. What remains is `Manifold.Teleporter`, with one occurrence rather than two, and `Manifold.Dev/Manifold.Patcher.lua` with two more.
 - [ ] [T25. Three game-specific custom types live in Utils](#t25-three-game-specific-custom-types-live-in-utils) · Framework
+- [ ] [T26. Cheat Engine cannot reorder records at the root](#t26-cheat-engine-cannot-reorder-records-at-the-root) · Address List. Not a defect in the segment. Recorded so it is not re-proposed, and so the way out is written down if Cheat Engine ever publishes one
+- [ ] [T27. Lua edits never mark a Cheat Table as edited](#t27-lua-edits-never-mark-a-cheat-table-as-edited) · Address List. Nothing exposed can set the flag, so the window says so instead of pretending
+- [ ] [T28. Changing a hotkey's keys means destroy and recreate](#t28-changing-a-hotkeys-keys-means-destroy-and-recreate) · Address List. Why key editing is outside undo and outside 1.0.0
 
 ### Larger refactors
 
@@ -847,6 +850,106 @@ end
 
 Worth adding: log a warning when a template uses `<< BaseAddressRegister >>` but the value is
 empty.
+
+# Address List
+
+All three items below are limits in Cheat Engine rather than defects in the segment. They are
+written down because each one is a feature somebody will ask for, each one has already been
+investigated, and the answer is easier to re-read than to re-derive.
+
+## T26. Cheat Engine cannot reorder records at the root
+
+🔵 [`Manifold-AddressList-Records.lua:906`](../Manifold-AddressList/Manifold-AddressList-Modules/Manifold-AddressList-Records.lua),
+[`Manifold-AddressList-Window.lua:1955`](../Manifold-AddressList/Manifold-AddressList-Modules/Manifold-AddressList-Window.lua)
+
+The Lua binding has exactly one move for a memory record. `mr.Parent = x` is published as
+`write appendToEntry`, and `appendToEntry` does `treenode.MoveTo(memrec.treenode, naAddChild)`, so
+both make the record the **last** child of the target. There is no `naInsertBehind`, no index
+setter on a tree node (`treenode_setIndex` exists in master but is never registered) and no drag
+event that could stand in for one.
+
+Reordering inside a group is therefore built out of that one move: re-append every child of the
+group in the wanted order, then read the whole child order back, because the parent never changes
+and only the resulting order proves the appends did anything.
+
+The root has no parent to re-append into. So Move up, Move down and Sort children answer
+`Cheat Engine offers no way to reorder records at the root.` on a root record, and Move into group
+refuses to take a record **out** of a group and back to the root at all. Moving a root record into
+a group works and is not undoable, which is confirmed before it runs.
+
+Two knock-on effects worth remembering:
+
+* A record that leaves the root can never be put back by this window, and that is the only edit in
+  the segment whose irreversibility comes from Cheat Engine rather than from the nature of the
+  action.
+* A group with one child cannot be reordered either, which is correct but reads as a bug the first
+  time. The menu greys Move up and Move down out rather than letting them fail.
+
+No fix exists. If a future Cheat Engine registers `treenode_setIndex`, or publishes
+`TTreeNode.MoveTo` with a mode argument, `Records:Reorder` is the one function that changes and
+the root case falls out of it.
+
+## T27. Lua edits never mark a Cheat Table as edited
+
+🔵 [`Manifold-AddressList-CE.lua:41`](../Manifold-AddressList/Manifold-AddressList-Modules/Manifold-AddressList-CE.lua)
+
+`MainForm.editedsincelastsave` is a plain field in the main form's `public` section. It is not
+published, so RTTI cannot reach it, it is not a component, so the `findComponentByName` fallback
+cannot reach it, and it is not referenced anywhere in `LuaHandler`. Nothing in the Lua binding can
+set it or clear it.
+
+The consequence is the same for every segment that edits records from Lua, and it is loudest here
+because this window is built for editing them in bulk. **A session of edits leaves Cheat Engine
+believing the table is unchanged**, so closing Cheat Engine does not ask to save and the title bar
+does not say anything changed. The work is in the live records and is lost on exit unless the
+table is saved by hand.
+
+There is exactly one exception and it is Cheat Engine's own. `al.createMemoryRecord()` calls
+`addaddress`, which sets the flag, so New record and New group do mark the table while nothing
+else does. That asymmetry is worth keeping in mind rather than relying on.
+
+Mitigation shipped in 1.0.0, all documentation rather than code, because there is no code that
+would work:
+
+* The segment README and `docs/Manifold-AddressList.md` both say it in their own section.
+* Nothing in the window claims an edit was saved. A commit says what it wrote, never that the
+  table is safe.
+
+If it turns out to matter more than expected, the honest options are a status line marker counting
+this window's own committed transactions, or a prompt on close when the journal is not empty.
+Neither can reflect edits made anywhere else, which is why neither shipped.
+
+## T28. Changing a hotkey's keys means destroy and recreate
+
+🔵 [`Manifold-AddressList-Hotkeys.lua:1`](../Manifold-AddressList/Manifold-AddressList-Modules/Manifold-AddressList-Hotkeys.lua)
+
+The Hotkeys page ships as an overview. It lists every hotkey of the selection or of the whole
+table, flags every combination that is registered more than once, and edits four fields through
+the commit funnel: value, description, action and only while down. It does **not** create hotkeys
+and it does **not** change key combinations. Three reasons, in the order they rule it out.
+
+1. **Capturing a combination fires it.** The keys have to be read while the Cheat Table's own
+   hotkeys are registered, so pressing the combination somebody wants to assign triggers whatever
+   is already on it, which is very often the hotkey they are looking at.
+2. **The `Keys` setter fills one slot at a time and stops at the first zero.** A combination
+   shorter than the one already stored leaves the trailing keys of the old one behind. There is no
+   clear and no length.
+3. **The setter does not re-register.** The hotkey thread keeps the combination it was created
+   with, so even a correctly written `Keys` changes what the page shows and not what actually
+   fires.
+
+So a key change is `hk.destroy()` followed by `mr.createHotkey(...)`, copying the action, the
+value, the description, only while down and the four sound fields across. That loses the hotkey's
+id, and the id is what every entry in the undo history is keyed by, so the change could not be
+undone even in principle.
+
+Remove is offered and does exactly that destroy, with a confirmation and a note that it cannot be
+undone. Add and rebind stay in Cheat Engine, and the page says so in one muted line of its own
+rather than only here.
+
+A future version could offer it as an explicitly non-undoable action, the same way Remove is
+offered, on the grounds that recreating a hotkey is a legitimate thing to want. That is a scope
+decision and not a technical one, and it was taken out of 1.0.0 deliberately.
 
 # Larger refactors
 

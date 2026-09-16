@@ -36,6 +36,12 @@ is an autorun script for signatures in both directions. It turns the instruction
 disassembler into an array of bytes signature, and it reads one back in, scans the process for it
 and goes to where it matched.
 
+[Manifold Address List](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-AddressList)
+is an autorun script that puts a Cheat Table's address list into one window and edits it in bulk,
+with a record tree drawn on a canvas, an inspector for pointers, scripts, drop-down lists and
+hotkeys, a filter language, find and replace across the whole table, a check that says what is
+broken, and an undo history Cheat Engine itself does not have.
+
 The documentation for all of them lives in [`docs/`](docs/README.md).
 
 [GH SigMaker Patch](https://github.com/Leunsel/CheatEngineLua/tree/main/GH-SigMaker-Patch)
