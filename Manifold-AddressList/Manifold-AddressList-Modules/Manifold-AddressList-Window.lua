@@ -179,6 +179,43 @@ local FILTER_PLACEHOLDER = "filter, try is:script or type:aa"
 --- The theme's field row numbers, one pixel and six.
 local FILTER_FRAME = 2 * (1 + 6)
 
+--- What a field row keeps around its label text, the pad in front of it and
+--- the gap behind it. The theme's field row numbers, six and six.
+local FIELD_LABEL_CHROME = 6 + 6
+
+--- What a closed combo box in a field row takes besides its text. Two pixels
+--- of pad on each side of the text, and the twenty three pixels of rim and
+--- arrow button Windows keeps around the item, less the three pixel rim the
+--- row's clip hides on each side. The frame around the box comes on top.
+local COMBO_CHROME = 2 * 2 + 23 - 2 * 3 + FILTER_FRAME
+
+--- The space the find bar keeps above its first line and below its last, the
+--- space between its two lines, and the space at its sides. The sides are a
+--- toolbar button's gap, so the close button ends where the menu button above
+--- it ends.
+local FIND_PAD, FIND_GAP, FIND_SIDE = 6, 4, TOOL_GAP
+
+--- The two verbs share one width, so Replace all stands straight under Find
+--- all, and the close button is as wide as a toolbar icon.
+local FIND_ACTION_WIDTH, FIND_CLOSE_WIDTH = 96, 30
+
+--- What the empty find and replace boxes say. The window is never made so
+--- narrow that a box is shorter than its text, so the hint can always be read
+--- whole.
+local FIND_PLACEHOLDER = "plain text, never a pattern"
+local REPLACE_PLACEHOLDER = "leave empty to delete the text"
+
+--- The labels in front of the find bar's fields. Find and Replace share one
+--- label column, and so do In and Scope, so each box starts straight under
+--- its partner.
+local FIND_LABELS = { Find = "Find", Replace = "Replace", Fields = "In", Scope = "Scope" }
+
+--- How far apart aligned siblings are given their first position, so no two
+--- of them can ever tie. The alignment moves each one to where it belongs,
+--- so the number only decides the order, and a sibling list stays shorter
+--- than STACK_SLOTS.
+local STACK_STEP, STACK_SLOTS = 10000, 10
+
 --- The space a card keeps around itself, the splitter between the two cards,
 --- and the pad a card leaves around its content.
 local CARD_GAP, SPLITTER_WIDTH, CARD_PAD = 8, 5, 1
@@ -303,6 +340,49 @@ local function rowWidth(controls)
     return total
 end
 
+--
+--- ∑ Gives an aligned control its place among the siblings that share its
+---   alignment. Slot one is the outermost.
+---
+---   A control built hidden starts in its parent's corner, and siblings that
+---   all start there are ordered by the LCL's tie break. For top aligned ones
+---   that is the build order backwards, and for two right aligned buttons of
+---   different widths it puts the wider one at the edge whatever the build
+---   order was. A first position far apart for each slot leaves the tie break
+---   nothing to decide. The alignment then moves the control to where it
+---   belongs, so the number is never seen.
+--- @param control userdata
+--- @param align string # alTop or alRight.
+--- @param slot number # From one, below STACK_SLOTS.
+--- @return boolean
+--
+local function stackAt(control, align, slot)
+    if align == "alTop" then return safeSet(control, "Top", slot * STACK_STEP) end
+    if align == "alRight" then
+        -- A right aligned control is ordered by its right edge, the larger one
+        -- outermost.
+        return safeSet(control, "Left", (STACK_SLOTS - slot) * STACK_STEP)
+    end
+    return false
+end
+
+--- Pixels per character of the segment font, seven when the theme cannot say.
+local function charWidthOf(theme)
+    local width = 0
+    if theme ~= nil and type(theme.CharWidth) == "function" then
+        local ok, value = pcall(theme.CharWidth, theme)
+        if ok then width = tonumber(value) or 0 end
+    end
+    if width <= 0 then width = 7 end
+    return width
+end
+
+--- How wide a text is in the segment font. Every text measured here is plain
+--- ASCII, so its length in bytes is its length.
+local function textWidth(theme, text)
+    return math.ceil(#tostring(text or "") * charWidthOf(theme))
+end
+
 --------------------------------------------------------
 --                    Construction                    --
 --------------------------------------------------------
@@ -345,6 +425,10 @@ function Window:New(services)
         ToolBar = nil, FindBar = nil, FilterEdit = nil, FilterRow = nil, MenuButton = nil,
         FindEdit = nil, ReplaceEdit = nil, FieldCombo = nil, ScopeCombo = nil,
         SetCase = nil, GetCase = nil, SetWord = nil, GetWord = nil,
+        --- The find bar's parts. Its two lines top to bottom, and its field
+        --- rows and check boxes by name.
+        FindLines = nil, FindRows = nil,
+        FindButtons = {},        -- key to the panel and enable closure of a find bar button
         TreeCard = nil, TreeContent = nil, TreeCounter = nil, TreeSplitter = nil,
         InspectorCard = nil, InspectorContent = nil, InspectorCounter = nil,
         ResultsCard = nil, ResultsContent = nil, ResultsCounter = nil,
@@ -355,6 +439,9 @@ function Window:New(services)
 
         --- What the toolbar needs across, measured when it was built.
         ToolBarNeed = 0,
+        --- What the find bar needs across so each box keeps its whole
+        --- placeholder, measured the same way.
+        FindBarNeed = 0,
         --- The tree width a person chose or the settings stored, which a
         --- narrow window takes away and a wider one gives back.
         TreeWanted = nil,
@@ -553,7 +640,7 @@ function Window:Build()
     -- EscCloses stays off. Escape clears the filter first, then hides the find
     -- bar, and only closes the window when there is nothing else for it to do,
     -- so this window owns its own key handler. The least width is what the two
-    -- panes need so far, and HoldPanes adds the toolbar once that is built.
+    -- panes need so far, and HoldPanes adds the two bars once they are built.
     local form = theme:CreateWindow(caption, width, height, {
         MinWidth = self:MinimumWidth(), MinHeight = Defaults.MinHeight,
         EscCloses = false
@@ -624,9 +711,18 @@ end
 --
 --- ∑ The find and replace bar, hidden until somebody asks for it.
 ---
----   Everything on it is placed by hand rather than aligned. It is one row of
----   eleven controls and an alignment stack would reverse half of them for no
----   gain at all.
+---   Two lines that read as columns. Find, In, Case, Find all and the close
+---   button on top, and Replace, Scope, Word and Replace all under them, each
+---   one straight under its partner. Everything is aligned. The controls at
+---   the right end of a line keep their width and the box takes what they
+---   leave, so both boxes grow and shrink with the window and nothing is
+---   placed by hand next to an aligned sibling.
+---
+---   The window's least width holds what the longer line needs, so at every
+---   size the window accepts each box still shows its whole placeholder. The
+---   bar takes its height from the two cards, and a third line would leave
+---   the inspector too short for the drop-down page at the least height the
+---   window accepts.
 --- @param form userdata
 --- @return userdata
 --
@@ -635,35 +731,12 @@ function Window:BuildFindBar(form)
     local settings = self.Settings
     local search = (settings and settings.Search) or {}
     local bar = theme:CreatePanel(form, {
-        Align = "alTop", Height = 36, ColorKey = "COLOR_PANEL",
+        Align = "alTop", Height = self:FindBarHeight(), ColorKey = "COLOR_PANEL",
         Spacing = { Left = 8, Right = 8, Top = 2 }
     })
     self.FindBar = bar
+    self.FindButtons, self.FindRows, self.FindLines = {}, {}, {}
 
-    local function label(text, left)
-        local control = theme:CreateLabel(bar, text, "muted")
-        safeSet(control, "Left", left)
-        safeSet(control, "Top", 9)
-        return control
-    end
-
-    label("Find", 4)
-    self.FindEdit = theme:CreateEdit(bar, {
-        Left = 44, Top = 5, Width = 180,
-        Placeholder = "plain text, never a pattern",
-        Hint = "What to look for in the fields chosen on the right."
-    })
-    self:TrackFocus(self.FindEdit)
-
-    label("Replace", 234)
-    self.ReplaceEdit = theme:CreateEdit(bar, {
-        Left = 300, Top = 5, Width = 180,
-        Placeholder = "leave empty to delete the text",
-        Hint = "What every match becomes when you replace all."
-    })
-    self:TrackFocus(self.ReplaceEdit)
-
-    label("In", 490)
     local captions, chosen = {}, 1
     for index, entry in ipairs(Window.FindFields) do
         captions[index] = entry.Label
@@ -673,62 +746,191 @@ function Window:BuildFindBar(form)
         end
         if matches then chosen = index end
     end
-    self.FieldCombo = theme:CreateCombo(bar, {
-        Items = captions, ItemIndex = chosen - 1, Left = 516, Top = 5, Width = 190,
-        Hint = "Which fields a search reads. A script is the slowest of them.",
-        OnChange = function() self:FindFieldsChanged() end
-    })
-
-    label("Scope", 716)
     local scopeIndex = 0
     for index, name in ipairs(Window.FindScopes) do
         if name == search.Scope then scopeIndex = index - 1 end
     end
-    self.ScopeCombo = theme:CreateCombo(bar, {
+
+    local boxLabel = self:LabelColumn(FIND_LABELS.Find, FIND_LABELS.Replace)
+    local choiceLabel = self:LabelColumn(FIND_LABELS.Fields, FIND_LABELS.Scope)
+    -- One width for both boxes, so Scope stands straight under In and the
+    -- longest field choice still shows whole.
+    local choiceWidth = choiceLabel
+        + math.max(self:ComboNeed(captions), self:ComboNeed(Window.FindScopes))
+
+    --- One line of the bar, in its place in the stack. Two lines stand as far
+    --- apart as the larger of their spacings, so the second line's is the gap.
+    local function line(slot, above)
+        local panel = theme:CreatePanel(bar, {
+            Align = "alTop", Height = TOOL_HEIGHT, ColorKey = "COLOR_PANEL",
+            Spacing = { Left = FIND_SIDE, Right = FIND_SIDE, Top = above }
+        })
+        stackAt(panel, "alTop", slot)
+        self.FindLines[slot] = panel
+        return panel
+    end
+
+    --- A button at the right end of a line, in its place from the edge. The
+    --- line is exactly as high as the button, so it keeps nothing above or
+    --- below it.
+    local function button(key, parent, slot, options)
+        options.Align = "alRight"
+        options.Height = TOOL_HEIGHT
+        local panel, setEnabled = theme:CreateToolButton(parent, options)
+        stackAt(panel, "alRight", slot)
+        self.FindButtons[key] = { Panel = panel, Enable = setEnabled }
+        return panel
+    end
+
+    --- A drawn check box at the right end of a line. Its caption decides its
+    --- width, and both captions are four letters, so the two stand in one
+    --- column.
+    local function check(key, parent, slot, value, option, hint)
+        local panel, setChecked, getChecked = theme:CreateCheck(parent, {
+            Caption = key, Checked = value == true, Hint = hint,
+            Align = "alRight", Height = TOOL_HEIGHT, Spacing = { Left = FILTER_GAP },
+            OnChange = function(checked) self:SetSearchOption(option, checked) end
+        })
+        stackAt(panel, "alRight", slot)
+        self.FindRows[key] = panel
+        return setChecked, getChecked
+    end
+
+    --- A labelled combo box at the right end of a line, in the shared width.
+    local function choice(key, parent, slot, options)
+        options.Kind = "combo"
+        options.Label = FIND_LABELS[key]
+        options.LabelWidth = choiceLabel
+        options.Align = "alRight"
+        options.Width = choiceWidth
+        options.Height = TOOL_HEIGHT
+        options.ColorKey = "COLOR_PANEL"
+        options.Spacing = { Left = FILTER_GAP }
+        local row, combo = theme:CreateFieldRow(parent, options)
+        stackAt(row, "alRight", slot)
+        self.FindRows[key] = row
+        return combo
+    end
+
+    --- A labelled box that takes what the right end of its line leaves.
+    local function box(key, parent, placeholder, hint)
+        local row, edit = theme:CreateFieldRow(parent, {
+            Kind = "edit", Label = FIND_LABELS[key], LabelWidth = boxLabel,
+            Align = "alClient", Height = TOOL_HEIGHT, ColorKey = "COLOR_PANEL",
+            Placeholder = placeholder, Hint = hint,
+            Spacing = { Right = FILTER_GAP }
+        })
+        self.FindRows[key] = row
+        self:TrackFocus(edit)
+        return edit
+    end
+
+    -- The right end of each line comes before its box, because an alClient
+    -- control takes what is left once the edges are placed.
+    local top = line(1, FIND_PAD)
+    button("Close", top, 1, {
+        Caption = "x", Width = FIND_CLOSE_WIDTH, Shortcut = "Esc",
+        Hint = "Hide the find bar.",
+        Spacing = { Left = TOOL_GAP },
+        OnClick = function() self:HideFind() end
+    })
+    button("FindAll", top, 2, {
+        Caption = "Find all", Width = FIND_ACTION_WIDTH,
+        Hint = "List every match in the results strip.",
+        Spacing = { Left = FILTER_GAP },
+        OnClick = function() self:RunFind(false) end
+    })
+    self.SetCase, self.GetCase = check("Case", top, 3, search.MatchCase, "MatchCase",
+        "Match upper and lower case exactly.")
+    self.FieldCombo = choice("Fields", top, 4, {
+        Items = captions, ItemIndex = chosen - 1,
+        Hint = "Which fields a search reads. A script is the slowest of them.",
+        OnChange = function() self:FindFieldsChanged() end
+    })
+    self.FindEdit = box("Find", top, FIND_PLACEHOLDER,
+        "What to look for in the fields chosen on the right.")
+
+    -- Replace all keeps the close button's room free behind it, so every
+    -- column of this line ends where its partner above ends.
+    local under = line(2, FIND_GAP)
+    button("ReplaceAll", under, 1, {
+        Caption = "Replace all", Width = FIND_ACTION_WIDTH,
+        Hint = "Write every match. One undo puts all of them back.",
+        Spacing = { Left = FILTER_GAP, Right = TOOL_GAP + FIND_CLOSE_WIDTH },
+        OnClick = function() self:RunFind(true) end
+    })
+    self.SetWord, self.GetWord = check("Word", under, 2, search.WholeWord, "WholeWord",
+        "Only matches that stand on their own.")
+    self.ScopeCombo = choice("Scope", under, 3, {
         Items = Window.FindScopes, ItemIndex = scopeIndex,
-        Left = 766, Top = 5, Width = 110,
         Hint = "All records, the rows the filter shows, or the selection.",
         OnChange = function() self:FindScopeChanged() end
     })
+    self.ReplaceEdit = box("Replace", under, REPLACE_PLACEHOLDER,
+        "What every match becomes when you replace all.")
 
-    local casePanel, setCase, getCase = theme:CreateCheck(bar, {
-        Caption = "Case", Checked = search.MatchCase == true, Width = 74,
-        Hint = "Match upper and lower case exactly.",
-        OnChange = function(value) self:SetSearchOption("MatchCase", value) end
-    })
-    safeSet(casePanel, "Left", 886)
-    safeSet(casePanel, "Top", 7)
-    self.SetCase, self.GetCase = setCase, getCase
-
-    local wordPanel, setWord, getWord = theme:CreateCheck(bar, {
-        Caption = "Word", Checked = search.WholeWord == true, Width = 78,
-        Hint = "Only matches that stand on their own.",
-        OnChange = function(value) self:SetSearchOption("WholeWord", value) end
-    })
-    safeSet(wordPanel, "Left", 962)
-    safeSet(wordPanel, "Top", 7)
-    self.SetWord, self.GetWord = setWord, getWord
-
-    -- The close button is created first so alRight leaves it at the far edge,
-    -- with the two verbs to the left of it in reading order.
-    theme:CreateButton(bar, {
-        Caption = "x", Align = "alRight", Width = 28, Height = 26,
-        Hint = "Hide the find bar. (Esc)",
-        OnClick = function() self:HideFind() end
-    })
-    theme:CreateButton(bar, {
-        Caption = "Replace all", Align = "alRight", Width = 108, Height = 26,
-        Hint = "Write every match. One undo puts all of them back.",
-        OnClick = function() self:RunFind(true) end
-    })
-    theme:CreateButton(bar, {
-        Caption = "Find all", Align = "alRight", Width = 96, Height = 26,
-        Hint = "List every match in the results strip.",
-        OnClick = function() self:RunFind(false) end
-    })
-
+    self.FindBarNeed = self:MeasureFindBar()
     safeSet(bar, "Visible", false)
     return bar
+end
+
+--- A label column as wide as the longest of the given labels needs, with the
+--- field row's pad in front and its gap behind.
+function Window:LabelColumn(...)
+    local widest = 0
+    for index = 1, select("#", ...) do
+        widest = math.max(widest, textWidth(self.Theme, (select(index, ...))))
+    end
+    return widest + FIELD_LABEL_CHROME
+end
+
+--- How wide a combo box field needs to be, its label column left out, for
+--- the longest of its items to show whole in the closed box.
+function Window:ComboNeed(items)
+    local widest = 0
+    for _, item in ipairs(items or {}) do
+        widest = math.max(widest, textWidth(self.Theme, item))
+    end
+    return widest + COMBO_CHROME
+end
+
+--- How tall the find bar is. Its two lines with the pad around them and the
+--- gap between them.
+function Window:FindBarHeight()
+    return FIND_PAD + TOOL_HEIGHT + FIND_GAP + TOOL_HEIGHT + FIND_PAD
+end
+
+--
+--- ∑ What the find bar needs across so each box shows its whole placeholder.
+---
+---   The right end of each line is measured from the controls with their
+---   spacing, the way the toolbar's need is, so a button or a choice made
+---   wider moves the window's least width with it.
+--- @return number
+--
+function Window:MeasureFindBar()
+    local bar = self.FindBar
+    if bar == nil then return 0 end
+    local rows, buttons = self.FindRows or {}, self.FindButtons or {}
+    --- The width of the controls a line keeps at its right end, leaving out
+    --- any that were not built.
+    local function stack(...)
+        local controls = {}
+        for index = 1, select("#", ...) do
+            local key = select(index, ...)
+            local control = rows[key] or (buttons[key] and buttons[key].Panel)
+            if control ~= nil then controls[#controls + 1] = control end
+        end
+        return rowWidth(controls)
+    end
+    local theme = self.Theme
+    local box = self:LabelColumn(FIND_LABELS.Find, FIND_LABELS.Replace) + FILTER_FRAME
+    local top = box + textWidth(theme, FIND_PLACEHOLDER)
+        + stack("Fields", "Case", "FindAll", "Close")
+    local under = box + textWidth(theme, REPLACE_PLACEHOLDER)
+        + stack("Scope", "Word", "ReplaceAll")
+    local barLeft, barRight = sideSpacing(bar)
+    return barLeft + FIND_SIDE + math.max(top, under) + FIND_SIDE + barRight
 end
 
 --
@@ -837,15 +1039,7 @@ end
 --- @return number
 --
 function Window:FilterMinWidth()
-    local theme = self.Theme
-    local charWidth = 0
-    if theme ~= nil and type(theme.CharWidth) == "function" then
-        local ok, width = pcall(theme.CharWidth, theme)
-        if ok then charWidth = tonumber(width) or 0 end
-    end
-    if charWidth <= 0 then charWidth = 7 end
-    -- The placeholder is plain ASCII, so its length in bytes is its length.
-    return math.ceil(#FILTER_PLACEHOLDER * charWidth) + FILTER_FRAME
+    return textWidth(self.Theme, FILTER_PLACEHOLDER) + FILTER_FRAME
 end
 
 --- The splitter and then the card, because alLeft puts the last created
@@ -971,16 +1165,18 @@ end
 --- ∑ The least the window may be across.
 ---
 ---   The tree's minimum, the inspector's minimum and everything between and
----   around them, or what the toolbar needs, whichever is wider, plus the
----   frame. Nothing here is a number picked by hand. The inspector's minimum
----   comes from its longest tab caption, so a window at this width shows
----   every tab whole on one row. The splitter's clamp in TreeRoom takes the
----   same inspector minimum, so a drag can never leave less than this gives.
+---   around them, or what the toolbar or the find bar needs, whichever is
+---   widest, plus the frame. Nothing here is a number picked by hand. The
+---   inspector's minimum comes from its longest tab caption, so a window at
+---   this width shows every tab whole on one row. The splitter's clamp in
+---   TreeRoom takes the same inspector minimum, so a drag can never leave
+---   less than this gives.
 --- @return number
 --
 function Window:MinimumWidth()
     local panes = self:TreeMinWidth() + PANE_CHROME + self:InspectorMinWidth()
-    local content = math.max(panes, tonumber(self.ToolBarNeed) or 0)
+    local content = math.max(panes, tonumber(self.ToolBarNeed) or 0,
+        tonumber(self.FindBarNeed) or 0)
     return content + Defaults.FrameWidth
 end
 
@@ -2139,9 +2335,25 @@ function Window:FocusFilter()
     return (pcall(function() self.FilterEdit.setFocus() end))
 end
 
---- Shows the find bar and puts the caret in it.
+--
+--- ∑ Shows the find bar and puts the caret in it.
+---
+---   Two top aligned controls are ordered by their top edge, the smaller one
+---   outermost. A bar that was never on screen still stands at the top of the
+---   window, while the toolbar was placed below its own spacing when the
+---   window was first shown, so the bar would go in above the toolbar. It is
+---   stood just under the toolbar first, which leaves the alignment one order
+---   to pick. The alignment then moves it to where it belongs.
+--- @param replace boolean|nil # False empties the Replace box.
+--- @return boolean # Whether there is a bar to show.
+--
 function Window:ShowFind(replace)
     if self.FindBar == nil then return false end
+    if safeGet(self.FindBar, "Visible") ~= true then
+        local top = integer(safeGet(self.ToolBar, "Top")) or 0
+        local height = integer(safeGet(self.ToolBar, "Height")) or 0
+        safeSet(self.FindBar, "Top", math.max(top + 1, top + height))
+    end
     safeSet(self.FindBar, "Visible", true)
     if replace == false then safeSet(self.ReplaceEdit, "Text", "") end
     if self.FindEdit ~= nil then
@@ -2380,9 +2592,27 @@ function Window:ShowResults(kind, items)
     return count
 end
 
---- Shows or hides the results card and its splitter together. One without the
---- other leaves a divider floating over the tree.
+--
+--- ∑ Shows or hides the results card and its splitter together. One without
+---   the other leaves a divider floating over the tree.
+---
+---   Two bottom aligned controls are ordered by their bottom edge, the larger
+---   one outermost. A hidden card keeps the bottom edge it had in the last
+---   window it was shown in, and shown again in a shorter window it would
+---   sort below the status line. So both are stood just above the status line
+---   first, the splitter above the card, which leaves the alignment one order
+---   to pick. The alignment then moves them to where they belong.
+--- @param shown boolean
+--- @return boolean # Whether the card is shown now.
+--
 function Window:ShowResultsCard(shown)
+    if shown == true and safeGet(self.ResultsCard, "Visible") ~= true then
+        local statusTop = integer(safeGet(self.StatusBar, "Top")) or 0
+        local cardTop = statusTop - (integer(safeGet(self.ResultsCard, "Height")) or 0) - 1
+        local splitterHeight = integer(safeGet(self.ResultsSplitter, "Height")) or 0
+        safeSet(self.ResultsCard, "Top", cardTop)
+        safeSet(self.ResultsSplitter, "Top", cardTop - splitterHeight - 1)
+    end
     safeSet(self.ResultsCard, "Visible", shown == true)
     safeSet(self.ResultsSplitter, "Visible", shown == true)
     return shown == true
@@ -3685,6 +3915,7 @@ function Window:Release()
     self.TreeWanted, self.TreeFitted, self.Fitting = nil, nil, false
     self.FindEdit, self.ReplaceEdit, self.FieldCombo, self.ScopeCombo = nil, nil, nil, nil
     self.SetCase, self.GetCase, self.SetWord, self.GetWord = nil, nil, nil, nil
+    self.FindLines, self.FindRows, self.FindButtons, self.FindBarNeed = nil, nil, {}, 0
     self.TreeCard, self.TreeContent, self.TreeCounter, self.TreeSplitter = nil, nil, nil, nil
     self.InspectorCard, self.InspectorContent, self.InspectorCounter = nil, nil, nil
     self.ResultsCard, self.ResultsContent, self.ResultsCounter = nil, nil, nil
