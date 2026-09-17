@@ -7,7 +7,7 @@ Cheat Engine has the Lua Engine window. It is a plain memo: one colour, no level
 search, nothing kept once it scrolls past, and everything from every script mixed into one stream.
 This replaces all of that, and it does it without asking anybody to depend on it.
 
-![Preview](https://i.imgur.com/Hf58iFb.png)
+![Preview](https://i.imgur.com/Ss7k57r.png)
 
 ## Highlights
 
