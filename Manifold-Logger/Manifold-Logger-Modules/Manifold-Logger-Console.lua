@@ -1,19 +1,58 @@
 --[[
     The console window.
 
-    Layout, top to bottom: a toolbar of icon buttons, a filter row, the canvas
-    log view filling the rest, an optional detail pane, and a status line. All
-    Align driven, never absolute, so the window resizes and the view is told to
-    re-measure instead of being redrawn at a stale size.
+    Top to bottom it holds a toolbar, a filter row, the log card, the detail
+    card under its splitter, and the status line. The toolbar is seven icon
+    buttons in three groups at the left, the search field in whatever room
+    they leave and the menu button at the right edge. The filter row holds the
+    level choice, the channel choice and a button that clears all three
+    filters. The detail card and its splitter stay hidden until somebody asks
+    for them.
+
+    Everything is aligned and nothing is placed by hand next to an aligned
+    sibling. The LCL puts the LAST created alTop or alLeft control outermost
+    and the FIRST created alBottom or alRight one, and a window built hidden is
+    laid out in one pass with every sibling still standing at zero, so a tie
+    is decided by the build order. The build order here follows that rule,
+    and the two top bars and the status line are also given first positions
+    far apart that say their order outright, see stackAt. A hidden control
+    keeps the bounds it had, and an alBottom stack sorts by the far edge, so
+    the detail card and its splitter are moved to the top edge whenever they
+    are shown or resized. Their far edge is then their height and the status
+    line stays below them.
+
+    The least size is worked out and never written down. The width is what
+    the toolbar and the filter row need with the search field showing its
+    whole placeholder. The height is the bars, four log rows and three lines
+    of the detail card, which is counted even while it is hidden, so showing
+    it at the least height never makes anything overlap.
 
     Refresh is throttled. The log calls back on every record, but the callback
-    only sets a flag. A timer turns the newest flag into one repaint every
-    RefreshInterval milliseconds. Pause stops the repaint, not the recording,
-    so nothing is lost and resuming shows what arrived meanwhile.
+    only sets a flag. A timer turns the newest flag into one read of the log
+    every RefreshInterval milliseconds, or into a repaint and a fresh detail
+    card when a record already shown was only repeated. Pause stops that tick
+    from taking new records into the view. It stops neither the recording nor
+    the painting, so nothing is lost and the frame timer still paints what is
+    shown. Resuming reads what arrived meanwhile, and so does every command
+    that refreshes on purpose, F5, a new level, channel or search and the View
+    options among them.
+
+    Painting belongs to a second timer. A click, a wheel notch and a mouse
+    move only mark the log view dirty, and the frame timer paints it within
+    fifteen milliseconds. The same tick runs the theme's settle pass, which is
+    what gives an owner drawn combo box its input colour after Windows first
+    painted it black.
+
+    The detail card takes its height from the log card. Showing or hiding it
+    keeps the selected record on screen. A following log waits on that
+    record with Follow still pressed, until the next record arrives or
+    somebody scrolls.
 
     Closing hides the window. OnClose returns caHide, so the filter, the scroll
-    position and the selection survive a close and reopen. The host frees the
-    window explicitly when it is finished with it.
+    position and the selection survive a close and reopen. Escape clears the
+    search first, then the selection, and hides the window once there is
+    nothing left to clear. The host frees the window explicitly when it is
+    finished with it.
 
     Focus is tracked, not queried. KeyPreview is on so the view gets arrow keys
     and Ctrl+A, which would otherwise be swallowed. KeyPreview also takes every
@@ -21,6 +60,10 @@
     through OnEnter and OnExit. Reading form.ActiveControl back and comparing
     it is not reliable, because two lookups of the same Cheat Engine object
     need not produce the same Lua value.
+
+    Nothing in this file raises into Cheat Engine. A build that fails half way
+    frees what it made and says so in the log, and every timer handler is
+    guarded and stops itself after five failures in a row.
 ]]
 
 local Core = require("Manifold-Logger-Core")
@@ -31,11 +74,35 @@ local Version = require("Manifold-Logger-Version")
 local Console = {}
 Console.__index = Console
 
+--------------------------------------------------------
+--                     Constants                      --
+--------------------------------------------------------
+
 Console.Defaults = {
     Width = 980,
     Height = 620,
-    RefreshInterval = 120,   -- ms between repaints while records arrive
-    DetailHeight = 170
+    --- Milliseconds between two reads of the log while records arrive.
+    RefreshInterval = 120,
+    --- Windows rounds a timer up to its own 15.6 ms tick, so fifteen is the
+    --- smallest honest frame interval and sixteen is a whole tick slower.
+    FrameInterval = 15,
+    --- The detail card's height until somebody drags its splitter.
+    DetailHeight = 170,
+    --- How long a flashed message holds the status line before the counts
+    --- come back.
+    FlashSeconds = 2.5,
+    --- A timer whose handler failed this many times in a row stops, rather
+    --- than reporting the same defect several times a second forever.
+    MaxFailures = 5
+}
+
+--- Every virtual key the window answers, named so no branch reads as a
+--- number nobody can look up.
+Console.Keys = {
+    Escape = 27, Pause = 19, F1 = 112, F5 = 116,
+    A = 65, C = 67, F = 70, P = 80,
+    Plus = 0xBB, Add = 0x6B, Minus = 0xBD, Subtract = 0x6D,
+    Control = 0x11
 }
 
 --- The level thresholds offered in the filter. SUCCESS is absent because it
@@ -54,6 +121,134 @@ Console.LevelChoices = {
 Console.ExportChoices = { "text", "jsonl", "csv", "markdown" }
 
 --
+--- ∑ The toolbar's buttons in reading order, left to right. A dash is a
+---   separator. The buttons carry no caption, so the hint is where each one
+---   says its name, and the theme adds the shortcut to it in brackets.
+--
+Console.Tools = {
+    { Key = "Pause", Icon = "Pause", Shortcut = "Ctrl+P", Toggle = true,
+      Hint = "Pause. Hold new records out of the view until you resume or refresh. Nothing is lost." },
+    { Key = "Follow", Icon = "Follow", Shortcut = "End", Toggle = true,
+      Hint = "Follow. Keep the newest record in view." },
+    { Key = "Wrap", Icon = "WrapLongLines", Toggle = true,
+      Hint = "Wrap. Wrap long lines instead of cutting them." },
+    "-",
+    { Key = "Copy", Icon = "Copy", Shortcut = "Ctrl+C",
+      Hint = "Copy the selection, or everything shown." },
+    { Key = "Export", Icon = "Export",
+      Hint = "Export the selection, or everything shown, to a file. The extension picks the format." },
+    { Key = "Clear", Icon = "Clear",
+      Hint = "Clear the buffer. The counters and the log file are untouched." },
+    "-",
+    { Key = "Detail", Icon = "Detail", Toggle = true,
+      Hint = "Detail. Show the whole record, its fields and its traceback." }
+}
+
+--- What each toolbar button does. A toggle is told its new state.
+local TOOL_ACTIONS = {
+    Pause = function(self, pressed) self:SetPaused(pressed) end,
+    Follow = function(self, pressed) self:SetFollow(pressed) end,
+    Wrap = function(self, pressed) self:SetWrap(pressed) end,
+    Copy = function(self) self:CopySelection() end,
+    Export = function(self) self:Export() end,
+    Clear = function(self) self:ClearBuffer() end,
+    Detail = function(self, pressed) self:SetDetailVisible(pressed) end
+}
+
+local Defaults = Console.Defaults
+local Keys = Console.Keys
+
+--- The toolbar's height and the height of every control on it, which leaves
+--- six pixels above and below each one.
+local TOOLBAR_HEIGHT, TOOL_HEIGHT = 40, 28
+
+--- The filter row's height, and what it keeps clear of the toolbar above it.
+local FILTER_HEIGHT, FILTER_TOP = 34, 2
+
+--- What both bars keep clear of the window's sides.
+local BAR_SIDE = 8
+
+--- What a tool button keeps clear in front of itself, and what a field keeps
+--- clear of the controls on either side of it.
+local TOOL_GAP, FIELD_GAP = 4, 8
+
+--- What the frame of a sizeable window takes off its width and its height at
+--- 96 dpi. Eight pixels on each side, and the caption bar with the bottom
+--- edge.
+local FRAME_WIDTH, FRAME_HEIGHT = 16, 39
+
+--- What the empty search field says. The field is never made narrower than
+--- this text, so the hint in it can always be read whole, and it is short so
+--- the window can be narrow.
+local SEARCH_PLACEHOLDER = "search, any case"
+
+--- The border of a field row and the pad inside it, on both sides together.
+--- The theme's field row numbers, one pixel and six.
+local FIELD_FRAME = 2 * (1 + 6)
+
+--- What a field row keeps around its label text, the pad in front of it and
+--- the gap behind it. The theme's field row numbers, six and six.
+local FIELD_LABEL_CHROME = 6 + 6
+
+--- What a closed combo box in a field row takes besides its text. Two pixels
+--- of pad on each side of the text, and the twenty three pixels of rim and
+--- arrow button Windows keeps around the item, less the three pixel rim the
+--- row's clip hides on each side. The frame around the box comes on top.
+local COMBO_CHROME = 2 * 2 + 23 - 2 * 3 + FIELD_FRAME
+
+--- The labels in front of the two choices, and the first channel choice.
+local LEVEL_LABEL, CHANNEL_LABEL = "Level", "Channel"
+local ALL_CHANNELS = "All channels"
+
+--- The space a card keeps around itself, and the splitter's height.
+local CARD_GAP, SPLITTER_HEIGHT = 8, 5
+
+--- A card's border, the height of its title strip, and the pad the log card
+--- leaves around its canvas and the detail card around its memo.
+local CARD_BORDER, CARD_HEADER, VIEW_PAD, DETAIL_PAD = 1, 24, 1, 6
+
+--- Everything between the filter row and the status line that is neither of
+--- the two cards. The space above the log card, the space under it, the
+--- splitter, and the space above and under the detail card. Two aligned
+--- neighbours are as far apart as the larger of their spacings, and the
+--- splitter has none, so each gap is one card's spacing and never two.
+local CARD_CHROME = 4 * CARD_GAP + SPLITTER_HEIGHT
+
+--- The log card is this much taller than its canvas.
+local VIEW_INSET = 2 * (CARD_BORDER + VIEW_PAD)
+
+--- The fewest log rows and detail lines the least window height keeps.
+local VIEW_MIN_ROWS, DETAIL_MIN_LINES = 4, 3
+
+--- What the bars take when they cannot be measured, their spacing included.
+--- The toolbar sits eight below the caption, the filter row two below the
+--- toolbar, and the status line four above the bottom edge.
+local TOOLBAR_STACK = 8 + TOOLBAR_HEIGHT
+local FILTER_STACK = FILTER_TOP + FILTER_HEIGHT
+local STATUS_STACK = 24 + 4
+
+--- What the left half of the status line keeps clear of the right half, two
+--- characters of the console font, and the share of the bar the right half
+--- may take at most.
+local STATUS_GAP, STATUS_RIGHT_SHARE = 14, 0.5
+
+--- What stands between two counters in the right half of the status line.
+local STATUS_SEPARATOR = "  |  "
+
+--- What leads the left half of the status line while the log is paused, and
+--- what stands between two parts of the left half.
+local PAUSED_MARK, STATUS_JOIN = "PAUSED", "  -  "
+
+--- How far apart stacked siblings are given their first position, so no two
+--- of them can ever tie. The alignment moves each one to where it belongs,
+--- so the number only decides the order, and a stack stays shorter than
+--- STACK_SLOTS.
+local STACK_STEP, STACK_SLOTS = 10000, 10
+
+--- The channel internal failures are reported on.
+local INTERNAL = "Logger/Internal"
+
+--
 --- ∑ Builds a console. Nothing is created until Open.
 --- @param services table # { Log, Theme, Icons, Writer }
 --- @return table
@@ -69,22 +264,69 @@ function Console:New(services)
         Form    = nil,
         View    = nil,
         Memo    = nil,        -- fallback when no canvas surface exists
-        Timer   = nil,
+        Timer   = nil,        -- the refresh tick
+        FrameTimer = nil,     -- the paint tick
         Listener= nil,
+
+        --- The toolbar's buttons by key, each as Panel, Enable, Press and
+        --- Label, the shape the Address List window keeps.
+        Buttons = {},
+        ToolBar = nil, FilterBar = nil, MenuButton = nil, ClearButton = nil,
+        SearchRow = nil, SearchEdit = nil, SearchParts = nil,
+        LevelRow = nil, LevelCombo = nil, LevelParts = nil,
+        ChannelRow = nil, ChannelCombo = nil, ChannelParts = nil,
+        ViewCard = nil,
+        DetailCard = nil, DetailContent = nil, DetailMemo = nil, DetailSplitter = nil,
+        DetailCounter = nil, SetDetailCounter = nil,
+        StatusBar = nil, StatusLabel = nil, StatusDetail = nil,
+
+        --- What the toolbar and the filter row need across, measured when
+        --- they were built.
+        ToolBarNeed = 0,
+        FilterBarNeed = 0,
+        --- The detail height somebody asked for, which a low window takes
+        --- away and a taller one gives back, and the height the last fit left.
+        DetailWanted = nil,
+        DetailFitted = nil,
+        Fitting = false,
 
         Paused  = false,
         PendingRefresh = true,   -- a record arrived, re-read the log
         PendingRedraw = false,   -- nothing arrived, but the picture changed
         NeedsFullRefresh = true, -- the shown list cannot be extended, only rebuilt
         SearchFocused = false,
+        --- True while the console writes the search field itself, so the
+        --- change that write fires is not taken for typing.
+        Quiet = false,
         DetailVisible = false,
         ExportMode = "text",
 
-        Filter  = { MinRank = Core.Levels.TRACE, Channel = nil, Search = nil },
+        --- The record whose first row a detail card toggle keeps on screen,
+        --- until the next frame has placed it, and the record a following
+        --- log is held on while Follow waits. See KeepInView.
+        KeepSeq = nil,
+        HeldSeq = nil,
+
+        --- The status line. A flashed message while it lasts, then the hint of
+        --- the row under the mouse, then the counts.
+        FlashText = nil, FlashUntil = 0,
+        HoverText = nil,
+        StatusText = "",
+        StatusRight = "",
+        StatusRightParts = {},  -- the counters the right half is made of
+
+        TickFailures = 0,
+        FrameFailures = 0,
+        FrameStopped = false,
+
+        -- Rank zero is the "All" choice, so the level box and the filter agree
+        -- from the start.
+        Filter  = { MinRank = 0, Channel = nil, Search = nil },
         ThemeSource = false,      -- the design theme table the chrome was coloured from
         SearchLower = nil,        -- lowered once per change, not once per record
         Signature = nil,          -- the filter, as a string, to notice a change
         ChannelSignature = nil,   -- so the channel list is only rebuilt when it moved
+        ChannelList = {},
         -- One array for the life of the window, mutated in place. The view
         -- uses that identity to append rows for the new records instead of
         -- rebuilding every row on every frame.
@@ -98,9 +340,31 @@ end
 --                      Helpers                       --
 --------------------------------------------------------
 
+--- One guarded property write. A control that was freed and a property this
+--- Cheat Engine does not have both answer false instead of raising.
 local function safeSet(control, property, value)
-    if not control then return false end
+    if control == nil then return false end
     return (pcall(function() control[property] = value end))
+end
+
+--- One guarded property read. Nothing comes back when the read did not work.
+local function safeGet(control, property)
+    if control == nil then return nil end
+    local ok, value = pcall(function() return control[property] end)
+    if ok then return value end
+    return nil
+end
+
+--- A whole number, or nothing when the value was never one.
+local function integer(value)
+    local number = tonumber(value)
+    if number == nil or number ~= number then return nil end
+    return math.tointeger(math.floor(number))
+end
+
+--- The plural s, so a count and its noun never disagree.
+local function plural(count)
+    return count == 1 and "" or "s"
 end
 
 local function clipboard(text)
@@ -115,21 +379,140 @@ local function shell(path)
     return (pcall(execute, path))
 end
 
+--- Whether a key is held. The key events carry no shift state in Cheat
+--- Engine, so this is the only way to ask.
+local function held(key)
+    local isKeyPressed = rawget(_G, "isKeyPressed")
+    if type(isKeyPressed) ~= "function" then return false end
+    local ok, down = pcall(isKeyPressed, key)
+    return ok and down == true
+end
+
+--- Gives a control a minimum height through its constraints, which the LCL
+--- honours in every alignment pass and a splitter reads before it moves.
+local function setMinHeight(control, height)
+    if control == nil then return false end
+    return (pcall(function() control.Constraints.MinHeight = height end))
+end
+
+--- The same for the width.
+local function setMinWidth(control, width)
+    if control == nil then return false end
+    return (pcall(function() control.Constraints.MinWidth = width end))
+end
+
+--- The space a control keeps on its left and on its right, Around included.
+--- A control whose spacing cannot be read keeps none.
+local function sideSpacing(control)
+    local left, right = 0, 0
+    pcall(function()
+        local spacing = control.BorderSpacing
+        local around = tonumber(spacing.Around) or 0
+        left = (tonumber(spacing.Left) or 0) + around
+        right = (tonumber(spacing.Right) or 0) + around
+    end)
+    return left, right
+end
+
+--- The same above and below.
+local function endSpacing(control)
+    local top, bottom = 0, 0
+    pcall(function()
+        local spacing = control.BorderSpacing
+        local around = tonumber(spacing.Around) or 0
+        top = (tonumber(spacing.Top) or 0) + around
+        bottom = (tonumber(spacing.Bottom) or 0) + around
+    end)
+    return top, bottom
+end
+
+--- How much width a row of controls takes at most, each with its own spacing
+--- on both sides. Two neighbours share the larger of their spacings, so the
+--- real row is never wider than this.
+local function rowWidth(controls)
+    local total = 0
+    for _, control in ipairs(controls) do
+        local left, right = sideSpacing(control)
+        total = total + left + (integer(safeGet(control, "Width")) or 0) + right
+    end
+    return total
+end
+
+--- How much height one bar takes with its spacing, or the fallback when the
+--- bar is not there or cannot say.
+local function stackHeight(control, fallback)
+    local height = integer(safeGet(control, "Height"))
+    if height == nil then return fallback end
+    local top, bottom = endSpacing(control)
+    return top + height + bottom
+end
+
+--
+--- ∑ Gives an aligned control its place among the siblings that share its
+---   alignment. Slot one is the outermost.
+---
+---   A control built hidden starts in its parent's corner, and siblings that
+---   all start there are ordered by the LCL's tie break. A first position far
+---   apart for each slot leaves the tie break nothing to decide. The
+---   alignment then moves the control to where it belongs, so the number is
+---   never seen. Once a control has been placed its real position counts, so
+---   the slots are handed out outermost first, and a stack whose inner
+---   member is hidden and shown later puts that member at the near edge when
+---   it is shown, see StackDetail.
+--- @param control userdata
+--- @param align string # alTop or alBottom.
+--- @param slot number # From one, below STACK_SLOTS.
+--- @return boolean
+--
+local function stackAt(control, align, slot)
+    if align == "alTop" then return safeSet(control, "Top", slot * STACK_STEP) end
+    if align == "alBottom" then
+        -- A bottom aligned control is ordered by its bottom edge, the larger
+        -- one outermost.
+        return safeSet(control, "Top", (STACK_SLOTS - slot) * STACK_STEP)
+    end
+    return false
+end
+
+--- Pixels per character and per line of the console font at one size, seven
+--- and the rounded em and two when the theme cannot say.
+local function metricsOf(theme, size)
+    size = tonumber(size) or 10
+    local charWidth, lineHeight = 0, 0
+    if theme ~= nil and type(theme.TextMetrics) == "function" then
+        local ok, width, height = pcall(theme.TextMetrics, theme, size)
+        if ok then
+            charWidth = tonumber(width) or 0
+            lineHeight = tonumber(height) or 0
+        end
+    end
+    if charWidth <= 0 then charWidth = 7 end
+    if lineHeight <= 0 then lineHeight = math.floor(size * 96 / 72 + 0.5) + 2 end
+    return charWidth, lineHeight
+end
+
+--- The size the theme draws its controls in.
+local function themeFontSize(theme)
+    return tonumber(theme and theme.FontSize) or 10
+end
+
 --------------------------------------------------------
 --                       Window                       --
 --------------------------------------------------------
 
 --
 --- ∑ Shows the console, building it on first use.
---- @return userdata|nil
+---
+---   A new window is restyled after it is shown, because Cheat Engine
+---   overwrites some colours when the handles are made, which for a window
+---   built hidden is at show.
+--- @return userdata|nil # The form, or nothing when it could not be built.
 --
 function Console:Open()
     if self.Form then
-        local alive = pcall(function()
-            self.Form.Visible = true
-            self.Form.BringToFront()
-        end)
+        local alive = pcall(function() self.Form.Visible = true end)
         if alive then
+            pcall(function() self.Form.bringToFront() end)
             -- A theme may have been applied while the window was hidden.
             self:CheckTheme()
             self:Refresh(true)
@@ -137,15 +520,21 @@ function Console:Open()
         end
         -- The form was destroyed outside our control. Fall through and
         -- rebuild instead of doing nothing.
-        self:Release()
+        self:Release(true)
     end
-    self:Build()
+    if self:Build() == nil then return nil end
     self:Refresh(true)
     if self.View then self.View:ScrollToEnd() end
     safeSet(self.Form, "Visible", true)
+    if self.Theme ~= nil then pcall(self.Theme.Restyle, self.Theme) end
+    if self.View then self.View:Invalidate() end
     return self.Form
 end
 
+--
+--- ∑ Hides the window. The buffer, the log and every setting stay.
+--- @return nil
+--
 function Console:Close()
     if self.Form then pcall(function() self.Form.Visible = false end) end
 end
@@ -173,26 +562,86 @@ function Console:IsOpen()
     return visible == true
 end
 
+--- Whether the form is on screen, as one guarded read and nothing else. The
+--- frame timer asks this sixty times a second.
+function Console:FormVisible()
+    return safeGet(self.Form, "Visible") == true
+end
+
+--
+--- ∑ Writes one record about the console itself. The log's dedup collapses a
+---   repeat into a counter, so a defect that happens every tick is one line.
+--- @param level string # Warning or Error.
+--- @param message string
+--- @return boolean
+--
+function Console:Report(level, message)
+    local log = self.Log
+    if log == nil then return false end
+    return (pcall(function()
+        local channel = log:Channel(INTERNAL)
+        channel[level](channel, tostring(message))
+    end))
+end
+
 --
 --- ∑ Constructs the window and everything in it.
---- @return nil
+---
+---   A failure half way frees what was built and says so, rather than leaving
+---   a half built window behind for the next Open to show. The most likely
+---   cause is a modules folder copied in part, where this file meets an older
+---   theme.
+--- @return userdata|nil # The form, or nothing when it could not be built.
 --
 function Console:Build()
     local theme = self.Theme
+    if theme == nil then return nil end
     -- Nothing from a previous window may be re-coloured through this one.
-    theme:Forget()
-    local form = theme:CreateWindow(
-        string.format("%s - %s", Version.Full(), self.Log.Name or "Manifold"),
-        Console.Defaults.Width, Console.Defaults.Height)
+    pcall(theme.Forget, theme)
+    local caption = string.format("%s - %s", Version.Full(), self.Log.Name or "Manifold")
+    -- EscCloses stays off. Escape clears the search and the selection first,
+    -- so this window owns its own key handler. The least size is final once
+    -- the bars are built, see HoldSize.
+    local form = theme:CreateWindow(caption, Defaults.Width, Defaults.Height, {
+        MinWidth = self:MinimumWidth(), MinHeight = self:MinimumHeight(),
+        EscCloses = false
+    })
+    if form == nil then
+        self:Report("Warning", "This Cheat Engine cannot make a window, so the console stays closed.")
+        return nil
+    end
     self.Form = form
+    local ok, err = pcall(self.BuildParts, self, form)
+    if ok then return form end
+    self:Release(false)
+    pcall(function() form.destroy() end)
+    self:Report("Error", "The console could not be built, so it stays closed. " .. tostring(err)
+        .. ". Copy the whole modules folder when updating the Logger.")
+    return nil
+end
 
-    -- Bottom up. alBottom stacks in creation order, so the status line ends up
-    -- furthest down and the detail pane above it.
-    self.StatusLabel, self.StatusBar, self.StatusDetail = theme:CreateStatusBar(form, "")
+--
+--- ∑ Everything inside the form, in the one order the LCL allows.
+---
+---   alBottom puts the first created control outermost, so the status line
+---   comes first, then the detail card and then its splitter. alTop puts the
+---   last created one outermost, and the two bars carry their slots as well,
+---   so the toolbar is handed slot one and built first and the filter row
+---   slot two. The log card fills what is left.
+--- @param form userdata
+--- @return nil
+--
+function Console:BuildParts(form)
+    local theme = self.Theme
+    -- 1 status line, 2 detail card, 3 detail splitter.
+    self:BuildStatusBar(form)
     self:BuildDetail(form)
+    -- 4 toolbar, 5 filter row.
     self:BuildToolBar(form)
     self:BuildFilterBar(form)
+    -- 6 log card.
     self:BuildView(form)
+    self:HoldSize(form)
     self:BuildMenu()
     self:BuildKeys(form)
 
@@ -201,7 +650,8 @@ function Console:Build()
     -- Live updates. The listener only sets a flag, the timer decides when that
     -- becomes a repaint. A new record has to be filtered and appended, a dedup
     -- update only changes a counter the record already carries, and a clear
-    -- invalidates the shown list outright.
+    -- invalidates the shown list outright. Bridged producers can log from a
+    -- worker thread, so nothing in here may touch a control.
     self.Listener = self.Log:AddListener(function(_, kind)
         if kind == "new" then
             self.PendingRefresh = true
@@ -212,151 +662,226 @@ function Console:Build()
             self.PendingRedraw = true
         end
     end)
-    self:StartTimer()
+    self:StartTimers(form)
 
-    form.OnClose = function()
+    safeSet(form, "OnClose", function()
         -- Hide, do not free. See the file header. caHide is ordinal 1 in
         -- TCloseAction, which is what the fallback stands for.
         self:Close()
         return rawget(_G, "caHide") or 1
-    end
+    end)
 end
 
+--
+--- ∑ The status line. The left half is cut to its own width, so it is fitted
+---   again whenever that width moves, which is the window resizing or the
+---   right half taking more or less of the bar. It ends a gap short of the
+---   right half, or a cut sentence would run straight into the counts.
+--- @param form userdata
+--- @return userdata # The bar.
+--
+function Console:BuildStatusBar(form)
+    local theme = self.Theme
+    self.StatusLabel, self.StatusBar, self.StatusDetail = theme:CreateStatusBar(form, "")
+    stackAt(self.StatusBar, "alBottom", 1)
+    pcall(function() self.StatusLabel.BorderSpacing.Right = STATUS_GAP end)
+    local function fit() pcall(self.FitStatus, self) end
+    safeSet(self.StatusLabel, "OnResize", fit)
+    safeSet(self.StatusBar, "OnResize", fit)
+    return self.StatusBar
+end
+
+--
+--- ∑ The detail card and the splitter above it, both hidden. A hidden control
+---   is left out of the alignment pass, so the log card gets their height
+---   until somebody asks for the detail.
+---
+---   The splitter is created after the card and takes the same Align, which
+---   is how the LCL pairs the two. The counter in the card's title strip says
+---   which record is shown, fitted into the room the title leaves.
+--- @param form userdata
+--- @return userdata # The card.
+--
+function Console:BuildDetail(form)
+    local theme = self.Theme
+    local content, card, _, counter, setCounter = theme:CreateCard(form, {
+        Align = "alBottom", Height = self.DetailWanted or Defaults.DetailHeight,
+        Title = "Record", Counter = "", ContentPad = DETAIL_PAD
+    })
+    self.DetailContent, self.DetailCard = content, card
+    self.DetailCounter, self.SetDetailCounter = counter, setCounter
+    self.DetailMemo = theme:CreateMemo(content, { WordWrap = true, ScrollBars = "ssVertical" })
+    self.DetailSplitter = theme:CreateSplitter(form, {
+        Align = "alBottom", Height = SPLITTER_HEIGHT, MinSize = self:DetailMinHeight()
+    })
+    self.DetailVisible = false
+    self.DetailFitted = nil
+    safeSet(self.DetailSplitter, "Visible", false)
+    safeSet(card, "Visible", false)
+    return card
+end
+
+--
+--- ∑ The toolbar. Seven icon buttons in three groups on the left, the menu
+---   button at the right edge, and the search field in whatever room is left
+---   between them.
+---
+---   The left group is built right to left, because alLeft puts the last
+---   created control leftmost. Nothing writes a bound to a button after it is
+---   built, which would move it to the front of that tie break.
+---
+---   The search field is alClient. It takes what the two stacks leave and
+---   shrinks with the window, and the window's least width keeps that room at
+---   least as wide as the placeholder, which the build measures here.
+--- @param form userdata
+--- @return userdata # The bar.
+--
 function Console:BuildToolBar(form)
     local theme = self.Theme
-    local bar = theme:CreateToolBar(form, 40)
+    local bar = theme:CreateToolBar(form, TOOLBAR_HEIGHT)
     self.ToolBar = bar
+    stackAt(bar, "alTop", 1)
+    local spare = TOOLBAR_HEIGHT - TOOL_HEIGHT
+    local above, below = spare // 2, spare - spare // 2
+    local placed = {}
+    local pressed = {
+        Pause = self.Paused == true, Follow = true, Wrap = false,
+        Detail = self.DetailVisible == true
+    }
 
-    local function button(options)
-        options.Align = "alLeft"
-        return theme:CreateToolButton(bar, options)
+    for index = #Console.Tools, 1, -1 do
+        local tool = Console.Tools[index]
+        if tool == "-" then
+            placed[#placed + 1] = theme:CreateToolSeparator(bar)
+        else
+            local action = TOOL_ACTIONS[tool.Key]
+            -- No Spacing, so the theme centres the button in the bar.
+            local panel, enable, press, _, label = theme:CreateToolButton(bar, {
+                Icon = tool.Icon, Align = "alLeft", Height = TOOL_HEIGHT,
+                Hint = tool.Hint, Shortcut = tool.Shortcut,
+                Toggle = tool.Toggle, Pressed = pressed[tool.Key],
+                OnClick = function(state)
+                    if action then action(self, state) end
+                end
+            })
+            self.Buttons[tool.Key] = { Panel = panel, Enable = enable, Press = press, Label = label }
+            placed[#placed + 1] = panel
+        end
     end
 
-    local _, _, setPaused = button({
-        Caption = "Pause", Icon = "Pause", Width = 92, Toggle = true,
-        Hint = "Stop repainting. Records keep arriving and appear on resume.",
-        OnClick = function(pressed) self:SetPaused(pressed) end
-    })
-    self.SetPausedButton = setPaused
-
-    local _, _, setFollow = button({
-        Caption = "Follow", Icon = "Follow", Width = 96, Toggle = true, Pressed = true,
-        Hint = "Keep the newest record in view (End).",
-        OnClick = function(pressed) if self.View then self.View:SetFollow(pressed) end end
-    })
-    self.SetFollowButton = setFollow
-
-    button({
-        Caption = "Wrap", Icon = "WrapLongLines", Width = 88, Toggle = true,
-        Hint = "Wrap long lines instead of cutting them.",
-        OnClick = function(pressed) if self.View then self.View:SetWrap(pressed) end end
-    })
-
-    theme:CreateToolSeparator(bar)
-
-    button({
-        Caption = "Copy", Icon = "Copy", Width = 88,
-        Hint = "Copy the selected records, or everything shown (Ctrl+C).",
-        OnClick = function() self:CopySelection() end
-    })
-    button({
-        Caption = "Export", Icon = "Export", Width = 96,
-        Hint = "Write what is shown to a file, as text, JSON lines, CSV or Markdown.",
-        OnClick = function() self:Export() end
-    })
-    button({
-        Caption = "Clear", Icon = "Clear", Width = 88,
-        Hint = "Empty the buffer. The counters and the log file are untouched.",
-        OnClick = function() self:ClearBuffer() end
-    })
-
-    theme:CreateToolSeparator(bar)
-
-    local _, _, setDetail = button({
-        Caption = "Detail", Icon = "Detail", Width = 92, Toggle = true,
-        Hint = "Show the full record, its fields and its traceback.",
-        OnClick = function(pressed) self:SetDetailVisible(pressed) end
-    })
-    self.SetDetailButton = setDetail
-
-    -- alRight so it sits at the far end, away from the verbs.
-    self.MenuButton = theme:CreateButton(bar, {
-        Caption = "Menu", Icon = "Settings", Align = "alRight", Width = 92, Height = 28,
-        Hint = "Everything else. Also on right-click, anywhere in the log.",
+    -- The one alRight control. It keeps as much space behind it as Pause
+    -- keeps in front, so the bar looks the same at both ends.
+    local menu = theme:CreateToolButton(bar, {
+        Icon = "Settings", Align = "alRight", Height = TOOL_HEIGHT,
+        Hint = "Menu. Everything else, which is also on right-click in the log.",
+        Spacing = { Left = TOOL_GAP, Right = TOOL_GAP, Top = above, Bottom = below },
         OnClick = function() self:ShowMenu() end
     })
+    self.MenuButton = menu
+    placed[#placed + 1] = menu
+
+    -- A field row with no label, so the search has the frame every other
+    -- input here has and its text sits on the bar's middle line.
+    local row, edit, _, parts = theme:CreateFieldRow(bar, {
+        Kind = "edit", LabelWidth = 0, Align = "alClient", Height = TOOL_HEIGHT,
+        ColorKey = "COLOR_PANEL",
+        Placeholder = SEARCH_PLACEHOLDER,
+        Hint = "Filter and highlight, plain text, any case. (Ctrl+F)",
+        Spacing = { Left = FIELD_GAP, Right = FIELD_GAP, Top = above, Bottom = below },
+        OnChange = function(text)
+            if self.Quiet then return end
+            self:SearchChanged(text)
+        end
+    })
+    self.SearchRow, self.SearchEdit, self.SearchParts = row, edit, parts
+    -- KeyPreview would otherwise route every keystroke to the view.
+    safeSet(edit, "OnEnter", function() self.SearchFocused = true end)
+    safeSet(edit, "OnExit", function() self.SearchFocused = false end)
+
+    local barLeft, barRight = sideSpacing(bar)
+    self.ToolBarNeed = barLeft + rowWidth(placed)
+        + FIELD_GAP + self:SearchMinWidth() + FIELD_GAP + barRight
+    return bar
 end
 
+--
+--- ∑ The filter row under the toolbar. The level choice at the left, the
+---   clear button at the right edge under the menu button, and the channel
+---   choice between them.
+---
+---   Both choices are field rows, so their boxes are framed and drawn in the
+---   input colours like the search field above them. The level row is as
+---   wide as its label and its longest level need, and the channel row takes
+---   the rest and never less than its label and the first choice need.
+--- @param form userdata
+--- @return userdata # The bar.
+--
 function Console:BuildFilterBar(form)
     local theme = self.Theme
     local bar = theme:CreatePanel(form, {
-        Align = "alTop", Height = 34, Spacing = { Left = 8, Right = 8, Top = 2 }
+        Align = "alTop", Height = FILTER_HEIGHT, ColorKey = "COLOR_PANEL",
+        Spacing = { Left = BAR_SIDE, Right = BAR_SIDE, Top = FILTER_TOP }
     })
     self.FilterBar = bar
+    stackAt(bar, "alTop", 2)
+    local spare = FILTER_HEIGHT - TOOL_HEIGHT
+    local above, below = spare // 2, spare - spare // 2
+
+    -- The only alRight child, with the menu button's spacing, so the two
+    -- icons stand in one column.
+    self.ClearButton = theme:CreateToolButton(bar, {
+        Icon = "ClearFilters", Align = "alRight", Height = TOOL_HEIGHT,
+        Hint = "Clear filters. Level, channel and search go back to showing everything.",
+        Spacing = { Left = TOOL_GAP, Right = TOOL_GAP, Top = above, Bottom = below },
+        OnClick = function() self:ClearFilters() end
+    })
 
     local captions = {}
     for index, choice in ipairs(Console.LevelChoices) do captions[index] = choice.Caption end
-
-    local label = theme:CreateLabel(bar, "Level", "muted")
-    safeSet(label, "Left", 4)
-    safeSet(label, "Top", 8)
-
-    self.LevelCombo = theme:CreateCombo(bar, {
-        Items = captions, ItemIndex = 0, Left = 46, Top = 4, Width = 104,
+    local levelLabel = self:LabelColumn(LEVEL_LABEL)
+    -- The only alLeft child. It starts where Pause starts above it.
+    local levelRow, levelCombo, _, levelParts = theme:CreateFieldRow(bar, {
+        Kind = "combo", Label = LEVEL_LABEL, LabelWidth = levelLabel,
+        Align = "alLeft", Width = levelLabel + self:ComboNeed(captions),
+        Height = TOOL_HEIGHT, ColorKey = "COLOR_PANEL",
+        Items = captions, ItemIndex = self:LevelIndex(self.Filter.MinRank),
         Hint = "Hide everything below this level. The records are kept either way.",
-        OnChange = function()
-            local index = (tonumber(self.LevelCombo.ItemIndex) or 0) + 1
-            local choice = Console.LevelChoices[index]
-            self.Filter.MinRank = choice and choice.Rank or 0
-            self:Refresh(true)
-        end
+        Spacing = { Left = TOOL_GAP, Top = above, Bottom = below },
+        OnChange = function(index) self:LevelChanged(index) end
     })
+    self.LevelRow, self.LevelCombo, self.LevelParts = levelRow, levelCombo, levelParts
 
-    local channelLabel = theme:CreateLabel(bar, "Channel", "muted")
-    safeSet(channelLabel, "Left", 164)
-    safeSet(channelLabel, "Top", 8)
-
-    self.ChannelCombo = theme:CreateCombo(bar, {
-        Items = { "All channels" }, ItemIndex = 0, Left = 226, Top = 4, Width = 168,
+    local channelRow, channelCombo, _, channelParts = theme:CreateFieldRow(bar, {
+        Kind = "combo", Label = CHANNEL_LABEL, LabelWidth = self:LabelColumn(CHANNEL_LABEL),
+        Align = "alClient", Height = TOOL_HEIGHT, ColorKey = "COLOR_PANEL",
+        Items = { ALL_CHANNELS }, ItemIndex = 0,
         Hint = "Show one producer only. Sub-channels of the choice are included.",
-        OnChange = function()
-            local index = tonumber(self.ChannelCombo.ItemIndex) or 0
-            self.Filter.Channel = index > 0 and self.ChannelList[index] or nil
-            self:Refresh(true)
-        end
+        Spacing = { Left = FIELD_GAP, Right = FIELD_GAP, Top = above, Bottom = below },
+        OnChange = function(index) self:ChannelChanged(index) end
     })
+    self.ChannelRow, self.ChannelCombo, self.ChannelParts = channelRow, channelCombo, channelParts
+    setMinWidth(channelRow, self:ChannelMinWidth())
     self.ChannelList = {}
+    -- The list was just made with its first choice only, so the next refresh
+    -- has to fill it whatever the last window held.
+    self.ChannelSignature = nil
 
-    local searchLabel = theme:CreateLabel(bar, "Search", "muted")
-    safeSet(searchLabel, "Left", 408)
-    safeSet(searchLabel, "Top", 8)
-
-    self.SearchEdit = theme:CreateEdit(bar, {
-        Left = 466, Top = 4, Width = 260, Anchors = "[akLeft,akTop,akRight]",
-        Placeholder = "plain text, case-insensitive",
-        Hint = "Filter and highlight. Ctrl+F focuses this box.",
-        OnChange = function()
-            local text = self.SearchEdit.Text
-            self.Filter.Search = (text ~= "" and text) or nil
-            self.SearchLower = self.Filter.Search and self.Filter.Search:lower() or nil
-            if self.View then self.View:SetSearch(text) end
-            -- Flag it and let the tick coalesce. A search change arrives per
-            -- keystroke, and the 120 ms timer exists to stop each one
-            -- re-filtering the whole buffer. Paused, no tick runs, so the
-            -- refresh happens here instead.
-            self.NeedsFullRefresh = true
-            self.PendingRefresh = true
-            if self.Paused then self:Refresh(true) end
-        end
-    })
-    -- KeyPreview would otherwise route every keystroke to the view.
-    safeSet(self.SearchEdit, "OnEnter", function() self.SearchFocused = true end)
-    safeSet(self.SearchEdit, "OnExit", function() self.SearchFocused = false end)
+    local barLeft, barRight = sideSpacing(bar)
+    self.FilterBarNeed = barLeft + rowWidth({ levelRow, self.ClearButton })
+        + FIELD_GAP + self:ChannelMinWidth() + FIELD_GAP + barRight
+    return bar
 end
 
+--
+--- ∑ The log card, which fills what the bars and the detail card leave, and
+---   the canvas view inside it. A Cheat Engine without a canvas gets a themed
+---   memo instead, which shows the log in one colour.
+--- @param form userdata
+--- @return userdata # The card.
+--
 function Console:BuildView(form)
     local theme = self.Theme
-    local content, card = theme:CreateCard(form, { Align = "alClient", ContentPad = 1 })
+    local content, card = theme:CreateCard(form, { Align = "alClient", ContentPad = VIEW_PAD })
     self.ViewCard = card
 
     local view = View:New({ Theme = theme, Icons = self.Icons, Meta = Core.Meta })
@@ -367,43 +892,234 @@ function Console:BuildView(form)
         self.View = nil
         self.Memo = theme:CreateMemo(content)
         self.SurfaceReason = reason
-        return
+        return card
     end
     self.View = view
+    -- Whatever changes Follow in the view, End or a scroll that reached the
+    -- newest row, also ends a wait KeepInView started.
     view.OnFollowChanged = function(value)
-        if self.SetFollowButton then self.SetFollowButton(value) end
+        self.HeldSeq = nil
+        self:PressTool("Follow", value)
     end
     view.OnSelectionChanged = function()
         self:UpdateDetail()
         self:UpdateStatus()
     end
-    view.OnActivate = function()
-        self:SetDetailVisible(true)
-        if self.SetDetailButton then self.SetDetailButton(true) end
-    end
+    view.OnActivate = function() self:SetDetailVisible(true) end
+    -- The row under the mouse says what it hides, on the status line.
+    view.OnHint = function(text) self:ShowHover(text) end
     -- No OnContextMenu on purpose. The right button selects the row under the
-    -- cursor (View:MouseDown) and the LCL shows the attached menu itself.
-    -- Popping it by hand as well would show it twice. See Console:BuildMenu.
+    -- cursor and the LCL shows the attached menu itself. Popping it by hand as
+    -- well would show it twice. See BuildMenu.
 
     -- A paint failure becomes a record on its own channel. The log's dedup
     -- collapses repeats into one line with a counter, and the view stops
     -- painting after five failures in a row.
-    view.OnError = function(reason)
-        self.Log:Channel("Logger/Internal"):Error(tostring(reason))
+    view.OnError = function(message)
+        self:Report("Error", message)
     end
+    return card
 end
 
-function Console:BuildDetail(form)
-    local theme = self.Theme
-    local content, card = theme:CreateCard(form, {
-        Align = "alBottom", Height = Console.Defaults.DetailHeight, Title = "Record"
-    })
-    self.DetailCard = card
-    self.DetailMemo = theme:CreateMemo(content, { WordWrap = true, ScrollBars = "ssVertical" })
-    -- The splitter is created after the pane it resizes and takes the same
-    -- Align. That is how the LCL pairs the two.
-    self.DetailSplitter = theme:CreateSplitter(form, { Align = "alBottom", MinSize = 80 })
-    self:SetDetailVisible(false)
+--------------------------------------------------------
+--                    The window size                 --
+--------------------------------------------------------
+
+--
+--- ∑ Holds the window at its least size and keeps the detail card fitted.
+---
+---   The form cannot be made smaller than MinimumWidth and MinimumHeight, and
+---   both cards carry their own least height as a constraint, which the LCL
+---   splitter reads when it works out how far a drag may go. The detail card
+---   is fitted into the room the log card's least height leaves whenever the
+---   window changes size and whenever a drag ends.
+--- @param form userdata
+--- @return number, number # The least width and height.
+--
+function Console:HoldSize(form)
+    local width, height = self:MinimumWidth(), self:MinimumHeight()
+    pcall(function()
+        local constraints = form.Constraints
+        constraints.MinWidth = width
+        constraints.MinHeight = height
+    end)
+    local current = integer(safeGet(form, "Width"))
+    if current ~= nil and current < width then safeSet(form, "Width", width) end
+    current = integer(safeGet(form, "Height"))
+    if current ~= nil and current < height then safeSet(form, "Height", height) end
+    setMinHeight(self.ViewCard, self:ViewCardMinHeight())
+    setMinHeight(self.DetailCard, self:DetailMinHeight())
+
+    local function fit() pcall(self.FitDetail, self) end
+    safeSet(form, "OnResize", fit)
+    -- OnMoved comes once the mouse is let go. With rsUpdate the card already
+    -- followed the drag, so this only takes note of the height it was given.
+    safeSet(self.DetailSplitter, "OnMoved", fit)
+    return width, height
+end
+
+--
+--- ∑ The least the window may be across. What the toolbar or the filter row
+---   needs, whichever is wider, and the frame. Both were measured from their
+---   controls when they were built, so a wider button or a longer label moves
+---   this with it.
+--- @return number
+--
+function Console:MinimumWidth()
+    local content = math.max(tonumber(self.ToolBarNeed) or 0, tonumber(self.FilterBarNeed) or 0)
+    return content + FRAME_WIDTH
+end
+
+--
+--- ∑ The least the window may be high. The frame, the two bars and the status
+---   line, both cards at their least and what stands between them. The detail
+---   card is counted while it is hidden, so showing it never makes the log
+---   card smaller than its own least.
+--- @return number
+--
+function Console:MinimumHeight()
+    return FRAME_HEIGHT + self:BarsHeight() + CARD_CHROME
+        + self:ViewCardMinHeight() + self:DetailMinHeight()
+end
+
+--- What the toolbar, the filter row and the status line take, their spacing
+--- included, measured from the bars once they exist.
+function Console:BarsHeight()
+    return stackHeight(self.ToolBar, TOOLBAR_STACK)
+        + stackHeight(self.FilterBar, FILTER_STACK)
+        + stackHeight(self.StatusBar, STATUS_STACK)
+end
+
+--
+--- ∑ The height of one log row. The view's own rule, one line and four
+---   pixels and never less than an icon and two, taken at the size a new
+---   view starts at, which is the size the window is built for.
+--- @return number
+--
+function Console:RowHeight()
+    local _, lineHeight = metricsOf(self.Theme, View.Defaults.FontSize)
+    return math.max(View.Defaults.IconSize + 2, lineHeight + 4)
+end
+
+--- The log card's least height, four rows and the card around them.
+function Console:ViewCardMinHeight()
+    return VIEW_MIN_ROWS * self:RowHeight() + VIEW_INSET
+end
+
+--- The detail card's least height, three lines of the memo with the pad, the
+--- title strip and the border around them.
+function Console:DetailMinHeight()
+    local _, lineHeight = metricsOf(self.Theme, themeFontSize(self.Theme))
+    return 2 * CARD_BORDER + CARD_HEADER + 2 * DETAIL_PAD + DETAIL_MIN_LINES * lineHeight
+end
+
+--- How wide a text is in the console font. Every text measured here is plain
+--- ASCII, so its length in bytes is its length.
+function Console:TextWidth(text)
+    local charWidth = metricsOf(self.Theme, themeFontSize(self.Theme))
+    return math.ceil(#tostring(text or "") * charWidth)
+end
+
+--- The narrowest the search field may get, its placeholder whole and the
+--- frame around it.
+function Console:SearchMinWidth()
+    return self:TextWidth(SEARCH_PLACEHOLDER) + FIELD_FRAME
+end
+
+--- A label column as wide as its label needs, with the field row's pad in
+--- front and its gap behind.
+function Console:LabelColumn(label)
+    return self:TextWidth(label) + FIELD_LABEL_CHROME
+end
+
+--- How wide a combo box field needs to be, its label column left out, for
+--- the longest of its items to show whole in the closed box.
+function Console:ComboNeed(items)
+    local widest = 0
+    for _, item in ipairs(items or {}) do
+        widest = math.max(widest, self:TextWidth(item))
+    end
+    return widest + COMBO_CHROME
+end
+
+--- The narrowest the channel row may get, its label and its first choice
+--- whole.
+function Console:ChannelMinWidth()
+    return self:LabelColumn(CHANNEL_LABEL) + self:ComboNeed({ ALL_CHANNELS })
+end
+
+--
+--- ∑ The tallest the detail card may be right now, which is the window's
+---   client height less everything that is not the detail card, the log
+---   card's least height included.
+--- @return number|nil # Nothing while the window cannot say how high it is.
+--
+function Console:DetailRoom()
+    local form = self.Form
+    if form == nil then return nil end
+    local client = integer(safeGet(form, "ClientHeight"))
+    if client == nil or client <= 0 then
+        local height = integer(safeGet(form, "Height"))
+        if height == nil then return nil end
+        client = height - FRAME_HEIGHT
+    end
+    if client <= 0 then return nil end
+    return client - self:BarsHeight() - CARD_CHROME - self:ViewCardMinHeight()
+end
+
+--
+--- ∑ Moves the detail card and its splitter to the top edge of the window.
+---
+---   A bottom aligned control is ordered by its bottom edge, and a hidden one
+---   keeps the bounds it had, so a card shown after the window shrank could
+---   sort below the status line. At the top edge the card's bottom is its
+---   height, which is less than the room the window has, and the splitter's
+---   is its own five pixels, which is less than the card's. The alignment
+---   moves both back at once, so the position is never seen.
+--- @return nil
+--
+function Console:StackDetail()
+    safeSet(self.DetailCard, "Top", 0)
+    safeSet(self.DetailSplitter, "Top", 0)
+end
+
+--
+--- ∑ Fits the detail card into the room the log card's least height leaves.
+---
+---   The card gets the height that was asked for, cut to the room there is
+---   and never below its own least. A lower window takes height from the
+---   card and a taller one gives it back up to what was asked for. A height
+---   that differs from the one the last fit left was set by a drag, and that
+---   becomes the wish from then on.
+---
+---   The height is written before the position. Writing the height realigns
+---   the window at once, and a card that grew can stand below the status line
+---   for that moment, which the position written after it puts right.
+--- @return number|nil # The card's height now, or nothing while it is hidden.
+--
+function Console:FitDetail()
+    local card = self.DetailCard
+    if card == nil or self.Fitting or not self.DetailVisible then return nil end
+    local current = integer(safeGet(card, "Height"))
+    if current == nil then return nil end
+    local floor = self:DetailMinHeight()
+    local room = self:DetailRoom()
+    local dragged = self.DetailFitted ~= nil and current ~= self.DetailFitted
+    local wanted = current
+    if not dragged and self.DetailWanted ~= nil then wanted = self.DetailWanted end
+    if dragged and room ~= nil then wanted = math.min(wanted, room) end
+    wanted = math.max(floor, wanted)
+    self.DetailWanted = wanted
+    local target = wanted
+    if room ~= nil then target = math.max(floor, math.min(wanted, room)) end
+    self.DetailFitted = target
+    if target ~= current then
+        self.Fitting = true
+        safeSet(card, "Height", target)
+        self:StackDetail()
+        self.Fitting = false
+    end
+    return target
 end
 
 --------------------------------------------------------
@@ -418,7 +1134,7 @@ end
 ---   attaches to the panel too.
 ---
 ---   Nothing calls PopUp for the right button. The LCL shows the attached menu
----   itself, and doing both would show it twice. The toolbar's Menu button is
+---   itself, and doing both would show it twice. The toolbar's menu button is
 ---   the one place that pops it explicitly.
 --- @return nil
 --
@@ -462,13 +1178,15 @@ function Console:BuildMenu()
         option("Structured Fields", "opt_fields", "Metrics",
             function() return self.View and self.View.ShowFields end,
             function(value) if self.View then self.View:SetShowFields(value) end end)
+        -- Wrap is on the toolbar as well, so it goes through SetWrap, which
+        -- keeps the button and this check in step.
         option("Wrap Long Lines", "opt_wrap", "Wrap",
             function() return self.View and self.View.Wrap end,
-            function(value) if self.View then self.View:SetWrap(value) end end)
+            function(value) self:SetWrap(value) end)
         menu.Add("-", nil, { Parent = viewItem })
         -- Spelled into the caption instead of set as a Shortcut property. The
         -- LCL renders a popup menu's shortcuts but never dispatches them, so
-        -- the accelerator would look real and do nothing. Console:HandleKey
+        -- the accelerator would look real and do nothing. HandleKey
         -- dispatches these.
         menu.Add("Larger Text  (Ctrl +)", function() self:ChangeFontSize(1) end,
             { Icon = "TextLarger", Parent = viewItem, Key = "fontup" })
@@ -502,21 +1220,21 @@ function Console:BuildMenu()
     menu.Add("Export...", function() self:Export() end, { Icon = "Export", Key = "export" })
     menu.Add("About", function() self:About() end, { Icon = "About", Key = "about" })
 
-    -- The toolbar button gets the same menu attached, so it works by
-    -- right-click even on a build where PopUp cannot be called from Lua.
+    -- The menu button gets the same menu attached, so it works by right-click
+    -- even on a build where PopUp cannot be called from Lua.
     if self.MenuButton then menu.Attach(self.MenuButton) end
 end
 
 --
---- ∑ Pops the menu up at the cursor, for the toolbar button. PopUp wants
----   SCREEN coordinates and getMousePos returns those, but no script shipping
----   with Cheat Engine uses it, so it counts as optional. Without it the menu
----   lands at the window's own corner, wrong but visible, rather than at (0,0)
----   on the desktop.
---- @return nil
+--- ∑ Pops the menu up at the cursor, for the toolbar's menu button. PopUp
+---   wants SCREEN coordinates and getMousePos returns those, but no script
+---   shipping with Cheat Engine uses it, so it counts as optional. Without it
+---   the menu lands at the window's own corner, wrong but visible, rather
+---   than at the top left of the desktop.
+--- @return boolean # Whether the menu was popped up.
 --
 function Console:ShowMenu()
-    if not self.Menu then return end
+    if not self.Menu then return false end
     local x, y
     local getMousePos = rawget(_G, "getMousePos")
     if type(getMousePos) == "function" then
@@ -529,13 +1247,14 @@ function Console:ShowMenu()
             y = (tonumber(self.Form.Top) or 0) + 96
         end)
     end
-    if not (pcall(function() self.Menu.Menu.popup(x, y) end)) then
-        -- No PopUp binding on this Cheat Engine. Say so rather than look like
-        -- a dead button. The log's dedup collapses the repeat into a counter.
-        self.Log:Channel("Logger/Internal"):Warning(
-            "This Cheat Engine cannot open a menu from a button. " ..
-            "Right-click the log, or right-click the Menu button.")
-    end
+    if pcall(function() self.Menu.Menu.popup(x, y) end) then return true end
+    -- No PopUp binding on this Cheat Engine. Say so where the person is
+    -- looking, and in the log, rather than look like a dead button.
+    local sentence = "This Cheat Engine cannot open a menu from a button. "
+        .. "Right-click the log, or right-click the menu button."
+    self:Flash(sentence)
+    self:Report("Warning", sentence)
+    return false
 end
 
 --------------------------------------------------------
@@ -544,84 +1263,145 @@ end
 
 --
 --- ∑ Installs the window's key handler. Cheat Engine's OnKeyDown binding takes
----   the RETURN VALUE as the new key, which is how the LCL's var Key: Word is
+---   the RETURN VALUE as the new key, which is how the LCL's var Key is
 ---   exposed. Return 0 to swallow a key, return it unchanged to let it reach
----   the focused control. Both HandleKey implementations already report
----   whether they consumed the key, so that answer decides.
+---   the focused control. HandleKey reports whether it consumed the key, so
+---   that answer decides.
 --- @param form userdata
---- @return nil
+--- @return boolean
 --
 function Console:BuildKeys(form)
-    pcall(function()
+    return (pcall(function()
         form.KeyPreview = true
         form.OnKeyDown = function(_, key)
             if self:HandleKey(key) then return 0 end
             return key
         end
-    end)
+    end))
 end
 
+--
+--- ∑ The window's key table.
+---
+---   Ctrl+F and Escape work from anywhere. Everything else belongs to the
+---   search field while it has focus, otherwise Ctrl+A and the arrow keys
+---   never reach it, and to the log view when it does not.
+--- @param key number # A virtual key code.
+--- @return boolean # Whether the key was consumed.
+--
 function Console:HandleKey(key)
-    local isKeyPressed = rawget(_G, "isKeyPressed")
-    local control = false
-    if type(isKeyPressed) == "function" then
-        pcall(function() control = isKeyPressed(0x11) == true end)
-    end
-    -- Ctrl+F reaches the search box from anywhere, including from inside it.
-    if control and key == 70 then
-        pcall(function() self.SearchEdit.SetFocus() end)
+    local control = held(Keys.Control)
+    if control and key == Keys.F then
+        self:FocusSearch()
         return true
     end
-    -- Everything else belongs to the search box while it has focus. Otherwise
-    -- Ctrl+A and the arrow keys never reach the field.
-    if self.SearchFocused then
-        if key == 27 then
-            self.SearchEdit.Text = ""
-            return true
-        end
-        return false
+    if key == Keys.Escape then return self:Escape() end
+    if self.SearchFocused then return false end
+    if control and key == Keys.C then
+        self:CopySelection()
+        return true
     end
-    if control and key == 67 then self:CopySelection() return true end
-    -- VK_OEM_PLUS / VK_ADD and VK_OEM_MINUS / VK_SUBTRACT, so the shortcut
-    -- works on the main row and on the numeric keypad.
-    if control and (key == 0xBB or key == 0x6B) then self:ChangeFontSize(1) return true end
-    if control and (key == 0xBD or key == 0x6D) then self:ChangeFontSize(-1) return true end
-    if key == 116 then self:Refresh(true) return true end          -- F5
-    if key == 112 then self:About() return true end                -- F1
-    if key == 19 or (control and key == 80) then                   -- Pause / Ctrl+P
+    -- The plus and minus keys on the main row and on the numeric keypad.
+    if control and (key == Keys.Plus or key == Keys.Add) then
+        self:ChangeFontSize(1)
+        return true
+    end
+    if control and (key == Keys.Minus or key == Keys.Subtract) then
+        self:ChangeFontSize(-1)
+        return true
+    end
+    if key == Keys.F5 then
+        self:Refresh(true)
+        return true
+    end
+    if key == Keys.F1 then
+        self:About()
+        return true
+    end
+    if key == Keys.Pause or (control and key == Keys.P) then
         self:SetPaused(not self.Paused)
-        if self.SetPausedButton then self.SetPausedButton(self.Paused) end
         return true
     end
-    if self.View then return self.View:HandleKey(key) end
+    if self.View then return self.View:HandleKey(key) == true end
     return false
+end
+
+--
+--- ∑ What Escape does, in the order a person expects it.
+---
+---   The search first, because that is what is most likely in the way, then
+---   the selection. Only when there is nothing left to put away does it hide
+---   the window. An empty search field that has the focus hands the key back,
+---   so an Escape meant for the field never hides the window.
+--- @return boolean # Whether Escape was used for something.
+--
+function Console:Escape()
+    local text = safeGet(self.SearchEdit, "Text")
+    if (type(text) == "string" and text ~= "") or self.Filter.Search ~= nil then
+        self:ClearSearch()
+        return true
+    end
+    local view = self.View
+    if view ~= nil and view:HasSelection() then
+        view:ClearSelection()
+        return true
+    end
+    if self.SearchFocused then return false end
+    self:Close()
+    return true
+end
+
+--- Puts the keyboard into the search field.
+function Console:FocusSearch()
+    return (pcall(function() self.SearchEdit.setFocus() end))
 end
 
 --------------------------------------------------------
 --                       Refresh                      --
 --------------------------------------------------------
 
-function Console:StartTimer()
+--
+--- ∑ The two timers. The refresh tick reads the log, the frame tick paints.
+---   Both are owned by the form, so the form's destructor frees them.
+--- @param form userdata
+--- @return boolean # Whether this Cheat Engine has timers at all.
+--
+function Console:StartTimers(form)
     local create = rawget(_G, "createTimer")
-    if type(create) ~= "function" then return end
-    local ok, timer = pcall(create, self.Form)
-    if not ok or not timer then return end
-    self.Timer = timer
-    safeSet(timer, "Interval", Console.Defaults.RefreshInterval)
-    safeSet(timer, "OnTimer", function() self:Tick() end)
-    safeSet(timer, "Enabled", true)
+    if type(create) ~= "function" then return false end
+    local okRefresh, timer = pcall(create, form)
+    if okRefresh and timer then
+        self.Timer = timer
+        safeSet(timer, "Interval", Defaults.RefreshInterval)
+        safeSet(timer, "OnTimer", function() self:Tick() end)
+        safeSet(timer, "Enabled", true)
+    end
+    local okFrame, frame = pcall(create, form)
+    if okFrame and frame then
+        self.FrameTimer = frame
+        self.FrameStopped = false
+        safeSet(frame, "Interval", Defaults.FrameInterval)
+        safeSet(frame, "OnTimer", function() self:FrameTick() end)
+        safeSet(frame, "Enabled", true)
+    end
+    return true
+end
+
+--- Whether the frame timer is there to paint, so the refresh tick can leave
+--- a repaint to it.
+function Console:FramePainting()
+    return self.FrameTimer ~= nil and not self.FrameStopped
 end
 
 --
---- ∑ One frame. Cheap when nothing changed, the common case. A window left
+--- ∑ One refresh. Cheap when nothing changed, the common case. A window left
 ---   open on an idle table costs one comparison every 120 ms.
 --- @return nil
 --
 function Console:Tick()
     if not self:IsOpen() then return end
-    -- Guarded as a whole, since everything before View:Redraw's own guard runs
-    -- bare. An unhandled error in a timer callback is printed by Cheat Engine
-    -- at the timer's rate, eight lines a second, forever.
+    -- Guarded as a whole. An unhandled error in a timer callback is printed
+    -- by Cheat Engine at the timer's rate, eight lines a second, forever.
     local ok, err = pcall(function()
         -- The theme check sits BEFORE the pause guard. Pausing stops the log
         -- from moving, it does not mean the window may be the wrong colour. A
@@ -629,14 +1409,33 @@ function Console:Tick()
         -- themed until somebody resumed it. Nothing here resumes the log,
         -- CheckTheme repaints the records already shown and never refreshes.
         self:CheckTheme()
+        -- Without a frame timer the settle pass runs here instead.
+        if not self:FramePainting() and self.Theme ~= nil
+            and type(self.Theme.Settle) == "function" then
+            self.Theme:Settle()
+        end
+        -- A flashed message has to run out even while the log stands still.
+        if self.FlashText ~= nil then self:FitStatus() end
         if self.Paused then return end
+        local view = self.View
         if self.PendingRefresh then
-            self.PendingRefresh = false
-            self.PendingRedraw = false
+            -- Refresh lowers both flags itself.
             self:Refresh(false)
-        elseif self.PendingRedraw or (self.View and self.View.Dirty) then
+        elseif self.PendingRedraw or (view and view.Dirty) then
+            local repeated = self.PendingRedraw
             self.PendingRedraw = false
-            if self.View then self.View:Redraw() end
+            if view then
+                if self:FramePainting() then
+                    view:Invalidate()
+                else
+                    self:PlaceView()
+                    view:Redraw()
+                end
+            end
+            -- A repeat or a drop changed a record that is already shown, and
+            -- the detail card may be showing it. Its key notices when the
+            -- count moved, so any other record costs one comparison.
+            if repeated then self:UpdateDetail() end
         end
     end)
     if ok then
@@ -644,12 +1443,201 @@ function Console:Tick()
         return
     end
     self.TickFailures = (self.TickFailures or 0) + 1
-    self.Log:Channel("Logger/Internal"):Error("Refresh failed: " .. tostring(err))
-    if self.TickFailures >= 5 then
+    self:Report("Error", "Refresh failed: " .. tostring(err))
+    if self.TickFailures >= Defaults.MaxFailures then
         pcall(function() self.Timer.Enabled = false end)
-        self.Log:Channel("Logger/Internal"):Error(
-            "Live refresh stopped after five consecutive failures. F5 still works.")
+        self:Report("Error", "Live refresh stopped after five consecutive failures. F5 still works.")
     end
+end
+
+--
+--- ∑ One frame, on the frame timer. The settle pass, then a repaint of the
+---   log view when something asked for one. Nothing at all while the window
+---   is hidden.
+--- @return boolean # Whether the view painted.
+--
+function Console:FrameTick()
+    if not self:FormVisible() then return false end
+    local ok, painted = pcall(self.PaintFrame, self)
+    if ok then
+        self.FrameFailures = 0
+        return painted == true
+    end
+    self.FrameFailures = (self.FrameFailures or 0) + 1
+    self:Report("Error", "A frame failed. " .. tostring(painted))
+    if self.FrameFailures >= Defaults.MaxFailures then
+        self.FrameStopped = true
+        pcall(function() self.FrameTimer.Enabled = false end)
+        self:Report("Error", "Painting on the frame timer stopped after five consecutive failures. "
+            .. "The refresh tick paints instead.")
+    end
+    return false
+end
+
+--- The body of a frame, unguarded. FrameTick guards it.
+function Console:PaintFrame()
+    local theme = self.Theme
+    if theme ~= nil and type(theme.Settle) == "function" then theme:Settle() end
+    local view = self.View
+    if view == nil then return false end
+    self:PlaceView()
+    return view:Flush() == true
+end
+
+--------------------------------------------------------
+--               The selection in view                --
+--------------------------------------------------------
+
+--
+--- ∑ What every paint does first. A wait something else ended is let go,
+---   then a detail card toggle is answered.
+--- @return boolean # Whether the log was moved.
+--
+function Console:PlaceView()
+    self:WatchHold()
+    return self:KeepInView()
+end
+
+--
+--- ∑ How many log rows the view holds at the height it has right now. The
+---   detail card changes that height the moment it is shown or hidden, and
+---   the view only measures it again when it paints.
+--- @return number|nil # Nothing while the view has never been measured.
+--
+function Console:RowsThatFit()
+    local view = self.View
+    local metrics = view and view.Metrics
+    if metrics == nil then return nil end
+    local height = integer(safeGet(view.Surface, "Height"))
+    local rowHeight = tonumber(metrics.RowHeight) or 0
+    if height == nil or height <= 0 or rowHeight <= 0 then return nil end
+    return View.Layout.Visible(height, rowHeight)
+end
+
+--
+--- ∑ Notes the selected record before the detail card changes the log's
+---   height, when its first row is on screen. The next paint keeps that row
+---   on screen, see KeepInView. A second toggle before that paint keeps the
+---   first note, which is what was on screen.
+--- @return boolean # Whether a record is noted.
+--
+function Console:NoteSelection()
+    if self.KeepSeq ~= nil then return true end
+    local view = self.View
+    if view == nil then return false end
+    local record = view:SelectedRecord()
+    if record == nil then return false end
+    local top = integer(view.Top) or 1
+    local last = math.min(view:RowCount(), top + view:VisibleRows() - 1)
+    for row = top, last do
+        local entry = view.Rows[row]
+        if entry ~= nil and entry.First and entry.Record.Seq == record.Seq then
+            self.KeepSeq = record.Seq
+            return true
+        end
+    end
+    return false
+end
+
+--
+--- ∑ Puts the record a detail card toggle noted back on screen, now that the
+---   log has its new height.
+---
+---   A following log shows its newest rows, so a card that takes height away
+---   would push the noted record off the top. Following waits instead. The
+---   record's first row goes to the top of the log and the Follow button
+---   stays pressed. The next record that arrives ends the wait and the log
+---   follows it, and so do End and a scroll to the newest row. Any other
+---   scroll ends it and turns Follow off, see WatchHold. Records that arrived
+---   and are not drawn yet win at once.
+---
+---   A log that does not follow scrolls as little as it takes.
+--- @return boolean # Whether the log was moved.
+--
+function Console:KeepInView()
+    local seq = self.KeepSeq
+    local view = self.View
+    if seq == nil or view == nil then return false end
+    -- Rows about to be rebuilt number themselves anew, so the note waits for
+    -- the paint after the one that rebuilds them.
+    if view.RowsDirty then return false end
+    self.KeepSeq = nil
+    local visible = self:RowsThatFit()
+    local head = view:RowOfSeq(seq)
+    local entry = head and view.Rows[head]
+    if visible == nil or entry == nil or entry.Record.Seq ~= seq then return false end
+
+    if view.Follow or self.HeldSeq ~= nil then
+        if head >= View.Layout.Bottom(visible, view:RowCount()) then
+            -- Following shows it, so a wait has nothing left to do.
+            self:ReleaseHold()
+            return false
+        end
+        if view.PendingFrom ~= nil then return false end
+        -- Straight onto the field, so the view tells nobody. The button stays
+        -- pressed, because Follow is only waiting.
+        view.Follow = false
+        self.HeldSeq = seq
+        view.Top = head
+        view:Invalidate()
+        return true
+    end
+
+    local top = integer(view.Top) or 1
+    if head < top then
+        view.Top = head
+    elseif head > top + visible - 1 then
+        view.Top = head - visible + 1
+    else
+        return false
+    end
+    view:Invalidate()
+    return true
+end
+
+--
+--- ∑ Ends a wait and follows again, which is what a new record does.
+--- @return boolean # Whether there was a wait to end.
+--
+function Console:ReleaseHold()
+    if self.HeldSeq == nil then return false end
+    self.HeldSeq = nil
+    local view = self.View
+    if view ~= nil then view:SetFollow(true) end
+    return true
+end
+
+--
+--- ∑ Notices that something other than a new record moved a held log.
+---
+---   The view ended the wait itself when it follows again. A log whose top
+---   row is still the held record's first row is still waiting. A held
+---   record that is gone, cleared or filtered away, leaves nothing to wait
+---   on, so the log follows again. Anything else was a scroll. One that
+---   reached the newest row follows, the way the view's own scroll does, and
+---   one that did not turns Follow off for real, so the log never jumps away
+---   from somebody reading it.
+--- @return boolean # Whether the wait ended.
+--
+function Console:WatchHold()
+    local seq = self.HeldSeq
+    if seq == nil then return false end
+    local view = self.View
+    if view == nil or view.Follow then
+        self.HeldSeq = nil
+        return true
+    end
+    local top = integer(view.Top) or 1
+    local entry = view.Rows[top]
+    if entry ~= nil and entry.First and entry.Record.Seq == seq then return false end
+    local head = view:RowOfSeq(seq)
+    local found = head ~= nil and view.Rows[head].Record.Seq == seq
+    if not found or top >= View.Layout.Bottom(view:VisibleRows(), view:RowCount()) then
+        return self:ReleaseHold()
+    end
+    self.HeldSeq = nil
+    self:PressTool("Follow", false)
+    return true
 end
 
 --
@@ -659,8 +1647,8 @@ end
 ---   one it was built under.
 ---
 ---   The check is an identity comparison against forms.ActiveDesignTheme,
----   which Forms:ApplyTheme replaces with a fresh table on every application.
----   One table lookup per tick, not a palette copy.
+---   which the ApplyTheme of Manifold.Forms replaces with a fresh table on
+---   every application. One table lookup per tick, not a palette copy.
 --- @return boolean # Whether anything was re-coloured.
 --
 function Console:CheckTheme()
@@ -669,7 +1657,7 @@ function Console:CheckTheme()
     self.ThemeSource = source
     self.Theme:Restyle()
     if self.View then
-        -- Colors() picks up the new palette itself and drops the composited
+        -- The view picks up the new palette itself and drops the composited
         -- icons with it. This only makes sure a frame happens now.
         self.View:Redraw()
     end
@@ -697,6 +1685,13 @@ end
 ---   otherwise unrelated to what it was. An EXTEND walks only what arrived
 ---   since the last pass, plus whatever dropped off the front of the ring.
 ---   Extend is the common case, and it makes a refresh O(new), not O(buffer).
+---
+---   It paints at once rather than asking the frame timer. It runs on the
+---   refresh tick or after a command, never inside a mouse move.
+---
+---   A refresh that runs answers whatever the listener asked for, so it
+---   lowers both flags, and it lowers them before it reads the log. A record
+---   that arrives while it runs raises them again for the next tick.
 --- @param force boolean # Refresh even when paused. A filter change must show
 ---        immediately, or the controls look dead.
 --- @return nil
@@ -704,22 +1699,53 @@ end
 function Console:Refresh(force)
     if not self.Form then return end
     if self.Paused and not force then return end
+    self.PendingRefresh = false
+    self.PendingRedraw = false
     self:SyncChannels()
     local signature = self:FilterSignature()
     local full = self.NeedsFullRefresh or signature ~= self.Signature
     self.Signature = signature
     self.NeedsFullRefresh = false
 
+    local seen = tonumber(self.ShownSeq) or 0
     if full then self:RebuildShown() else self:ExtendShown() end
+    -- A record newer than any read before that the filter shows is an
+    -- arrival, and Follow never waits past one. A filter that shows more of
+    -- the old records is none.
+    local newest = self.Shown[#self.Shown]
+    if newest ~= nil and (tonumber(newest.Seq) or 0) > seen then self:ReleaseHold() end
 
     if self.View then
         self.View:Sync(self.Shown, full)
+        self:UpdateEmpty()
+        self:PlaceView()
         self.View:Redraw()
     elseif self.Memo then
         pcall(function() self.Memo.Lines.Text = Format.Export(self.Shown, "text") end)
     end
     self:UpdateStatus()
     self:UpdateDetail()
+end
+
+--
+--- ∑ Tells the view what to say when it has no rows. An empty buffer and a
+---   filter that hides everything are different situations and get
+---   different sentences.
+--- @return boolean # Whether the view's text changed.
+--
+function Console:UpdateEmpty()
+    local view = self.View
+    if view == nil or type(view.SetEmpty) ~= "function" or #self.Shown > 0 then return false end
+    local stats = self.Stats or {}
+    if (stats.Total or 0) == 0 then
+        return view:SetEmpty("No records yet",
+            "Any script logs here through ManifoldLogger:Channel('Name').")
+    end
+    local hidden = stats.Hidden or 0
+    local advice = self.Filter.Search ~= nil and "Esc empties the search."
+        or "Clear filters shows them again."
+    return view:SetEmpty("Nothing matches", string.format("%d record%s %s hidden by the filter. %s",
+        hidden, plural(hidden), hidden == 1 and "is" or "are", advice))
 end
 
 --
@@ -733,8 +1759,8 @@ function Console:RebuildShown()
     for index = #shown, 1, -1 do shown[index] = nil end
     local filter, searchLower = self.Filter, self.SearchLower
     local suppressed, total, highest = 0, 0, 0
-    -- ForEach rather than Records(): the latter allocates an array the size of
-    -- the buffer before the filter has looked at anything.
+    -- ForEach rather than Records, which allocates an array the size of the
+    -- buffer before the filter has looked at anything.
     self.Log:ForEach(function(record)
         total = total + 1
         if record.Seq > highest then highest = record.Seq end
@@ -796,7 +1822,8 @@ end
 --
 --- ∑ Rebuilds the channel dropdown only when the set of channels changed.
 ---   Rebuilding it every refresh would close it under the cursor and reset the
----   selection each time a record arrived.
+---   selection each time a record arrived. Setting ItemIndex fires nothing, so
+---   the filter is not touched by this.
 --- @return nil
 --
 function Console:SyncChannels()
@@ -809,7 +1836,7 @@ function Console:SyncChannels()
     pcall(function()
         local combo = self.ChannelCombo
         combo.Items.clear()
-        combo.Items.add("All channels")
+        combo.Items.add(ALL_CHANNELS)
         for _, name in ipairs(names) do combo.Items.add(name) end
         local index = 0
         for position, name in ipairs(names) do
@@ -819,18 +1846,176 @@ function Console:SyncChannels()
     end)
 end
 
-function Console:UpdateStatus()
+--------------------------------------------------------
+--                    The status line                 --
+--------------------------------------------------------
+
+--- The clock a flash is timed on, in seconds.
+function Console:Now()
+    local ticks = rawget(_G, "getTickCount")
+    if type(ticks) == "function" then
+        local ok, value = pcall(ticks)
+        if ok and tonumber(value) then return tonumber(value) / 1000 end
+    end
+    return os.clock()
+end
+
+--
+--- ∑ Holds one sentence on the status line for a couple of seconds.
+---
+---   It overrides the counts rather than sitting beside them, because the
+---   counts are always true and a message is only worth reading right after
+---   the thing it is about. The refresh tick lets it run out.
+--- @param message string|nil
+--- @return boolean
+--
+function Console:Flash(message)
+    if message == nil or message == "" then return false end
+    self.FlashText = tostring(message)
+    self.FlashUntil = self:Now() + Defaults.FlashSeconds
+    self:FitStatus()
+    return true
+end
+
+--
+--- ∑ The hint of the log row under the mouse, or nothing once the mouse left
+---   it. A flashed message still wins while it lasts.
+--- @param text string|nil
+--- @return string # What the left half says in full now.
+--
+function Console:ShowHover(text)
+    local wanted = nil
+    if type(text) == "string" and text ~= "" then wanted = text end
+    self.HoverText = wanted
+    return self:FitStatus()
+end
+
+--
+--- ∑ Which sentence the left half of the status line is for right now. A
+---   flashed message while it lasts, then the hovered row's hint, then the
+---   counts. A flash that ran out is let go here, so nothing else has to
+---   remember to.
+---
+---   PAUSED leads the counts, and it leads a flash or a hint just the same.
+---   Pausing lasts until somebody resumes, and a sentence that only lasts
+---   while the mouse rests somewhere must not hide it. The theme cuts a
+---   sentence at its end, so the marker in front survives the cut.
+--- @return string
+--
+function Console:StatusWanted()
+    local sentence = nil
+    if self.FlashText ~= nil then
+        if self:Now() < (self.FlashUntil or 0) then
+            sentence = self.FlashText
+        else
+            self.FlashText = nil
+        end
+    end
+    if sentence == nil then sentence = self.HoverText end
+    if sentence == nil then return self.StatusText or "" end
+    if self.Paused then return PAUSED_MARK .. STATUS_JOIN .. sentence end
+    return sentence
+end
+
+--
+--- ∑ Puts both halves of the status line on their labels, each cut to the
+---   room it has with the whole sentence in the label's hint.
+---
+---   The right half is fitted first, because it takes its width out of the
+---   bar and the left half is fitted into what is left. It gets what the left
+---   half's whole text leaves, and never less than half the bar, so a long
+---   sentence cannot push the counts out and short counts never cut a short
+---   sentence. A label that does not know its width yet shows the whole text,
+---   and the resize it gets once the window is laid out fits it.
+--- @return string # What the left half says in full.
+--
+function Console:FitStatus()
+    local theme = self.Theme
+    local canFit = theme ~= nil and type(theme.FitText) == "function"
+    local text = self:StatusWanted()
+    self.StatusLeft = text
+    local right = self.StatusRight or ""
+    local detail = self.StatusDetail
+    if detail ~= nil then
+        local room = self:StatusRightRoom(text)
+        local shown = self:RightPartsFor(room)
+        -- The whole right half goes into the hint when counters were left out.
+        local hint = shown ~= right and right or nil
+        if not (canFit and room > 0 and pcall(theme.FitText, theme, detail, shown, room, hint)) then
+            safeSet(detail, "Caption", right)
+        end
+    end
+
+    local label = self.StatusLabel
+    if label == nil then return text end
+    local width = integer(safeGet(label, "Width"))
+    if canFit and width ~= nil and width > 0
+        and pcall(theme.FitText, theme, label, text, width) then
+        return text
+    end
+    safeSet(label, "Caption", text)
+    safeSet(label, "Hint", "")
+    safeSet(label, "ShowHint", false)
+    return text
+end
+
+--
+--- ∑ How wide the right half of the status line may be. What the bar has
+---   inside the two labels' spacing and the gap between them, less what the
+---   left half's text needs, and never less than half the bar.
+--- @param left string # The left half's whole text.
+--- @return number # Pixels, or zero while the bar cannot say how wide it is.
+--
+function Console:StatusRightRoom(left)
+    local barWidth = integer(safeGet(self.StatusBar, "Width"))
+    if barWidth == nil or barWidth <= 0 then return 0 end
+    local labelLeft = sideSpacing(self.StatusLabel)
+    local _, detailRight = sideSpacing(self.StatusDetail)
+    local inner = barWidth - labelLeft - STATUS_GAP - detailRight
+    local half = math.floor(barWidth * STATUS_RIGHT_SHARE)
+    return math.max(half, inner - self:TextWidth(left))
+end
+
+--
+--- ∑ As many whole counters of the right half as fit a width, in their order,
+---   with dots behind them when some were left out. A counter cut in half
+---   says nothing, so the theme only cuts when not even the first one fits.
+--- @param room number # Pixels.
+--- @return string
+--
+function Console:RightPartsFor(room)
+    local parts = self.StatusRightParts or {}
+    local whole = table.concat(parts, STATUS_SEPARATOR)
+    if room <= 0 or self:TextWidth(whole) <= room then return whole end
+    for count = #parts - 1, 1, -1 do
+        local candidate = table.concat(parts, STATUS_SEPARATOR, 1, count) .. STATUS_SEPARATOR .. "..."
+        if self:TextWidth(candidate) <= room then return candidate end
+    end
+    return whole
+end
+
+--
+--- ∑ The counts on both ends of the status line. PAUSED leads the left half,
+---   so a cut never hides it.
+--- @return string, string, table # The left half, the right half and the
+---         counters the right half is made of.
+--
+function Console:StatusCounts()
     local stats = self.Stats or { Shown = 0, Total = 0, Hidden = 0 }
     local session = self.Log:GetStats()
-    local parts = { string.format("%d of %d shown", stats.Shown, stats.Total) }
-    if stats.Hidden > 0 then parts[#parts + 1] = string.format("%d hidden by filter", stats.Hidden) end
-    if session.Dropped > 0 then parts[#parts + 1] = string.format("%d dropped (flood)", session.Dropped) end
-    if self.Paused then parts[#parts + 1] = "PAUSED" end
+    local parts = {}
+    if self.Paused then parts[#parts + 1] = PAUSED_MARK end
+    parts[#parts + 1] = string.format("%d of %d shown", stats.Shown or 0, stats.Total or 0)
+    if (stats.Hidden or 0) > 0 then
+        parts[#parts + 1] = string.format("%d hidden by filter", stats.Hidden)
+    end
+    if (session.Dropped or 0) > 0 then
+        parts[#parts + 1] = string.format("%d dropped (flood)", session.Dropped)
+    end
     if self.SurfaceReason then parts[#parts + 1] = "no canvas: " .. self.SurfaceReason end
-    safeSet(self.StatusLabel, "Caption", table.concat(parts, "  -  "))
 
-    -- The right-hand side carries the counters worth seeing at a glance, plus
-    -- the state of the log file.
+    -- The right half carries the counters worth seeing at a glance, plus the
+    -- state of the log file.
     local counters = {}
     for _, level in ipairs({ "CRITICAL", "ERROR", "WARNING" }) do
         local count = session.ByLevel[level] or 0
@@ -846,43 +2031,154 @@ function Console:UpdateStatus()
             counters[#counters + 1] = "file " .. Format.Bytes(writer.Bytes)
         end
     end
-    safeSet(self.StatusDetail, "Caption", table.concat(counters, "  |  "))
+    return table.concat(parts, STATUS_JOIN), table.concat(counters, STATUS_SEPARATOR), counters
+end
+
+--
+--- ∑ Writes the status line. The counts are always worked out and the right
+---   half always shows its own. The left half shows them only when neither a
+---   flashed message nor a hovered row's hint is holding it, and PAUSED
+---   whatever holds it.
+--- @return string, string # What the left half says in full, and the right half.
+--
+function Console:UpdateStatus()
+    local left, right, counters = self:StatusCounts()
+    self.StatusText = left
+    self.StatusRight = right
+    self.StatusRightParts = counters
+    return self:FitStatus(), right
 end
 
 --------------------------------------------------------
 --                       Actions                      --
 --------------------------------------------------------
 
+--- Shows a toggle button's state without clicking it.
+function Console:PressTool(key, value)
+    local parts = self.Buttons and self.Buttons[key]
+    if parts == nil or type(parts.Press) ~= "function" then return false end
+    return (pcall(parts.Press, value == true))
+end
+
 function Console:SetPaused(value)
     self.Paused = value == true
+    self:PressTool("Pause", self.Paused)
     if not self.Paused then self:Refresh(true) end
     self:UpdateStatus()
 end
 
-function Console:SetDetailVisible(value)
-    self.DetailVisible = value == true
-    safeSet(self.DetailCard, "Visible", self.DetailVisible)
-    safeSet(self.DetailSplitter, "Visible", self.DetailVisible)
-    -- Forced, because the pane was empty while hidden. An unchanged selection
-    -- is no reason to leave it empty.
-    if self.DetailVisible then self:UpdateDetail(true) end
+--- Turns tail following on or off. The view tells the button back. Either
+--- way a wait KeepInView started is over, because somebody decided.
+function Console:SetFollow(value)
+    self.HeldSeq = nil
+    if self.View then
+        self.View:SetFollow(value == true)
+        self:PressTool("Follow", self.View.Follow)
+    else
+        self:PressTool("Follow", false)
+    end
 end
 
 --
---- ∑ Renders the focused record in full. The line, every field, the traceback
----   if there is one, and the JSON form for pasting into an issue.
---- @param force boolean|nil # Render even when the selection has not moved.
+--- ∑ Turns wrapping on or off. The toolbar and the menu both reach this, so
+---   it keeps the other one in step.
+--- @param value boolean
+--- @return boolean # Wrapping as it is now.
+--
+function Console:SetWrap(value)
+    value = value == true
+    if self.View then self.View:SetWrap(value) else value = false end
+    self:PressTool("Wrap", value)
+    if self.Menu and type(self.Menu.Check) == "function" then
+        pcall(self.Menu.Check, "opt_wrap", value)
+    end
+    return value
+end
+
+--
+--- ∑ Shows or hides the detail card.
+---
+---   A card shown after the window changed size is fitted first and moved to
+---   the top edge with its splitter, see StackDetail, and it is shown before
+---   the splitter. A splitter shown first would be placed right above the
+---   status line and the card would then sort under it.
+---
+---   Showing or hiding the card changes the log's height, so the selected
+---   record is noted first and the next paint keeps it on screen, see
+---   KeepInView.
+--- @param value boolean
+--- @return nil
+--
+function Console:SetDetailVisible(value)
+    value = value == true
+    if value ~= (self.DetailVisible == true) then self:NoteSelection() end
+    self.DetailVisible = value
+    if value then
+        self:FitDetail()
+        self:StackDetail()
+        safeSet(self.DetailCard, "Visible", true)
+        safeSet(self.DetailSplitter, "Visible", true)
+    else
+        safeSet(self.DetailSplitter, "Visible", false)
+        safeSet(self.DetailCard, "Visible", false)
+    end
+    self:PressTool("Detail", value)
+    -- Forced, because the card was empty while hidden. An unchanged selection
+    -- is no reason to leave it empty.
+    if value then self:UpdateDetail(true) end
+end
+
+--
+--- ∑ What the detail card's counter says about a record. Its level tag, its
+---   channel, its time and its marks, so the record is known before the memo
+---   is read.
+--- @param record table|nil
+--- @return string
+--
+function Console:DetailSummary(record)
+    if record == nil then return "nothing selected" end
+    local meta = Core.Meta[record.Level]
+    local parts = {
+        ((meta and meta.Tag) or tostring(record.Level or "")):gsub("%s+$", ""),
+        tostring(record.Channel or ""),
+        Format.Prepare(record).Stamp
+    }
+    if (record.Repeats or 1) > 1 then parts[#parts + 1] = "x" .. record.Repeats end
+    if record.Dropped then parts[#parts + 1] = "+" .. record.Dropped .. " dropped" end
+    return table.concat(parts, "  ")
+end
+
+--- Writes the detail card's counter, fitted when the card can fit it.
+function Console:SetDetailSummary(text)
+    self.DetailSummaryText = text
+    if type(self.SetDetailCounter) == "function" and pcall(self.SetDetailCounter, text) then
+        return true
+    end
+    return safeSet(self.DetailCounter, "Caption", text)
+end
+
+--
+--- ∑ Renders the selected record in full. The line, every field, the
+---   traceback if there is one, and the JSON form for pasting into an issue.
+---
+---   The selected record and not the one under the mouse, so the card stays
+---   put while the mouse moves over rows that scroll past.
+--- @param force boolean|nil # Render even when nothing moved.
 --- @return nil
 --
 function Console:UpdateDetail(force)
     if not self.DetailVisible or not self.DetailMemo then return end
-    local record = self.View and self.View:FocusedRecord() or nil
+    local record = self.View and self.View:SelectedRecord() or nil
     -- Assigning TStrings.Text replaces the whole content and repaints the
     -- memo. Doing that every refresh would re-render a record nobody
-    -- reselected.
+    -- reselected. A repeat or a drop changes what the card says about the
+    -- same record, so both are part of the key.
     local seq = record and record.Seq or 0
-    if not force and seq == self.DetailSeq then return end
-    self.DetailSeq = seq
+    local key = record and string.format("%d:%d:%s", seq, record.Repeats or 1,
+        tostring(record.Dropped)) or "0"
+    if not force and key == self.DetailKey then return end
+    self.DetailSeq, self.DetailKey = seq, key
+    self:SetDetailSummary(self:DetailSummary(record))
     if not record then
         pcall(function() self.DetailMemo.Lines.Text = "Select a record." end)
         return
@@ -919,7 +2215,7 @@ function Console:CopySelection(mode)
     local records = self.View:SelectedRecords(true)
     if #records == 0 then return end
     clipboard(Format.Export(records, mode or "text"))
-    self:Flash(string.format("%d record%s copied", #records, #records == 1 and "" or "s"))
+    self:Flash(string.format("%d record%s copied", #records, plural(#records)))
 end
 
 function Console:TogglePin()
@@ -949,15 +2245,81 @@ function Console:FilterToChannel()
     self:Refresh(true)
 end
 
+--- The index of a level choice, or of All when no choice has that rank.
+function Console:LevelIndex(rank)
+    for index, choice in ipairs(Console.LevelChoices) do
+        if choice.Rank == rank then return index - 1 end
+    end
+    return 0
+end
+
+--- The level box moved. The field row hands over the new ItemIndex.
+function Console:LevelChanged(index)
+    local choice = Console.LevelChoices[(tonumber(index) or 0) + 1]
+    self.Filter.MinRank = choice and choice.Rank or 0
+    self:Refresh(true)
+end
+
+--- The channel box moved. Zero is every channel.
+function Console:ChannelChanged(index)
+    index = tonumber(index) or 0
+    self.Filter.Channel = index > 0 and self.ChannelList[index] or nil
+    self:Refresh(true)
+end
+
+--
+--- ∑ The search text changed, by typing or by the console itself.
+---
+---   The filter is only flagged and the tick coalesces it. A search change
+---   arrives per keystroke, and the refresh timer exists to stop each one
+---   re-filtering the whole buffer. Paused, no tick refreshes, so the refresh
+---   happens here instead.
+--- @param text string|nil
+--- @return nil
+--
+function Console:SearchChanged(text)
+    text = type(text) == "string" and text or ""
+    self.Filter.Search = (text ~= "" and text) or nil
+    self.SearchLower = self.Filter.Search and self.Filter.Search:lower() or nil
+    if self.View then self.View:SetSearch(text) end
+    self.NeedsFullRefresh = true
+    self.PendingRefresh = true
+    if self.Paused then self:Refresh(true) end
+end
+
+--
+--- ∑ Empties the search field and the search filter. Writing the field fires
+---   its change handler in Cheat Engine, which is kept quiet here so the
+---   search is dropped exactly once.
+--- @return nil
+--
+function Console:ClearSearch()
+    self.Quiet = true
+    if self.SearchParts and type(self.SearchParts.Set) == "function" then
+        pcall(self.SearchParts.Set, "")
+    else
+        safeSet(self.SearchEdit, "Text", "")
+    end
+    self.Quiet = false
+    self:SearchChanged("")
+end
+
 function Console:ClearFilters()
     self.Filter.MinRank = 0
     self.Filter.Channel = nil
-    self.Filter.Search = nil
-    self.SearchLower = nil
-    safeSet(self.LevelCombo, "ItemIndex", 0)
-    safeSet(self.ChannelCombo, "ItemIndex", 0)
-    pcall(function() self.SearchEdit.Text = "" end)
-    if self.View then self.View:SetSearch(nil) end
+    -- Setting a combo box's ItemIndex fires nothing, so the refresh below is
+    -- what applies the two.
+    if self.LevelParts and type(self.LevelParts.Set) == "function" then
+        pcall(self.LevelParts.Set, 0)
+    else
+        safeSet(self.LevelCombo, "ItemIndex", 0)
+    end
+    if self.ChannelParts and type(self.ChannelParts.Set) == "function" then
+        pcall(self.ChannelParts.Set, 0)
+    else
+        safeSet(self.ChannelCombo, "ItemIndex", 0)
+    end
+    self:ClearSearch()
     self:Refresh(true)
 end
 
@@ -1007,9 +2369,9 @@ end
 --------------------------------------------------------
 
 --
---- ∑ Writes what is shown to a file. The format follows the extension the user
----   typed, so naming the file also picks between text, JSON lines, CSV and
----   Markdown.
+--- ∑ Writes the selection, or what is shown, to a file. The format follows the
+---   extension the user typed, so naming the file also picks between text,
+---   JSON lines, CSV and Markdown.
 --- @return nil
 --
 function Console:Export()
@@ -1032,12 +2394,12 @@ function Console:Export()
     end
     local handle, err = io.open(path, "wb")
     if not handle then
-        self:Flash("Could not write: " .. tostring(err))
+        self:Flash("Could not write " .. tostring(err))
         return
     end
     handle:write(Format.Export(records, mode))
     handle:close()
-    self:Flash(string.format("%d records written as %s", #records, mode))
+    self:Flash(string.format("%d record%s written as %s", #records, plural(#records), mode))
 end
 
 --
@@ -1067,7 +2429,7 @@ function Console:AskSavePath(suggestion)
         end
     end
     local fallback = (directory and (directory .. "/") or "") .. suggestion
-    return self.Theme:AskText("Export log", "Write to:", fallback)
+    return self.Theme:AskText("Export log", "Write to", fallback)
 end
 
 --------------------------------------------------------
@@ -1106,6 +2468,10 @@ function Console:ReportStats()
         rows[#rows + 1] = { "File size", Format.Bytes(writer.Bytes) }
         if writer.Reason then rows[#rows + 1] = { "File error", writer.Reason } end
     end
+    rows[#rows + 1] = ""
+    rows[#rows + 1] = { "Window", string.format("least %dx%d", self:MinimumWidth(), self:MinimumHeight()) }
+    rows[#rows + 1] = { "Frame timer", self.FrameTimer == nil and "none"
+        or (self.FrameStopped and "stopped" or "running") }
     self.Log:ForceInfo(Format.Block("Session report", rows), nil)
     self:Refresh(true)
 end
@@ -1165,20 +2531,10 @@ function Console:About()
         writer and { "Log file", writer.Path or "(none)" } or false,
         "",
         "A side-loadable log console. Any script can take a channel with",
-        "ManifoldLogger:Channel('Name') and log into it; the window is optional."
+        "ManifoldLogger:Channel('Name') and log into it. The window is optional."
     }
     self.Log:ForceInfo(Format.Block(Version.Full(), rows), nil)
     self:Refresh(true)
-end
-
---
---- ∑ A short-lived message on the status line. The next refresh overwrites it,
----   which is the lifetime a confirmation wants.
---- @param message string
---- @return nil
---
-function Console:Flash(message)
-    safeSet(self.StatusLabel, "Caption", tostring(message))
 end
 
 --------------------------------------------------------
@@ -1187,9 +2543,9 @@ end
 
 --
 --- ∑ Drops every reference to the window.
---- @param orphaned boolean|nil # The form is already gone. The refresh timer
----        is created with the form as its OWNER, so the form's destructor has
----        already freed it. Disabling or destroying it here would be a
+--- @param orphaned boolean|nil # The form is already gone. Both timers are
+---        created with the form as their OWNER, so the form's destructor has
+---        already freed them. Disabling or destroying one here would be a
 ---        use-after-free.
 --- @return nil
 --
@@ -1198,24 +2554,39 @@ function Console:Release(orphaned)
         self.Log:RemoveListener(self.Listener)
         self.Listener = nil
     end
-    if self.Timer then
-        if not orphaned then
-            pcall(function() self.Timer.Enabled = false end)
-            pcall(function() self.Timer.destroy() end)
+    for _, name in ipairs({ "Timer", "FrameTimer" }) do
+        local timer = self[name]
+        if timer ~= nil then
+            if not orphaned then
+                pcall(function() timer.Enabled = false end)
+                pcall(function() timer.destroy() end)
+            end
+            self[name] = nil
         end
-        self.Timer = nil
     end
     if self.View then self.View:Destroy() end
     -- The theme must not keep closures pointing at controls that are going
     -- away with the window.
-    if self.Theme then self.Theme:Forget() end
+    if self.Theme then pcall(self.Theme.Forget, self.Theme) end
     self.ThemeSource = false
     self.View, self.Memo, self.Form = nil, nil, nil
-    self.Menu, self.DetailMemo, self.MenuButton = nil, nil, nil
-    self.StatusLabel, self.StatusDetail = nil, nil
-    self.DetailCard, self.DetailSplitter = nil, nil
-    self.LevelCombo, self.ChannelCombo, self.SearchEdit = nil, nil, nil
-    self.SetPausedButton, self.SetFollowButton, self.SetDetailButton = nil, nil, nil
+    self.Menu, self.DetailMemo, self.MenuButton, self.ClearButton = nil, nil, nil, nil
+    self.StatusLabel, self.StatusDetail, self.StatusBar = nil, nil, nil
+    self.ToolBar, self.FilterBar, self.ViewCard = nil, nil, nil
+    self.DetailCard, self.DetailContent, self.DetailSplitter = nil, nil, nil
+    self.DetailCounter, self.SetDetailCounter = nil, nil
+    self.LevelRow, self.LevelCombo, self.LevelParts = nil, nil, nil
+    self.ChannelRow, self.ChannelCombo, self.ChannelParts = nil, nil, nil
+    self.SearchRow, self.SearchEdit, self.SearchParts = nil, nil, nil
+    self.Buttons = {}
+    self.ToolBarNeed, self.FilterBarNeed = 0, 0
+    self.DetailFitted, self.Fitting = nil, false
+    self.DetailVisible = false
+    self.KeepSeq, self.HeldSeq = nil, nil
+    self.SearchFocused, self.Quiet = false, false
+    self.FlashText, self.FlashUntil, self.HoverText = nil, 0, nil
+    self.StatusText, self.StatusRight, self.StatusLeft = "", "", nil
+    self.StatusRightParts = nil
     -- Everything below belongs to the generation that just went away. A
     -- surviving ChannelSignature is the subtle one. It would tell SyncChannels
     -- there is nothing to add to a dropdown holding only "All channels".
@@ -1224,15 +2595,17 @@ function Console:Release(orphaned)
     self.ChannelList = {}
     self.Shown = {}
     self.ShownSeq = 0
-    self.DetailSeq = nil
+    self.DetailSeq, self.DetailKey = nil, nil
     self.NeedsFullRefresh = true
     self.PendingRefresh = true
     self.TickFailures = 0
+    self.FrameFailures, self.FrameStopped = 0, false
 end
 
 --
 --- ∑ Frees the window for good. The host calls this on a full reload, so no
----   form survives pointing at a dead generation of the module.
+---   form survives pointing at a dead generation of the module. Both timers
+---   are stopped before the form goes.
 --- @return nil
 --
 function Console:Destroy()
