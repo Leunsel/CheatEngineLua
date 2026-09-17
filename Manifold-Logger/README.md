@@ -12,10 +12,10 @@ This replaces all of that, and it does it without asking anybody to depend on it
 ## Highlights
 
 **The log view is drawn on a canvas**, not delegated to a memo or a list view. That is what buys
-the 16x16 level icon in the gutter, the level's own colour on the tag and the message, zebra
-striping, an in-place search highlight, a repeat badge, a pin marker and a scrollbar in the
-theme's colours rather than the system's. It is virtual, so five thousand records scroll exactly
-as fast as fifty.
+the 16x16 level icon in the gutter, the level's own colour on the tag, and on the message of a
+success, a warning or anything worse, zebra striping, an in-place search highlight, a repeat
+badge, a pin marker and a scrollbar in the theme's colours rather than the system's. It is
+virtual, so five thousand records scroll exactly as fast as fifty.
 
 **Channels, not prefixes.** Any script takes a channel of its own and logs into it. The console
 filters by producer without anybody having to agree on a message prefix first.
@@ -70,6 +70,11 @@ To find it, run this in the Cheat Engine Lua console:
 return getAutorunPath()
 ```
 
+When updating, replace `Manifold-Logger.lua` **and the whole** `Manifold-Logger-Modules` folder
+together. Then restart Cheat Engine, or run `ManifoldLogger:Shutdown()` and execute
+`Manifold-Logger.lua` again. A console that meets the theme of another release may not build its
+window. In that case the window stays closed, and a record on `Logger/Internal` says why.
+
 The layout in the autorun folder has to be:
 
 ```
@@ -106,19 +111,63 @@ ManifoldLogger:Configure({ InstallMenu = false })
 
 ## The window
 
+From top to bottom, the window has:
+
+- a toolbar with seven icon buttons in three groups, the search field and the menu button
+- a filter row with the level box, the channel box and a button that clears all filters
+- the log
+- the detail card, when it is open, under a splitter
+- the status line
+
+The window opens at 980 by 620. Its smallest size is worked out from its parts. The width is what
+the toolbar or the filter row needs, whichever is wider, so the search field always has room to
+show its placeholder in full. The height holds the two bars, the status line, four log rows and
+three lines of the detail card, so opening the card never squeezes the log. With Consolas on a
+96 dpi display, that comes to 484 by 351.
+
+The toolbar buttons have no captions. Hover over a button and its tooltip gives its name and, if it
+has one, its shortcut. Pause, Follow, Wrap and Detail are toggles, and a filled button is on.
+
 | Control | Effect |
 |---|---|
-| Pause | Stops repainting. Records keep arriving and appear on resume |
-| Follow | Keeps the newest record in view. Scrolling up turns it off, reaching the end turns it back on |
-| Wrap | Wraps long lines instead of cutting them |
-| Copy | Copies the selection, or everything shown when nothing is selected |
-| Export | Writes what is shown to a file. The extension picks the format |
+| Pause | Holds new records out of the view. They are still recorded, and they appear on resume or with any command that reads the log again, such as F5, a filter change, pinning or Clear (Ctrl+P) |
+| Follow | Keeps the newest record in view. Scrolling up turns it off, reaching the end turns it back on (End) |
+| Wrap | Wraps long lines instead of cutting them. The menu's Wrap Long Lines is the same switch and stays in step |
+| Copy | Copies the selection, or everything shown when nothing is selected (Ctrl+C) |
+| Export | Writes the selection, or everything shown, to a file. The extension picks the format |
 | Clear | Empties the buffer. The counters and the log file are untouched |
-| Detail | Shows the focused record in full, fields, traceback and JSON |
+| Detail | Opens or closes the detail card for the selected record |
+| Search | Filters and highlights, plain text, any case (Ctrl+F) |
 | Menu | Everything else. Right-click anywhere in the log for the same menu |
 | Level | Hides everything below a level. The records are kept either way |
 | Channel | One producer only. Sub-channels of the choice are included |
-| Search | Filters and highlights, plain text, case-insensitive |
+| Clear filters | Resets the level, the channel and the search, so everything shows again |
+
+**The detail card** shows the selected record in full: its fields, its traceback and its JSON
+form. It follows the selection, not the mouse, so it stays put while records scroll past under the
+pointer. With several records selected, it shows the one you clicked last, Shift and Ctrl clicks
+included, as long as that one is still selected, and otherwise the first selected record. Its title
+strip identifies the record at a glance with the level tag, the channel, the time and the repeat
+count. When the record repeats, the count and the card catch up within a moment. While the log is
+paused they catch up on resume, or on any command that reads the log again. Drag the splitter to resize the card. The log always keeps room for at least
+four rows.
+
+**The status line** shows the counts on the left. After an action, a message such as
+`3 records copied` replaces the counts for two and a half seconds. Hovering over a row puts its
+full text on the left side if the row was cut short, or explains its badge or pin. While the log is
+paused, `PAUSED` leads the left side, in front of the counts, a message or a row's text alike. The
+right side counts the critical, error and warning records and shows the size of the log file, or
+`file off` when file logging stopped. Those counts cover the whole session, so Clear leaves them as
+they are. If a side has to be shortened to fit, its tooltip holds the full text.
+
+**Selected and hovered rows** get lighter or darker text if their normal colour would be hard to
+read on the row's highlight, so an error on the selection stays readable. A search hit is a band in
+the accent tone behind the matched text. Only the message column gets bands, so a record the search
+found by its channel shows none. Inside a band the text is recoloured until it reads on the band, so
+a level colour can turn white or black there.
+
+**An empty log** says why it is empty: the buffer holds nothing, because nothing has been logged
+yet or Clear emptied it, or the filter hides every record.
 
 | Key | Effect |
 |---|---|
@@ -132,8 +181,17 @@ ManifoldLogger:Configure({ InstallMenu = false })
 | Ctrl+P / Pause | Pause and resume |
 | Ctrl + / Ctrl - | Larger and smaller text |
 | F5 | Refresh |
-| Esc | Clear the selection, or empty the search box while it has focus |
-| Double-click | Open the detail pane on that record |
+| F1 | About |
+| Esc | Empty the search, then clear the selection, then hide the window |
+| Double-click | Open the detail card on that record |
+
+Ctrl+F and Esc also work while you type in the search box. The other keys go to the box while it
+has focus, so Ctrl+A there selects the text you typed.
+
+When there is no search text and nothing is selected, Esc hides the window. Nothing else stops: the
+log, the buffer and the log file carry on, and the window comes back as you left it. The one
+exception is an empty search box with the keyboard focus, where Esc stays with the box and the
+window stays open.
 
 ## Logging into it
 
@@ -251,9 +309,12 @@ every line for the rest of the session.
 
 The window carries its own copy of the Manifold design language, so it follows the Cheat Table's
 active theme when a `Manifold.Forms` instance is loaded and falls back to the bundled Bearded-Arc
-palette when it is not. The per-level hues are sampled from the icon artwork and then
-contrast-corrected against whatever background the active palette actually uses, so every level
-stays readable under a theme the Logger has never seen.
+palette when it is not. The per-level hues are sampled from the icon artwork. A hue that does not
+reach a 4.5 to 1 contrast ratio on the active palette's plain and striped rows is made lighter or
+darker until it does, keeping its hue, so every level stays readable under a theme the Logger has
+never seen. On a mid grey background from `#707070` to `#747474`, no colour at all reaches 4.5 to
+1 on both rows. There a level takes the lightness that comes closest, which reads at 4.37 to 1 or
+better.
 
 **It follows a theme change while the window is open**, chrome included. That matters because this
 window is meant to stay open while a table is being worked on, which is exactly when its theme gets
@@ -267,8 +328,8 @@ moving, not the window from being the right colour.
 
 One colour is corrected rather than adopted: the framework's muted colour is its address-list
 group-header colour, picked to read against Cheat Engine's list rather than against this console's
-panel, so it is pushed away from the background until it is legible - the same treatment the
-per-level hues get.
+panel, so it gets the same treatment as the per-level hues. It has to reach 4.5 to 1 on the log,
+its stripe, the panels and the window background.
 
 ## Degrading
 
@@ -279,9 +340,76 @@ Nothing here is required for the rest to work.
 | The icon set | Rows draw a filled square in the level's colour instead of the glyph |
 | `createPaintBox` | The view falls back to `createImage`, which is equally double-buffered |
 | Both of them | The window falls back to a themed memo. No colour, no icons, still a log |
-| A writable `%LOCALAPPDATA%` | File logging disables itself and says why in the status bar |
-| `getMousePos` or a `PopUp` binding | The Menu button says so once; right-click still opens the menu |
+| A writable `%LOCALAPPDATA%` | File logging disables itself. The status line says `file off`, and the Diagnostics menu's Session Report says why |
+| `getMousePos` | The Menu button opens the menu near the window's top left corner instead of at the pointer |
+| A `PopUp` binding | The Menu button says so on the status line and in the log. Right-click still opens the menu |
+| The combo box draw event, `OnDrawItem` | The level and channel boxes stay native drop-down lists, which do not take the theme colours |
+| `createTimer` | No live refresh. F5, and any command that reads the log again, repaint the view |
 | The window, entirely | Logging keeps working. The console is optional by design |
+
+## Changelog
+
+### 1.1.0
+
+- The window now uses the Address List's layout:
+  - The toolbar has icon-only buttons, with the search field in a framed box beside them.
+  - The level and channel boxes in the filter row are drawn in the theme's input colours.
+  - A new button at the end of the filter row clears all filters.
+  - The status line shortens both of its halves to fit.
+- **ERROR rows get a new red.** Level colours are now corrected by their real contrast ratio.
+  Each one has to reach 4.5 to 1 on both the plain and the striped rows. The icon's own red,
+  `#d70b31`, reaches only 3.89 to 1 on the bundled background and 3.58 on its stripe, so it is
+  lightened. Only the lightness changes, so it stays red.
+- 1.0.0 corrected it by a distance in brightness instead. It mixed in white until the red stood
+  70 apart from the background, and it measured that brightness with the red weight on the blue
+  byte, so a soft red read as darker than it is. That weight is fixed too. With the right weight
+  the icon's red already stands more than 70 apart, so the old rule alone would now leave it as it
+  is.
+- ERROR was `#de3756` in 1.0.0, and `#e45b74` under Dark-Cotton-Candy. It is now:
+  - `#eb2e42` under the bundled palette and Bearded-Arc
+  - `#ef3244` under Dark-Aqua
+  - `#f43948` under Dark-Cotton-Candy
+  - `#eb2d41` under Dark-Dark-Hell
+  - `#ef3345` under Dark-Forest
+  - `#e92b3f` under Dark-Hacker
+  - `#ef3344` under Dark-Purple
+- Under every palette but Dark-Cotton-Candy, ERROR is lighter than it was. `#de3756` fell short of
+  4.5 to 1 on the stripe there.
+- **Under Dark-Cotton-Candy, ERROR is darker than it was, and has less contrast.** The old rule
+  took two steps of white there instead of one, which went further than reading needs.
+  `#e45b74` read at 5.46 to 1 on the plain row. The new rule stops at the nearest lightness that
+  reads, so `#f43948` reads at 4.99 to 1 on the plain row and 4.50 on the stripe.
+- The other levels already reach 4.5 to 1 and keep their icon colours.
+- Muted text, such as timestamps, channel names and the status line, is corrected the same way. It
+  has to reach 4.5 to 1 on the log, its stripe, the panels and the window background. That makes
+  it lighter under Dark-Aqua and Dark-Dark-Hell.
+- Selected and hovered rows adjust any text colour that would be hard to read on them.
+- Search hits stay visible behind the matched text, and the matched text takes a colour that reads
+  on the highlight. Before, the text drew over its own highlight.
+- A row with a repeat badge ends in dots before the badge, instead of losing its end under it.
+- An empty log says whether the buffer is empty or the filter hides everything.
+- The scrollbar only takes space when the log actually scrolls.
+- Hovering over a row that was cut short, or that has a badge or a pin, explains it on the status line.
+- A message on the status line stays for two and a half seconds, even while records arrive.
+- The detail card follows the selection instead of the row under the mouse, and shows the record
+  you clicked last. Its title strip names the record, and a repeat of that record reaches the
+  card.
+- A detail card opened after the window was made smaller stays above the status line.
+- Esc empties the search, then clears the selection, then hides the window.
+- Wrap on the toolbar and Wrap Long Lines in the menu now stay in step.
+- Painting happens on a 15 ms frame timer. A mouse move or a click only asks for a new frame.
+- The smallest window size is worked out from the controls instead of being fixed at 520 by 320.
+  It counts the height the log and the detail card need as well as the width of the bars.
+- Layout fixes:
+  - The filter row now sits under the toolbar instead of above it.
+  - The toolbar reads left to right.
+  - Buttons no longer overlap in a narrow window.
+- If the window cannot be built, the Logger removes the parts it made and writes a record to
+  `Logger/Internal`. It no longer leaves a half-built window behind.
+
+### 1.0.0
+
+- First release.
 
 ## License
 
