@@ -35,7 +35,7 @@
 
     A child's "+offset" address is relative to its parent's resolved address.
     That is how Cheat Engine's own relative addresses work, and it is why the
-    root can be given "+0" and dropped under any pointer record later.
+    root can be given "+0" and dropped under any pointer record later...
 ]]
 
 local Structures = {}
