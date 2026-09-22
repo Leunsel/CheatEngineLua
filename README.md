@@ -1,4 +1,4 @@
-# Cheat Engine Lua Modules
+# Cheat Engine Lua Modules (Manifold-CE)
 
 This repository is a collection of Lua modules for Cheat Engine that make building and
 maintaining Cheat Tables faster. They cover automating repetitive work, managing memory records,
