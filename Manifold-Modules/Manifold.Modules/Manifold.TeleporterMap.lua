@@ -1,9 +1,33 @@
 local NAME = "Manifold.TeleporterMap.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.3.4"
+local VERSION = "1.3.5"
 local DESCRIPTION = "Manifold Framework Teleporter Map"
 
 --[[
+    ∂ v1.3.5 (2026-09-29)
+        Names stay where the reader found them. Every frame
+        placed every name from scratch, so dragging or zooming
+        made them hop from one side of their mark to the other
+        and blink in and out, which read as a glitch rather than
+        as a map. A name now remembers the spot it took, is tried
+        there first with a pixel of slack, and is measured only
+        against the marks and the boxes already placed. Whatever
+        stood on the canvas last frame, name, area caption or pile
+        count, is placed again before anything new competes for
+        the room.
+
+        The two grids behind all of it, the one the placer avoids
+        on and the one the piles are found on, are anchored to the
+        world origin rather than to the window. Dragging the map
+        then shifts every cell by the same whole number, where
+        before a cell filled up and emptied again as the map slid
+        under it and moved the names around it each time. A pile
+        is counted from every save within a screen of the canvas,
+        so its number no longer changes while its edge crosses the
+        border, and its badge is anchored inside the canvas.
+
+        This is the fix the map on the website already carries.
+
     ∂ v1.3.4 (2026-09-15)
         The map keeps up with the mouse at a hundred saves and
         more. A mouse move painted the whole map inside the event,
@@ -200,9 +224,24 @@ local CHROME_INSET     = 12
 --
 local CELL             = 48
 local CELL_LIMIT       = 24
+--- How much a box that is already standing somewhere may overlap before it
+--- has to move. A fresh box needs a clear place. One the reader has already
+--- found keeps its own through a pixel of rounding, which is most of what
+--- made names hop from side to side while the map was dragged.
+local STICKY_SLACK     = 2
+--- How far past the canvas a save still counts towards a pile. A pile is a
+--- fact about the saves. Counted from the visible ones alone, its number and
+--- its badge changed every time the edge of the map slid across it, and the
+--- badge shoved the names around it while it moved.
+local PILE_MARGIN      = 160
 --- A bucket with this many discs in it is a pile whatever the exact
 --- distances are, and is joined without measuring them.
 local CLUSTER_DENSE    = 6
+--- How many discs of one bucket a neighbour is measured against. Every disc
+--- of an ordinary bucket is measured, which is what keeps a pile the same
+--- pile from frame to frame, and a bucket deeper than this is a heap by
+--- itself and is already joined wholesale.
+local CLUSTER_TESTED   = 32
 --- Below three, a heap is something the eye can count on its own.
 local CLUSTER_MIN      = 3
 --- What it costs the hover card to cover one disc of the very heap the
@@ -315,6 +354,10 @@ function TeleporterMap:New(config)
     instance.Camera = { X = 0, Y = 0, Scale = tonumber(instance.View.Zoom) or 1, Fitted = instance.View.Zoom ~= nil }
     instance.Markers = {}
     instance.Trail = {}
+    -- Where each name, area caption and pile count sat last frame, so the
+    -- next one can give them the same place back.
+    instance.LabelSpots, instance.CaptionSpots, instance.BadgeSpots = {}, {}, {}
+    instance.PlacedLast = { Names = {}, Captions = {}, Piles = {} }
     return BOOTSTRAP.Ready(MODULE, instance)
 end
 registerLuaFunctionHighlight('New')
@@ -1354,6 +1397,10 @@ function TeleporterMap:RebuildMarkers()
         return a.Key < b.Key
     end)
     self.Markers = markers
+    -- Another plane, another area or another set of saves is another picture,
+    -- and yesterday's places belong to the old one.
+    self.LabelSpots, self.CaptionSpots, self.BadgeSpots = {}, {}, {}
+    self.PlacedLast = { Names = {}, Captions = {}, Piles = {} }
     self:_ScaleMarkers(markers)
     self.MarkerSource = teleporter.Saves
     self.MarkerCount = teleporter:CountSaves()
@@ -3374,20 +3421,28 @@ local function occupancyKey(cx, cy)
     return (cx + 4096) * 8192 + (cy + 4096)
 end
 
-local function newOccupancy()
-    return { Cells = {} }
+--
+--- ∑ A fresh index. ox and oy say where the world origin lands on screen,
+---   folded into one cell, so the grid rides with the saves instead of with
+---   the window. Dragging the map then shifts every cell by the same whole
+---   number and nothing changes cells relative to anything else. Anchored to
+---   the window instead, a cell filled up and emptied again as the map slid
+---   under it, and the names around it moved every time it did.
+--
+local function newOccupancy(ox, oy)
+    return { Cells = {}, OX = ox or 0, OY = oy or 0 }
 end
 
-local function occupancyCells(rect)
-    local x0, x1 = math.floor(rect.X1 / CELL), math.floor(rect.X2 / CELL)
-    local y0, y1 = math.floor(rect.Y1 / CELL), math.floor(rect.Y2 / CELL)
+local function occupancyCells(index, rect)
+    local x0, x1 = math.floor((rect.X1 - index.OX) / CELL), math.floor((rect.X2 - index.OX) / CELL)
+    local y0, y1 = math.floor((rect.Y1 - index.OY) / CELL), math.floor((rect.Y2 - index.OY) / CELL)
     -- A rectangle wider than the map is a corrupt measurement, not a label.
     if x1 - x0 > 32 or y1 - y0 > 32 then return nil end
     return x0, x1, y0, y1
 end
 
 local function occupancyAdd(index, rect)
-    local x0, x1, y0, y1 = occupancyCells(rect)
+    local x0, x1, y0, y1 = occupancyCells(index, rect)
     if not x0 then return end
     for cx = x0, x1 do
         for cy = y0, y1 do
@@ -3403,8 +3458,8 @@ end
 --- same test as Geometry.Overlaps against every rectangle in its cells, taking
 --- four numbers so a candidate that is thrown away never becomes a table.
 local function occupancyHitsAt(index, x1, y1, x2, y2)
-    local cx0, cx1 = math.floor(x1 / CELL), math.floor(x2 / CELL)
-    local cy0, cy1 = math.floor(y1 / CELL), math.floor(y2 / CELL)
+    local cx0, cx1 = math.floor((x1 - index.OX) / CELL), math.floor((x2 - index.OX) / CELL)
+    local cy0, cy1 = math.floor((y1 - index.OY) / CELL), math.floor((y2 - index.OY) / CELL)
     -- A rectangle wider than the map is a corrupt measurement, not a label.
     if cx1 - cx0 > 32 or cy1 - cy0 > 32 then return true end
     local cells = index.Cells
@@ -3428,7 +3483,7 @@ end
 --- the card asks: when every side of the pointer is busy it still has to go
 --- somewhere, and the least busy side is where.
 local function occupancyCount(index, rect)
-    local x0, x1, y0, y1 = occupancyCells(rect)
+    local x0, x1, y0, y1 = occupancyCells(index, rect)
     if not x0 then return CELL_LIMIT end
     local count = 0
     for cx = x0, x1 do
@@ -3464,31 +3519,53 @@ local function boxCandidate(spot, x, y, r, width, height)
 end
 
 --
---- ∑ Places a width by height box around (x, y), avoiding everything in
----   the index and the edges of the map.
+--- ∑ Places a width by height box around (x, y), avoiding the marks in
+---   the index, the readouts in hud, and the edges of the map.
 --- @param force boolean|nil # Take the first candidate that is on the map
 ---                            even when it collides. For the hover and the
 ---                            selection, which must always be named.
---- @return table|nil # { X1, Y1, X2, Y2 }
+--- @param prefer number|nil # The spot this box took last frame. It is tried
+---                            first, with a little slack, and only against
+---                            the marks and the boxes already placed. Not
+---                            against the edge and not against the readouts,
+---                            so a name the reader has already found rides
+---                            along with its save and slides out of the
+---                            picture with it, the way a dragged map behaves,
+---                            instead of flipping to its other side the
+---                            moment its far end touches the edge. A fresh
+---                            box still has to fit whole, so nothing is ever
+---                            drawn half off the canvas.
+--- @return table|nil, number|nil # { X1, Y1, X2, Y2 } and the spot it took
 --
-local function placeBox(index, view, x, y, r, width, height, force)
+local function placeBox(index, hud, view, x, y, r, width, height, force, prefer)
+    if prefer then
+        local x1, y1 = boxCandidate(prefer, x, y, r, width, height)
+        local x2, y2 = x1 + width, y1 + height
+        if x2 > 0 and y2 > 0 and x1 < view.Width and y1 < view.Height
+           and not occupancyHitsAt(index, x1 + STICKY_SLACK, y1 + STICKY_SLACK,
+                                          x2 - STICKY_SLACK, y2 - STICKY_SLACK) then
+            return { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2 }, prefer
+        end
+    end
     local right, bottom = view.Width - EDGE_MARGIN, view.Height - EDGE_MARGIN
-    local fallbackX, fallbackY
+    local fallbackX, fallbackY, fallbackSpot
     for spot = 1, CANDIDATE_SPOTS do
         local x1, y1 = boxCandidate(spot, x, y, r, width, height)
         local x2, y2 = x1 + width, y1 + height
         if x1 >= EDGE_MARGIN and y1 >= EDGE_MARGIN and x2 <= right and y2 <= bottom then
             -- Only a box that is returned becomes a table, and it is always a
             -- new one, because the index keeps the box it is given.
-            if not occupancyHitsAt(index, x1, y1, x2, y2) then
-                return { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2 }
+            if not occupancyHitsAt(index, x1, y1, x2, y2)
+               and not (hud and occupancyHitsAt(hud, x1, y1, x2, y2)) then
+                return { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2 }, spot
             end
-            if not fallbackX then fallbackX, fallbackY = x1, y1 end
+            if not fallbackX then fallbackX, fallbackY, fallbackSpot = x1, y1, spot end
         end
     end
     if force then
         if fallbackX then
-            return { X1 = fallbackX, Y1 = fallbackY, X2 = fallbackX + width, Y2 = fallbackY + height }
+            return { X1 = fallbackX, Y1 = fallbackY, X2 = fallbackX + width, Y2 = fallbackY + height },
+                   fallbackSpot
         end
         -- Wider than the map, or against a corner: clamp it on, because a
         -- name the user just asked for is worth one overlap.
@@ -3528,7 +3605,7 @@ end
 --- @return table|nil, number, number # the box, how many of those discs it
 ---                                     covers, and how much it covers in all.
 --
-local function placeCard(index, view, x, y, width, height, discs)
+local function placeCard(index, hud, view, x, y, width, height, discs)
     local half = math.floor(height / 2)
     local offsets = {
         { 18, 12 }, { -18 - width, 12 }, { 18, -12 - height }, { -18 - width, -12 - height },
@@ -3541,7 +3618,9 @@ local function placeCard(index, view, x, y, width, height, discs)
         local by = clamp(y + offset[2], EDGE_MARGIN, math.max(EDGE_MARGIN, view.Height - EDGE_MARGIN - height))
         local box = { X1 = bx, Y1 = by, X2 = bx + width, Y2 = by + height }
         local covered = coveredDiscs(discs, box)
-        local hits = occupancyCount(index, box)
+        -- The readouts live in their own index now, and the card still has to
+        -- weigh them, because it is the one box big enough to bury a corner.
+        local hits = occupancyCount(index, box) + (hud and occupancyCount(hud, box) or 0)
         local score = hits + covered * CARD_PILE_COST
         if score == 0 then return box, 0, 0 end
         if bestScore == nil or score < bestScore then
@@ -3590,13 +3669,13 @@ local function clipToDiscs(cells, x1, y1, x2, y2)
     local lengthSq = dx * dx + dy * dy
     if lengthSq <= 0 then return x2, y2, 0 end
     local nearest = 1
-    local cx0 = math.floor(math.min(x1, x2) / CELL) - 1
-    local cx1 = math.floor(math.max(x1, x2) / CELL) + 1
-    local cy0 = math.floor(math.min(y1, y2) / CELL) - 1
-    local cy1 = math.floor(math.max(y1, y2) / CELL) + 1
+    local cx0 = math.floor((math.min(x1, x2) - cells.OX) / CELL) - 1
+    local cx1 = math.floor((math.max(x1, x2) - cells.OX) / CELL) + 1
+    local cy0 = math.floor((math.min(y1, y2) - cells.OY) / CELL) - 1
+    local cy1 = math.floor((math.max(y1, y2) - cells.OY) / CELL) + 1
     for cx = cx0, cx1 do
         for cy = cy0, cy1 do
-            for _, disc in ipairs(cells[occupancyKey(cx, cy)] or {}) do
+            for _, disc in ipairs(cells.Cells[occupancyKey(cx, cy)] or {}) do
                 local ox, oy = x1 - disc.X, y1 - disc.Y
                 local reach = disc.R + MARKER_HALO
                 local b = ox * dx + oy * dy
@@ -3631,11 +3710,18 @@ end
 ---   of which there can never be more than a handful per marker.
 --- @return table # cluster records { Count, Shown, Members, Min/Max X and Y }
 --
-local function clusterDiscs(draw, cell)
+local function clusterDiscs(draw, cell, ox, oy)
     local buckets, parent = {}, {}
+    -- The buckets are anchored to the world origin and measured on the
+    -- unrounded positions, so which saves fall in one bucket depends on the
+    -- saves and the zoom and on nothing else. Anchored to the window, the
+    -- boundaries landed somewhere else on every frame and a pile's count
+    -- changed while the map was merely dragged.
+    local function column(item) return math.floor((item.FX - (ox or 0)) / cell) end
+    local function row(item) return math.floor((item.FY - (oy or 0)) / cell) end
     for index, item in ipairs(draw) do
         parent[index] = index
-        local key = occupancyKey(math.floor(item.X / cell), math.floor(item.Y / cell))
+        local key = occupancyKey(column(item), row(item))
         local bucket = buckets[key]
         if not bucket then bucket = {} buckets[key] = bucket end
         bucket[#bucket + 1] = index
@@ -3657,25 +3743,23 @@ local function clusterDiscs(draw, cell)
         end
     end
     for index, item in ipairs(draw) do
-        local cx, cy = math.floor(item.X / cell), math.floor(item.Y / cell)
-        for ox = -1, 1 do
-            for oy = -1, 1 do
-                local bucket = buckets[occupancyKey(cx + ox, cy + oy)]
+        local cx, cy = column(item), row(item)
+        for nx = -1, 1 do
+            for ny = -1, 1 do
+                local bucket = buckets[occupancyKey(cx + nx, cy + ny)]
                 if bucket then
                     -- A dense bucket is joined wholesale above, but it is not
                     -- skipped here: a disc on the rim of a heap, in a sparse
                     -- bucket of its own, physically touches the heap and
                     -- belongs to it. Skipping dense buckets left those discs
                     -- outside the pile they touch and the badge then counted
-                    -- fewer saves than the eye sees. Only the first few
-                    -- members of a bucket are measured, because they are all
-                    -- in one pile already and one hit joins the whole of it.
-                    local tested = math.min(#bucket, CLUSTER_DENSE)
+                    -- fewer saves than the eye sees.
+                    local tested = math.min(#bucket, CLUSTER_TESTED)
                     for position = 1, tested do
                         local other = bucket[position]
-                        if other ~= index then
-                            local dx = draw[other].X - item.X
-                            local dy = draw[other].Y - item.Y
+                        if other > index then
+                            local dx = draw[other].FX - item.FX
+                            local dy = draw[other].FY - item.FY
                             local reach = item.R + draw[other].R + MARKER_HALO + 1
                             if dx * dx + dy * dy <= reach * reach then union(index, other) end
                         end
@@ -3745,28 +3829,36 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
     -- with no legend on the canvas to explain it.
     local useRamp = steps > 0 and self.HeightRange ~= nil and self.View.ScaleByHeight == true
     -- Who is on the map, and how large. A marker off the map keeps no screen
-    -- position, so it cannot be clicked from the edge.
-    local draw = {}
+    -- position, so it cannot be clicked from the edge. Everything within a
+    -- screen of the canvas is kept as well, in near, because a save just past
+    -- the border still belongs to its pile.
+    local draw, near = {}, {}
     for order, marker in ipairs(self.Markers) do
         local sx, sy = Geometry.Project(view, marker.X, marker.Y)
         local r = math.max(MARKER_MIN, math.floor((marker.Radius or radius) * discScale + 0.5))
-        local visible = sx + r >= 0 and sx - r <= view.Width and sy + r >= 0 and sy - r <= view.Height
-        if not visible then
-            marker.SX, marker.SY = nil, nil
-        else
-            marker.SX, marker.SY = sx, sy
-            draw[#draw + 1] = { Marker = marker, Order = order, R = r,
-                                X = math.floor(sx + 0.5), Y = math.floor(sy + 0.5) }
+        local onMap = sx + r >= 0 and sx - r <= view.Width and sy + r >= 0 and sy - r <= view.Height
+        local nearMap = sx + r >= -PILE_MARGIN and sx - r <= view.Width + PILE_MARGIN
+                    and sy + r >= -PILE_MARGIN and sy - r <= view.Height + PILE_MARGIN
+        marker.SX, marker.SY = nil, nil
+        if nearMap then
+            local item = { Marker = marker, Order = order, R = r, FX = sx, FY = sy,
+                           X = math.floor(sx + 0.5), Y = math.floor(sy + 0.5) }
+            near[#near + 1] = item
+            if onMap then
+                marker.SX, marker.SY = sx, sy
+                draw[#draw + 1] = item
+            end
         end
     end
     self.Clusters, self.PileCount, self.Card = nil, 0, nil
     if #draw == 0 then
         self.LabelsPlaced, self.LabelsWanted = 0, 0
+        self.PlacedLast = { Names = {}, Captions = {}, Piles = {} }
         self:_UpdateStats()
         return
     end
     local widest, hoverItem = 0, nil
-    for _, item in ipairs(draw) do
+    for _, item in ipairs(near) do
         item.Selected = item.Marker == self.Selected
         item.Hovered = item.Marker == self.Hover
         if item.Hovered then hoverItem = item end
@@ -3823,27 +3915,53 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
         canvas.ellipse(x - r, y - r, x + r + 1, y + r + 1)
     end
     -- What a label may not cover: every disc, and the readouts the frame
-    -- painted and measured before it called this.
-    local index = newOccupancy()
+    -- painted and measured before it called this. Where the world origin
+    -- lands is what both grids are anchored to, so they ride with the saves
+    -- while the map is dragged rather than sliding under them.
+    local originX, originY = Geometry.Project(view, 0, 0)
+    local index = newOccupancy(originX % CELL, originY % CELL)
     -- The same discs again, as discs rather than as rectangles, on the same
     -- cell grid: a leader has to know what it would cross, and a rectangle
     -- cannot answer that. One cell holds CELL_LIMIT of them, which is the
     -- same bound the label placer works under.
-    local discCells = {}
+    local discCells = newOccupancy(index.OX, index.OY)
     for _, item in ipairs(draw) do
         occupancyAdd(index, { X1 = item.X - item.R - MARKER_HALO, Y1 = item.Y - item.R - MARKER_HALO,
                               X2 = item.X + item.R + MARKER_HALO, Y2 = item.Y + item.R + MARKER_HALO })
-        local key = occupancyKey(math.floor(item.X / CELL), math.floor(item.Y / CELL))
-        local cell = discCells[key]
-        if not cell then cell = {} discCells[key] = cell end
+        local key = occupancyKey(math.floor((item.X - discCells.OX) / CELL),
+                                 math.floor((item.Y - discCells.OY) / CELL))
+        local cell = discCells.Cells[key]
+        if not cell then cell = {} discCells.Cells[key] = cell end
         if #cell < CELL_LIMIT then cell[#cell + 1] = item end
     end
-    for _, rect in ipairs(self.HudRects or {}) do occupancyAdd(index, rect) end
+    -- The readouts are kept in an index of their own. A fresh box avoids both
+    -- them and the marks, a box that is already standing only the marks, so a
+    -- name the reader has found does not jump aside when a readout grows.
+    local hudIndex = newOccupancy(index.OX, index.OY)
+    for _, rect in ipairs(self.HudRects or {}) do occupancyAdd(hudIndex, rect) end
 
     -- The piles, found once and kept: the counts are drawn from them, and Z
-    -- zooms into the one under the pointer.
-    local clusters = clusterDiscs(draw, widest * 2 + MARKER_HALO * 2 + 2)
+    -- zooms into the one under the pointer. Found over every save near the
+    -- canvas, not only the drawn ones, so a pile keeps its number while its
+    -- edge slides across the border.
+    local pileCell = widest * 2 + MARKER_HALO * 2 + 2
+    local clusters = clusterDiscs(near, pileCell, originX % pileCell, originY % pileCell)
     self.Clusters = clusters
+
+    -- What stood on the canvas last frame, and where each box sat around its
+    -- own mark. Both are what makes the layout hold still while the map
+    -- moves, and both belong to this picture only, so a rebuild drops them.
+    local stood = self.PlacedLast or { Names = {}, Captions = {}, Piles = {} }
+    local labelSpots = self.LabelSpots or {}
+    local captionSpots = self.CaptionSpots or {}
+    local badgeSpots = self.BadgeSpots or {}
+    self.LabelSpots, self.CaptionSpots, self.BadgeSpots = labelSpots, captionSpots, badgeSpots
+    -- One set per kind, keyed by the marker itself, the area name and the
+    -- pile's own key, so remembering what stood here costs no new strings.
+    local standing = { Names = {}, Captions = {}, Piles = {} }
+    -- Names and area captions are drawn together after the leaders, counts
+    -- after both, whatever order they were placed in.
+    local boxes, badges = {}, {}
 
     -- The names, chosen before any of them is drawn. The hover and the
     -- selection first, then the marks that stand alone, then the smaller
@@ -3878,7 +3996,7 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
 
     local limit = self.View.LabelLimit or 150
     local placed, wanted = 0, 0
-    local function drawLabel(item)
+    local function placeName(item)
         wanted = wanted + 1
         if placed >= limit then return end
         local marker = item.Marker
@@ -3916,20 +4034,111 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
         end
         -- Clear of the disc, its halo, and the ring an emphasised mark wears.
         local clearance = item.R + MARKER_HALO + (emphasised and 4 or 0)
-        local box = placeBox(index, view, item.X, item.Y, clearance, width, height, emphasised)
-        if box then
-            occupancyAdd(index, box)
-            placed = placed + 1
-            brush.Color = colors.LabelBox
-            canvas.Font.Color = marker.Dimmed and colors.LabelDim or colors.Label
-            canvas.textOut(box.X1 + 2, box.Y1 + 1, text)
-            if second then
-                canvas.Font.Style = self.EmptyStyle
-                canvas.Font.Color = colors.CardMuted
-                canvas.textOut(box.X1 + 2, box.Y1 + 1 + textHeight, second)
-            end
-        end
+        local box, spot = placeBox(index, hudIndex, view, item.X, item.Y, clearance, width, height,
+                                   emphasised, labelSpots[marker.Key])
         canvas.Font.Style = self.EmptyStyle
+        if not box then return end
+        if spot then labelSpots[marker.Key] = spot end
+        standing.Names[marker] = true
+        occupancyAdd(index, box)
+        placed = placed + 1
+        boxes[#boxes + 1] = { Box = box, Text = text, Second = second, Bold = emphasised, Pad = 2,
+                              Color = marker.Dimmed and colors.LabelDim or colors.Label }
+    end
+
+    -- An area names itself once where its saves are, and a pile carries its
+    -- count beside it. Both are collected the way the names were, so the one
+    -- placement pass below can weigh all three kinds against each other.
+    local captions = (self.Area.Selected == nil)
+                     and self:_AreaCaptionCandidates(canvas, draw, textHeight) or {}
+    local function placeCaption(caption)
+        local box, spot = placeBox(index, hudIndex, view, caption.X, caption.Y, 12,
+                                   caption.Width, caption.Height, false, captionSpots[caption.Name])
+        if not box then return end
+        if spot then captionSpots[caption.Name] = spot end
+        standing.Captions[caption.Name] = true
+        occupancyAdd(index, box)
+        boxes[#boxes + 1] = { Box = box, Text = caption.Text, Bold = false, Pad = 3, Color = colors.Hud }
+    end
+
+    -- Against the pile first, then further out, and forced on the last try.
+    -- How many saves are in a heap exists nowhere else on the canvas, and a
+    -- count that was not drawn while the map card claims it is the one number
+    -- a reader can check against the picture and find wrong.
+    local PILE_STEPS = { { 0, false }, { 10, false }, { 24, false }, { 44, false }, { 16, true } }
+    local piles = {}
+    for _, group in ipairs(clusters) do
+        -- A pile that does not reach into the canvas has nothing to point at.
+        if group.Shown >= CLUSTER_MIN
+           and group.MaxX >= 0 and group.MinX <= view.Width
+           and group.MaxY >= 0 and group.MinY <= view.Height then
+            -- Named by its first save in list order, which is the same save
+            -- whichever part of the pile is on screen, so the badge can be
+            -- given back the place it had.
+            local first
+            for _, disc in ipairs(group.Discs) do
+                if first == nil or disc.Order < first.Order then first = disc end
+            end
+            local text = tostring(group.Shown)
+            piles[#piles + 1] = {
+                Key = first and first.Marker.Key or text, Group = group, Text = text,
+                Width = (tonumber(canvas.getTextWidth(text)) or 8) + 9,
+                Height = textHeight + 3,
+                -- Anchored inside the canvas, so a pile half past the edge
+                -- keeps its count where it can be read.
+                CX = math.floor(clamp((group.MinX + group.MaxX) / 2, EDGE_MARGIN, view.Width - EDGE_MARGIN)),
+                CY = math.floor(clamp((group.MinY + group.MaxY) / 2, EDGE_MARGIN, view.Height - EDGE_MARGIN)),
+                Reach = math.min(80, math.floor(math.max(group.MaxX - group.MinX,
+                                                         group.MaxY - group.MinY) / 2) + 2),
+            }
+        end
+    end
+    local function placePile(pile)
+        local group = pile.Group
+        local box, spot, step
+        local remembered = badgeSpots[pile.Key]
+        if remembered then
+            local try, took = placeBox(index, hudIndex, view, pile.CX, pile.CY,
+                                       pile.Reach + PILE_STEPS[remembered.Step][1],
+                                       pile.Width, pile.Height, false, remembered.Spot)
+            -- Only the remembered place counts on this try. Anything else is
+            -- left to the escalation below, the way a new pile is treated.
+            if try and took == remembered.Spot then box, spot, step = try, took, remembered.Step end
+        end
+        for number = 1, #PILE_STEPS do
+            if box then break end
+            local try, took = placeBox(index, hudIndex, view, pile.CX, pile.CY,
+                                       pile.Reach + PILE_STEPS[number][1],
+                                       pile.Width, pile.Height, PILE_STEPS[number][2])
+            if try then box, spot, step = try, took, number end
+        end
+        if not box then return end
+        if spot then badgeSpots[pile.Key] = { Step = step, Spot = spot } end
+        standing.Piles[pile.Key] = true
+        occupancyAdd(index, box)
+        local badge = { Box = box, Text = pile.Text, Height = pile.Height }
+        -- A leader to the heap it counts. A badge floating in clear space
+        -- between two heaps is a number about neither of them. The line runs
+        -- to the edge of the pile's box, cut short at the first disc of that
+        -- pile it meets, so it points INTO the heap without being drawn over
+        -- the very discs it counts. Under about four pixels there is nothing
+        -- left to say, because the badge is already against its pile.
+        local ax = clamp(pile.CX, box.X1 - 1, box.X2 + 1)
+        local ay = clamp(pile.CY, box.Y1 - 1, box.Y2 + 1)
+        local ex, ey = edgeToward(ax, ay, pile.CX, pile.CY,
+                                  math.max(group.MinX, 0), math.max(group.MinY, 0),
+                                  math.min(group.MaxX, view.Width), math.min(group.MaxY, view.Height))
+        local reachSq = (ex - ax) * (ex - ax) + (ey - ay) * (ey - ay)
+        local lengthSq = 0
+        if reachSq <= LEADER_MAX * LEADER_MAX then
+            ex, ey, lengthSq = clipToDiscs(discCells, ax, ay, ex, ey)
+        end
+        if lengthSq >= 16 then
+            badge.AX, badge.AY = math.floor(ax + 0.5), math.floor(ay + 0.5)
+            badge.EX, badge.EY = math.floor(ex + 0.5), math.floor(ey + 0.5)
+            badge.Length = lengthSq
+        end
+        badges[#badges + 1] = badge
     end
 
     -- The hover and the selection answer a question the user just asked, so
@@ -3937,7 +4146,7 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
     -- row and no more: the numbers are in the card and in the details panel,
     -- which is where a number can be read instead of hunted for.
     for _, item in ipairs(labels) do
-        if item.Priority > 0 then drawLabel(item) end
+        if item.Priority > 0 then placeName(item) end
     end
 
     -- The card is measured and placed HERE, with the labels, and drawn at the
@@ -3962,13 +4171,13 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
             for _, disc in ipairs(hoverItem.Cluster and hoverItem.Cluster.Discs or {}) do
                 pile[#pile + 1] = disc
             end
-            local cx0 = math.floor((hoverItem.X - CARD_GUARD) / CELL)
-            local cx1 = math.floor((hoverItem.X + CARD_GUARD) / CELL)
-            local cy0 = math.floor((hoverItem.Y - CARD_GUARD) / CELL)
-            local cy1 = math.floor((hoverItem.Y + CARD_GUARD) / CELL)
+            local cx0 = math.floor((hoverItem.X - CARD_GUARD - discCells.OX) / CELL)
+            local cx1 = math.floor((hoverItem.X + CARD_GUARD - discCells.OX) / CELL)
+            local cy0 = math.floor((hoverItem.Y - CARD_GUARD - discCells.OY) / CELL)
+            local cy1 = math.floor((hoverItem.Y + CARD_GUARD - discCells.OY) / CELL)
             for cx = cx0, cx1 do
                 for cy = cy0, cy1 do
-                    for _, item in ipairs(discCells[occupancyKey(cx, cy)] or {}) do
+                    for _, item in ipairs(discCells.Cells[occupancyKey(cx, cy)] or {}) do
                         local dx, dy = item.X - hoverItem.X, item.Y - hoverItem.Y
                         if dx * dx + dy * dy <= CARD_GUARD * CARD_GUARD then
                             pile[#pile + 1] = item
@@ -3977,7 +4186,8 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
                 end
             end
         end
-        local box, covered, hits = placeCard(index, view, card.X, card.Y, card.Width, card.Height, pile)
+        local box, covered, hits = placeCard(index, hudIndex, view, card.X, card.Y,
+                                             card.Width, card.Height, pile)
         -- Deep inside a crowd every side of the pointer is heap, and the
         -- least bad box still hides part of the answer. Then the card gives
         -- way instead of the data: the stack list drops to two names and the
@@ -3988,8 +4198,9 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
         if box and (card.Stack or 0) > 2 and (covered > 0 or hits >= CARD_BUSY) then
             local short = self:_HoverCard(canvas, colors, 2)
             if short then
-                local shortBox, shortCovered, shortHits = placeCard(index, view, short.X, short.Y,
-                                                                    short.Width, short.Height, pile)
+                local shortBox, shortCovered, shortHits = placeCard(index, hudIndex, view, short.X,
+                                                                    short.Y, short.Width,
+                                                                    short.Height, pile)
                 if shortBox and (shortCovered < covered or shortHits < hits) then
                     card, box = short, shortBox
                 end
@@ -4000,60 +4211,37 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
     end
     self.Card = card
 
-    if self.Area.Selected == nil then
-        self:_PaintAreaCaptions(canvas, view, colors, index, draw, textHeight)
+    -- The layout is carried over. Whatever stood on the canvas last frame, a
+    -- name, an area caption or a count, is placed again first and in the spot
+    -- it had. Only then does anything new get a turn, in the precedence the
+    -- map has always used, which is captions, counts, names. Placing by kind
+    -- alone meant a caption arriving at the edge took the room of a name that
+    -- had been standing there for a hundred frames, and the name jumped.
+    for _, caption in ipairs(captions) do
+        if stood.Captions[caption.Name] then placeCaption(caption) end
     end
-
-    -- The piles, counted. A count is not a label: every disc under it is
-    -- still drawn and still one click away, and the count is placed beside
-    -- the pile, never over it.
-    local badges = {}
-    canvas.Font.Style = self.EmptyStyle
-    for _, group in ipairs(clusters) do
-        if group.Shown >= CLUSTER_MIN then
-            local text = tostring(group.Shown)
-            local width = (tonumber(canvas.getTextWidth(text)) or 8) + 9
-            local height = textHeight + 3
-            local cx = math.floor((group.MinX + group.MaxX) / 2)
-            local cy = math.floor((group.MinY + group.MaxY) / 2)
-            local reach = math.floor(math.max(group.MaxX - group.MinX, group.MaxY - group.MinY) / 2) + 2
-            -- Against the pile first, then further out, and forced on the
-            -- last try. How many saves are in a heap exists nowhere else on
-            -- the canvas, and a count that was not drawn while the map card
-            -- claims it is the one number a reader can check against the
-            -- picture and find wrong.
-            local box = placeBox(index, view, cx, cy, reach, width, height, false)
-                     or placeBox(index, view, cx, cy, reach + 10, width, height, false)
-                     or placeBox(index, view, cx, cy, reach + 24, width, height, false)
-                     or placeBox(index, view, cx, cy, reach + 44, width, height, false)
-                     or placeBox(index, view, cx, cy, reach + 16, width, height, true)
-            if box then
-                local badge = { Box = box, Text = text, Height = height }
-                -- A leader to the heap it counts. A badge floating in clear
-                -- space between two heaps is a number about neither of them.
-                -- The line runs to the edge of the pile's box and is then cut
-                -- at the first disc of that pile it meets, so it points INTO
-                -- the heap without being drawn over the very discs it counts.
-                -- Under about four pixels there is nothing left to say: the
-                -- badge is already against its pile.
-                local ax = clamp(cx, box.X1 - 1, box.X2 + 1)
-                local ay = clamp(cy, box.Y1 - 1, box.Y2 + 1)
-                local ex, ey = edgeToward(ax, ay, cx, cy, group.MinX, group.MinY, group.MaxX, group.MaxY)
-                local reachSq = (ex - ax) * (ex - ax) + (ey - ay) * (ey - ay)
-                local lengthSq = 0
-                if reachSq <= LEADER_MAX * LEADER_MAX then
-                    ex, ey, lengthSq = clipToDiscs(discCells, ax, ay, ex, ey)
-                end
-                if lengthSq >= 16 then
-                    badge.AX, badge.AY = math.floor(ax + 0.5), math.floor(ay + 0.5)
-                    badge.EX, badge.EY = math.floor(ex + 0.5), math.floor(ey + 0.5)
-                    badge.Length = lengthSq
-                end
-                badges[#badges + 1] = badge
-                occupancyAdd(index, box)
-            end
-        end
+    for _, pile in ipairs(piles) do
+        if stood.Piles[pile.Key] then placePile(pile) end
     end
+    for _, item in ipairs(labels) do
+        if item.Priority == 0 and stood.Names[item.Marker] then placeName(item) end
+    end
+    for _, item in ipairs(labels) do
+        if item.Priority < 0 and stood.Names[item.Marker] then placeName(item) end
+    end
+    for _, caption in ipairs(captions) do
+        if not stood.Captions[caption.Name] then placeCaption(caption) end
+    end
+    for _, pile in ipairs(piles) do
+        if not stood.Piles[pile.Key] then placePile(pile) end
+    end
+    for _, item in ipairs(labels) do
+        if item.Priority == 0 and not stood.Names[item.Marker] then placeName(item) end
+    end
+    for _, item in ipairs(labels) do
+        if item.Priority < 0 and not stood.Names[item.Marker] then placeName(item) end
+    end
+    self.PlacedLast = standing
     -- Two counts within a badge-height of each other read as one annotation
     -- carrying two numbers, and two leaders out of it then say which is
     -- which twice over. The shorter one goes: its badge is the one already
@@ -4069,14 +4257,27 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
             end
         end
     end
-    -- Every leader, then every badge. Drawing the boxes last is what keeps a
-    -- line from ever crossing a count: the badge's own opaque fill takes back
-    -- whatever passed under it, and the two numbers stay two statements.
+    -- Every leader, then the names and the captions, then the counts. An
+    -- opaque box takes back whatever line passed under it, and the placer
+    -- already promised that no two boxes overlap, so the order they were
+    -- placed in never shows.
     pen.Width = 1
     pen.Color = colors.BadgeEdge
     for _, badge in ipairs(badges) do
         if badge.Length then canvas.line(badge.AX, badge.AY, badge.EX, badge.EY) end
     end
+    for _, item in ipairs(boxes) do
+        brush.Color = colors.LabelBox
+        canvas.Font.Style = item.Bold and "[fsBold]" or self.EmptyStyle
+        canvas.Font.Color = item.Color
+        canvas.textOut(item.Box.X1 + item.Pad, item.Box.Y1 + 1, item.Text)
+        if item.Second then
+            canvas.Font.Style = self.EmptyStyle
+            canvas.Font.Color = colors.CardMuted
+            canvas.textOut(item.Box.X1 + item.Pad, item.Box.Y1 + 1 + textHeight, item.Second)
+        end
+    end
+    canvas.Font.Style = self.EmptyStyle
     for _, badge in ipairs(badges) do
         brush.Color = colors.Background
         pen.Color = colors.BadgeEdge
@@ -4086,13 +4287,6 @@ function TeleporterMap:_PaintMarkers(canvas, view, colors)
         canvas.textOut(badge.Box.X1 + 5, badge.Box.Y1 + 1, badge.Text)
     end
     self.PileCount = #badges
-
-    for _, item in ipairs(labels) do
-        if item.Priority == 0 then drawLabel(item) end
-    end
-    for _, item in ipairs(labels) do
-        if item.Priority < 0 then drawLabel(item) end
-    end
     self.LabelsPlaced, self.LabelsWanted = placed, wanted
     self:_UpdateStats()
 end
@@ -4108,7 +4302,7 @@ end
 ---   everything else, so it never covers a disc or a name. It wears the HUD
 ---   colour, not the label colour: an area is not a save.
 --
-function TeleporterMap:_PaintAreaCaptions(canvas, view, colors, index, draw, textHeight)
+function TeleporterMap:_AreaCaptionCandidates(canvas, draw, textHeight)
     local groups, order = {}, {}
     for _, item in ipairs(draw) do
         local area = item.Marker.Area
@@ -4125,6 +4319,7 @@ function TeleporterMap:_PaintAreaCaptions(canvas, view, colors, index, draw, tex
     end
     table.sort(order)
     canvas.Font.Style = self.EmptyStyle
+    local out = {}
     for _, area in ipairs(order) do
         local group = groups[area]
         if #group.X >= AREA_CAPTION_MIN then
@@ -4132,16 +4327,15 @@ function TeleporterMap:_PaintAreaCaptions(canvas, view, colors, index, draw, tex
             table.sort(group.Y)
             local middle = math.floor(#group.X / 2) + 1
             local text = string.upper(area)
-            local width = (tonumber(canvas.getTextWidth(text)) or (#text * 7)) + 6
-            local box = placeBox(index, view, group.X[middle], group.Y[middle], 12, width, textHeight + 2, false)
-            if box then
-                occupancyAdd(index, box)
-                canvas.Brush.Color = colors.LabelBox
-                canvas.Font.Color = colors.Hud
-                canvas.textOut(box.X1 + 3, box.Y1 + 1, text)
-            end
+            out[#out + 1] = {
+                Name = area, Text = text,
+                X = group.X[middle], Y = group.Y[middle],
+                Width = (tonumber(canvas.getTextWidth(text)) or (#text * 7)) + 6,
+                Height = textHeight + 2,
+            }
         end
     end
+    return out
 end
 
 --
