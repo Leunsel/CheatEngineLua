@@ -1475,7 +1475,7 @@ categories.
 
 ## Manifold.TeleporterMap
 
-`TeleporterMap`, version 1.3.4. `logger`, `forms` and `teleporter` are required, `customIO` is
+`TeleporterMap`, version 1.3.5. `logger`, `forms` and `teleporter` are required, `customIO` is
 optional, and `json`, `utils` and `ui` are runtime dependencies. See
 [the framework guide](Manifold-Framework.md#86-map) for what the window does.
 

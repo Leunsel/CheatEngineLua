@@ -540,6 +540,7 @@ function Structures:Materialize(plan, addressList)
                 end
             end
             if node.Header then record.IsAddressGroupHeader = true end
+            if node.Collapsed ~= nil then record.Collapsed = node.Collapsed end
             if node.ShowAsHex then record.ShowAsHex = true end
             if node.ShowAsSigned then record.ShowAsSigned = true end
             if node.Color then record.Color = node.Color end
