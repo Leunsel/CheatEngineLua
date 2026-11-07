@@ -12,6 +12,14 @@ local DESCRIPTION = "Manifold Framework ProcessHandler"
         (17 GB), its symbol load runs for over an hour, and deactivating
         the activation script froze Cheat Engine for minutes.
 
+    Addition:
+        An attach no longer reopens a process Cheat Engine already has open
+        and that answers a read; the handler adopts it as it is. 2.0.1 only
+        skipped the reopen for an attach this handler had made itself, so a
+        reloaded table (new handler, same game) still reopened the process
+        and waited for the symbol load on the activation script.
+
+
     ∂ v2.0.0 (2026-08-27)
         Rewritten around one idea: readInteger(process) is the only
         statement about process state that Cheat Engine gets right.
@@ -100,6 +108,18 @@ local function _Probe()
     local ok, value = pcall(readInteger, process)
     if not ok then return nil end
     return value
+end
+
+--
+--- ∑ True when Cheat Engine already has this PID open AND it answers a read.
+---   The PID alone proves nothing (see above); the read is what counts.
+--- @param processID integer|nil
+--- @return boolean
+--
+local function _IsOpenAndAlive(processID)
+    if not processID then return false end
+    local ok, openedPid = pcall(getOpenedProcessID)
+    return ok and openedPid == processID and _Probe() ~= nil
 end
 
 --
@@ -446,15 +466,25 @@ end
 --- @return boolean # true when the process is really there.
 --
 local function tryAttach(self, processName, processID, options, epoch)
-    local opened, result = pcall(openProcess, processID)
-    if not opened or result == false or _Probe() == nil then
-        if self.StaleNoticePid ~= processID then
-            self.StaleNoticePid = processID
-            logger:WarningF(MODULE_PREFIX .. " '%s' is listed as PID %s but does not answer a read. " ..
-                "Ignoring the stale entry and waiting for the real process.",
-                tostring(processName), tostring(processID))
+    -- Cheat Engine may already have this process open: the table was reloaded,
+    -- or it was picked from the process list. Reopening it reinitializes the
+    -- symbol handler, which blocks the main thread until a running symbol load
+    -- stops. A process that is open and answers a read is adopted as it is.
+    local adopted = _IsOpenAndAlive(processID)
+    if adopted then
+        logger:DebugF(MODULE_PREFIX .. " Cheat Engine already has PID %s open and it answers reads. " ..
+            "Adopting it without reopening.", tostring(processID))
+    else
+        local opened, result = pcall(openProcess, processID)
+        if not opened or result == false or _Probe() == nil then
+            if self.StaleNoticePid ~= processID then
+                self.StaleNoticePid = processID
+                logger:WarningF(MODULE_PREFIX .. " '%s' is listed as PID %s but does not answer a read. " ..
+                    "Ignoring the stale entry and waiting for the real process.",
+                    tostring(processName), tostring(processID))
+            end
+            return false
         end
-        return false
     end
     _DestroyTimer(self.AutoAttachTimer)
     self.AutoAttachTimer, self.IsAutoAttaching = nil, false
@@ -551,9 +581,7 @@ function ProcessHandler:AttachToProcessByName(processName)
     -- makes Cheat Engine reinitialize its symbol handler, which waits on the
     -- main thread for a running symbol load. The activation script calls this
     -- on enable AND disable, so only a confirmed live attach may skip it.
-    local okPid, openedPid = pcall(getOpenedProcessID)
-    if self.IsWatchingProcess and self.AttachedProcessID == processID
-       and okPid and openedPid == processID and _Probe() ~= nil then
+    if self.IsWatchingProcess and self.AttachedProcessID == processID and _IsOpenAndAlive(processID) then
         logger:DebugF(MODULE_PREFIX .. " Already attached to '%s' (PID: %s), not reopening.",
             tostring(processName), tostring(processID))
         return true
