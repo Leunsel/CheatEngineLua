@@ -1,9 +1,17 @@
 local NAME = "Manifold.ProcessHandler.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "2.0.0"
+local VERSION = "2.0.1"
 local DESCRIPTION = "Manifold Framework ProcessHandler"
 
 --[[
+    ∂ v2.0.1 (2026-11-07)
+        AttachToProcessByName no longer reopens a process it is already
+        attached to and watching. openProcess makes Cheat Engine
+        reinitialize its symbol handler, and that waits on the main thread
+        for a symbol load still in progress. Satisfactory ships 445 PDBs
+        (17 GB), its symbol load runs for over an hour, and deactivating
+        the activation script froze Cheat Engine for minutes.
+
     ∂ v2.0.0 (2026-08-27)
         Rewritten around one idea: readInteger(process) is the only
         statement about process state that Cheat Engine gets right.
@@ -538,6 +546,17 @@ function ProcessHandler:AttachToProcessByName(processName)
     if not found or not processID then
         logger:ErrorF(MODULE_PREFIX .. " Process '%s' not found.", tostring(processName))
         return false
+    end
+    -- Reopening the process that is already attached is not free: openProcess
+    -- makes Cheat Engine reinitialize its symbol handler, which waits on the
+    -- main thread for a running symbol load. The activation script calls this
+    -- on enable AND disable, so only a confirmed live attach may skip it.
+    local okPid, openedPid = pcall(getOpenedProcessID)
+    if self.IsWatchingProcess and self.AttachedProcessID == processID
+       and okPid and openedPid == processID and _Probe() ~= nil then
+        logger:DebugF(MODULE_PREFIX .. " Already attached to '%s' (PID: %s), not reopening.",
+            tostring(processName), tostring(processID))
+        return true
     end
     self:Stop()
     return tryAttach(self, processName, processID, self.AutoAttachOptions, _NewEpoch())
