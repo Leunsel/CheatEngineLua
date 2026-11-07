@@ -22,6 +22,17 @@ children resolve against the structure it points to, while an inline nested stru
 header without one. Nesting stops at a configurable depth and at cycles. When a Structure Dissect
 window for that structure is open, its address is what the dialog offers.
 
+**Generate Records From Dump** builds the records for a class from its Markdown dump. Copy the
+dump, select the object it lives in and enter `+00FC`, and a group `[00FC] — Crab Health Info`
+appears under it with one record per field, `[000C] — Current Health` as a Float at `+000C` for
+example. Types come from the dump's Type column, the descriptions are the field names in words.
+
+**Update Offsets From Dump** is the way back after a game update. Select the group, copy the
+class's Markdown dump, click the entry, and every child moves to the offset its field has now.
+Records and dump rows are matched by name, so `[0102] — Fire Mode` finds `FireMode | 0x10C` and
+`Dual Wield` finds `bDualWield`. A name the dump does not have is never guessed. That record keeps
+its offset and is named in the confirmation and in the report.
+
 Every action is also a method on `ManifoldCEUtility`, so a table's Lua script or the Lua console
 can drive it without the menu.
 
@@ -81,6 +92,8 @@ autorun/
 | Open Memory Viewer | | Shows the Memory Viewer |
 | Open Structure Dissect | | Opens an empty Structure Dissect window |
 | Generate Structure Records | | Asks for a structure and a base, builds the record tree |
+| Generate Records From Dump | | Builds a record group from a Markdown dump on the clipboard |
+| Update Offsets From Dump | | Moves the selected group's records to the offsets in a Markdown dump on the clipboard, destructive |
 | Remove All Structures | | Removes every global structure, destructive |
 | Open Table File Viewer | | Opens [Manifold Table Files](../Manifold-TableFiles), if installed |
 | Open Log Console | | Opens the [Manifold Logger](../Manifold-Logger) console, if installed |
@@ -107,6 +120,8 @@ local host = Host:New({
 
 ```lua
 ManifoldCEUtility:GenerateStructureRecords()
+ManifoldCEUtility:GenerateRecordsFromDump(markdown)
+ManifoldCEUtility:UpdateOffsetsFromDump(markdown)
 ManifoldCEUtility:DeactivateEverything()
 ManifoldCEUtility:NormalizeIDs()
 ManifoldCEUtility:SetCompactMode(true)

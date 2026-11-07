@@ -32,6 +32,8 @@
     in the main menu bar. Everything on it is also a method:
 
         ManifoldCEUtility:GenerateStructureRecords()
+        ManifoldCEUtility:GenerateRecordsFromDump(markdown)
+        ManifoldCEUtility:UpdateOffsetsFromDump(markdown)
         ManifoldCEUtility:DeactivateEverything()
         ManifoldCEUtility:Status()
 

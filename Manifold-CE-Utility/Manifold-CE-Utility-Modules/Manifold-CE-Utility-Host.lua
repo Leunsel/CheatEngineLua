@@ -8,7 +8,8 @@
       Log         the Manifold Logger channel, or print
       Settings    defaults, overrides, the three persisted values
       Icons       the 16x16 set, one image list per session
-      Structures  Generate Structure Records, Remove All Structures
+      Structures  Generate Structure Records, Generate Records From Dump,
+                  Update Offsets From Dump, Remove All Structures
       Records     Deactivate All Scripts, Deactivate Everything, Normalize IDs
       Shell       windows, folders, compact mode
       Menu        the root entry, its items, the caption ticker
@@ -17,6 +18,8 @@
     Lua console can call it without the menu:
 
         ManifoldCEUtility:GenerateStructureRecords()
+        ManifoldCEUtility:GenerateRecordsFromDump(markdown)
+        ManifoldCEUtility:UpdateOffsetsFromDump(markdown)
         ManifoldCEUtility:DeactivateEverything()
         ManifoldCEUtility:Status()
 ]]
@@ -93,6 +96,10 @@ function Host:MenuSpec()
           OnClick = function() self.Shell:OpenStructureDissect() end },
         { Caption = "Generate Structure Records", Icon = "Generate",
           OnClick = function() self.Structures:Generate() end },
+        { Caption = "Generate Records From Dump", Icon = "Generate",
+          OnClick = function() self.Structures:GenerateFromDump() end },
+        { Caption = "Update Offsets From Dump", Icon = "Normalize",
+          OnClick = function() self.Structures:UpdateOffsets() end },
         { Caption = "Remove All Structures", Icon = "Remove",
           OnClick = function() self.Structures:RemoveAll() end },
         { Caption = "Open Table File Viewer", Icon = "TableFiles",
@@ -202,6 +209,8 @@ end
 --------------------------------------------------------
 
 function Host:GenerateStructureRecords() return self.Structures:Generate() end
+function Host:GenerateRecordsFromDump(text) return self.Structures:GenerateFromDump(text) end
+function Host:UpdateOffsetsFromDump(text) return self.Structures:UpdateOffsets(text) end
 function Host:RemoveAllStructures() return self.Structures:RemoveAll() end
 function Host:DeactivateScripts() return self.Records:Deactivate(true) end
 function Host:DeactivateEverything() return self.Records:Deactivate(false) end

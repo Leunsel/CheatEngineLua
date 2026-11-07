@@ -49,6 +49,14 @@ Settings.Defaults = {
         HeaderColor = 0xD2FF00,
         ElementColor = 0xADAD5A,
         PointerColor = 0x61CDEA,
+        -- Records made from a dump are coloured by what they hold. Whole
+        -- numbers, enums and bools share one colour, floats have another and
+        -- strings a third. Pointers and raw bytes keep ElementColor.
+        IntegerColor = 0xDBEC19,
+        FloatColor = 0x8A73FF,
+        StringColor = 0x85EC3C,
+        -- How many characters a string record made from a dump reads.
+        DumpStringLength = 255,
         -- How many levels of nested structures are expanded below the root. Past
         -- this a pointer becomes a plain hex value naming its target.
         MaxDepth = 4,

@@ -36,6 +36,23 @@
     A child's "+offset" address is relative to its parent's resolved address.
     That is how Cheat Engine's own relative addresses work, and it is why the
     root can be given "+0" and dropped under any pointer record later...
+
+    The other direction is Update Offsets From Dump. After a game update the
+    records still name the right fields but point at the old offsets. A dump
+    of the class as a Markdown table knows the new ones. The two are matched
+    by name, so "[00B8] — Dual Wield" finds the row "bDualWield | 0xB8" and
+    takes its offset. Names are compared in lower case with everything but
+    letters and digits removed, and the b in front of an Unreal bool may be
+    left out. A record whose name is not in the dump is left as it is and
+    named in the report, because guessing an offset is worse than keeping
+    a wrong one that everybody can see.
+
+    Generate Records From Dump starts from the same Markdown. It makes a
+    header and one record per field, with the description written in words
+    and the type read from the Type column. "CurrentArmorPlates | 0x0 |
+    IntProperty" becomes "[0000] — Current Armor Plates", a 4 byte record at
+    +0000. Those words lead back to the field, so the next dump can move the
+    records it made.
 ]]
 
 local Structures = {}
@@ -508,10 +525,11 @@ end
 ---   attached to its parent before its relative address is written.
 --- @param plan table
 --- @param addressList userdata
+--- @param parent userdata|nil # The record the root goes under, nil for the top.
 --- @return userdata|nil, number, string|nil # The root record, how many
 ---         records were created, and the error that stopped it, if any.
 --
-function Structures:Materialize(plan, addressList)
+function Structures:Materialize(plan, addressList, parent)
     local created = 0
     local function build(node, parent)
         local ok, record = pcall(function() return addressList.createMemoryRecord() end)
@@ -555,7 +573,7 @@ function Structures:Materialize(plan, addressList)
         end
         return record
     end
-    local root, err = build(plan, nil)
+    local root, err = build(plan, parent)
     return root, created, err
 end
 
@@ -689,6 +707,635 @@ function Structures:RemoveAll()
         log:Info(string.format("Removed %d structure(s).", removed))
     end
     return failed == 0
+end
+
+--------------------------------------------------------
+--                  Offsets from a dump               --
+--------------------------------------------------------
+
+--- How many names a dialog lists before it says how many more there are.
+local NAMES_IN_DIALOG = 10
+
+--- What a Blueprint variable carries after its name. A number and a GUID,
+--- which no description repeats.
+local GUID_SUFFIX = "_%d+_" .. string.rep("%x", 32) .. "$"
+
+--- The header words a dump's name column goes by.
+local NAME_HEADERS = { field = true, name = true, property = true, member = true }
+
+--- A name brought down to lower case letters and digits. This is where
+--- "Dual Wield" and "DualWield" become the same thing.
+local function keyOf(value)
+    return (tostring(value or ""):lower():gsub("[^%w]", ""))
+end
+
+--- The name part of a description. The offset in brackets in front and the
+--- arrow Generate Structure Records adds behind a pointer are not part of it.
+local function nameOfRecord(description)
+    local name = tostring(description or "")
+    name = name:gsub("^%s*%[%-?%x+%]", "")
+    name = name:gsub("%s+%->.*$", "")
+    name = trim(name)
+    for _, dash in ipairs({ "—", "–", "-", ":" }) do
+        if name:sub(1, #dash) == dash then
+            name = trim(name:sub(#dash + 1))
+            break
+        end
+    end
+    return name
+end
+
+--- "+00B8" as its value and the number of digits it was written with, so the
+--- new offset goes back in the same shape. Nil for anything that is not a
+--- relative address.
+local function parseRelative(address)
+    local sign, digits = tostring(address or ""):match("^%s*([%+%-])%s*(%x+)%s*$")
+    if not sign then return nil end
+    local value = tonumber(digits, 16)
+    if sign == "-" then value = -value end
+    return value, #digits
+end
+
+local function writeRelative(offset, width)
+    local sign = offset < 0 and "-" or "+"
+    return sign .. string.format("%0" .. width .. "X", math.abs(offset))
+end
+
+--
+--- ∑ The description with the offset in its brackets moved along. Only when
+---   the brackets state the old offset, so a description that says something
+---   else in front is not rewritten behind its owner's back.
+--- @param description string
+--- @param old number
+--- @param new number
+--- @return string|nil # Nil when the description stays as it is.
+--
+local function moveDescription(description, old, new)
+    local sign, digits = description:match("^%s*%[(%-?)(%x+)%]")
+    if not digits then return nil end
+    local stated = tonumber(digits, 16)
+    if sign == "-" then stated = -stated end
+    if stated ~= old then return nil end
+    local text = (new < 0 and "-" or "") .. string.format("%0" .. #digits .. "X", math.abs(new))
+    return (description:gsub("%[%-?%x+%]", "[" .. text .. "]", 1))
+end
+
+--- The cells of one Markdown table row, or nil for a line that is not one.
+local function cellsOf(line)
+    local body = line:match("^%s*|(.*)$")
+    if not body then return nil end
+    body = body:gsub("|%s*$", "")
+    local cells = {}
+    for cell in (body .. "|"):gmatch("(.-)|") do
+        cells[#cells + 1] = trim((cell:gsub("`", "")))
+    end
+    return cells
+end
+
+--- An offset cell. Hexadecimal with or without 0x, the way Cheat Engine
+--- writes offsets everywhere else.
+local function parseOffset(cell)
+    local digits = cell:match("^0[xX](%x+)$") or cell:match("^(%x+)$")
+    if not digits then return nil end
+    return tonumber(digits, 16)
+end
+
+--- A size cell. Dumps write sizes in decimal, so 40 is forty bytes, and only
+--- a 0x in front makes it hexadecimal.
+local function parseSize(cell)
+    local digits = cell:match("^0[xX](%x+)$")
+    if digits then return tonumber(digits, 16) end
+    if cell:match("^%d+$") then return tonumber(cell) end
+    return nil
+end
+
+--
+--- ∑ Reads the fields out of a Markdown dump. Every table with a name column
+---   and an Offset column counts. A class pasted together with its parent
+---   classes therefore gives one layout, which is what a record list under
+---   one object needs. Type and Size are read too when the table has them,
+---   and the first heading is the dump's title.
+--- @param markdown string
+--- @return table, string|nil # { { Name, Offset, Type, Size } } in the order
+---         of the dump, and the title.
+--
+function Structures.ParseDump(markdown)
+    local fields, title = {}, nil
+    local columns = nil
+    for line in (tostring(markdown or "") .. "\n"):gmatch("(.-)\r?\n") do
+        local cells = cellsOf(line)
+        if not cells then
+            columns = nil
+            local heading = line:match("^%s*#+%s+(.-)%s*$")
+            if not title and heading then title = text((heading:gsub("`", ""))) end
+        elseif not columns then
+            local found = {}
+            for index, cell in ipairs(cells) do
+                local word = cell:lower()
+                if NAME_HEADERS[word] and not found.Name then found.Name = index end
+                if word == "offset" then found.Offset = index end
+                if word == "type" then found.Type = index end
+                if word == "size" then found.Size = index end
+            end
+            if found.Name and found.Offset then columns = found end
+        else
+            local name = cells[columns.Name]
+            local offset = parseOffset(cells[columns.Offset] or "")
+            if name and name ~= "" and offset then
+                fields[#fields + 1] = {
+                    Name = name,
+                    Offset = offset,
+                    Type = columns.Type and text(cells[columns.Type]) or nil,
+                    Size = columns.Size and parseSize(cells[columns.Size] or "") or nil
+                }
+            end
+        end
+    end
+    return fields, title
+end
+
+--
+--- ∑ The dumped fields by name. A field answers to its own name and, when it
+---   is an Unreal bool, to the name without the b. Its own name always wins
+---   over that shorter one. A name two fields share at different offsets
+---   cannot say which one a record meant, so it is kept apart as ambiguous.
+--- @param fields table
+--- @return table, table # Field by key, and the keys that are ambiguous.
+--
+local function indexFields(fields)
+    local byKey, ambiguous, own = {}, {}, {}
+    local function add(key, field)
+        if key == "" then return end
+        local known = byKey[key]
+        if known == nil then
+            byKey[key] = field
+        elseif known.Offset ~= field.Offset then
+            ambiguous[key] = true
+        end
+    end
+    for _, field in ipairs(fields) do
+        local key = keyOf((field.Name:gsub(GUID_SUFFIX, "")))
+        own[key] = true
+        add(key, field)
+    end
+    for _, field in ipairs(fields) do
+        local plain = field.Name:gsub(GUID_SUFFIX, "")
+        if plain:match("^b%u") then
+            local key = keyOf(plain:sub(2))
+            if not own[key] then add(key, field) end
+        end
+    end
+    return byKey, ambiguous
+end
+
+--
+--- ∑ The records an update works on. A selected group gives its direct
+---   children, because their offsets are the ones into the object the group
+---   resolves to. Anything deeper hangs under a pointer into another object
+---   and is left alone. A selected record without children is taken as it is.
+--- @param addressList userdata
+--- @return table # Records in address list order, each once.
+--
+function Structures:OffsetTargets(addressList)
+    local ce = self.CE
+    local selected = {}
+    local ok, result = pcall(function() return addressList.getSelectedRecords() end)
+    if ok and type(result) == "table" then
+        for _, record in pairs(result) do selected[#selected + 1] = record end
+    end
+    if #selected == 0 then
+        local record = ce:Get(addressList, "SelectedRecord")
+        if record ~= nil then selected[1] = record end
+    end
+    table.sort(selected, function(a, b)
+        return (integer(ce:Get(a, "Index")) or 0) < (integer(ce:Get(b, "Index")) or 0)
+    end)
+
+    local targets, seen = {}, {}
+    local function take(record)
+        local key = ce:Get(record, "ID") or record
+        if seen[key] then return end
+        seen[key] = true
+        targets[#targets + 1] = record
+    end
+    for _, record in ipairs(selected) do
+        local count = integer(ce:Get(record, "Count")) or 0
+        if count > 0 then
+            for index = 0, count - 1 do
+                local okChild, child = pcall(function() return record.Child[index] end)
+                if okChild and child ~= nil then take(child) end
+            end
+        else
+            take(record)
+        end
+    end
+    return targets
+end
+
+--
+--- ∑ Works out what an update would change without changing anything.
+--- @param records table
+--- @param fields table # What ParseDump returned.
+--- @return table # { Moved, Unchanged, Missing, Ambiguous, Skipped }, each a
+---         list of { Record, Name, Address } with Field, New and Description on
+---         the moved ones.
+--
+function Structures:PlanOffsets(records, fields)
+    local byKey, ambiguous = indexFields(fields)
+    local plan = { Moved = {}, Unchanged = {}, Missing = {}, Ambiguous = {}, Skipped = {} }
+    for _, record in ipairs(records) do
+        local description = tostring(self.CE:Get(record, "Description") or "")
+        local address = tostring(self.CE:Get(record, "Address") or "")
+        local name = nameOfRecord(description)
+        local entry = { Record = record, Name = name ~= "" and name or description, Address = address }
+        local old, width = parseRelative(address)
+        local key = keyOf(name)
+        local field = byKey[key]
+        if old == nil or key == "" then
+            plan.Skipped[#plan.Skipped + 1] = entry
+        elseif ambiguous[key] then
+            plan.Ambiguous[#plan.Ambiguous + 1] = entry
+        elseif field == nil then
+            plan.Missing[#plan.Missing + 1] = entry
+        elseif field.Offset == old then
+            plan.Unchanged[#plan.Unchanged + 1] = entry
+        else
+            entry.Field = field.Name
+            entry.New = writeRelative(field.Offset, width)
+            entry.Description = moveDescription(description, old, field.Offset)
+            plan.Moved[#plan.Moved + 1] = entry
+        end
+    end
+    return plan
+end
+
+--
+--- ∑ Writes the planned offsets. Setting a record's address can drop its
+---   pointer offsets, so a record that has some gets them back right after.
+---   The count goes first and then each offset as text, which keeps a symbol
+---   in an offset intact. Only the indices the record reported are touched.
+--- @param moved table # plan.Moved
+--- @return number, table # How many were written, and { { entry, reason } }.
+--
+function Structures:ApplyOffsets(moved)
+    local applied, failures = 0, {}
+    for _, entry in ipairs(moved) do
+        local record = entry.Record
+        local ok, err = pcall(function()
+            local count = integer(record.OffsetCount) or 0
+            local offsets = {}
+            for index = 0, count - 1 do offsets[index] = record.OffsetText[index] end
+            record.Address = entry.New
+            if count > 0 then
+                record.OffsetCount = count
+                for index = 0, count - 1 do record.OffsetText[index] = offsets[index] end
+            end
+            if entry.Description then record.Description = entry.Description end
+        end)
+        if ok then
+            applied = applied + 1
+        else
+            failures[#failures + 1] = { entry, tostring(err) }
+        end
+    end
+    return applied, failures
+end
+
+local function namesOf(entries, limit)
+    local names = {}
+    for index, entry in ipairs(entries) do
+        if limit and index > limit then
+            names[#names + 1] = string.format("and %d more", #entries - limit)
+            break
+        end
+        names[#names + 1] = entry.Name
+    end
+    return table.concat(names, ", ")
+end
+
+--
+--- ∑ The rows that describe a plan, shared by the report and the case where
+---   there is nothing to move.
+--- @param plan table
+--- @param fieldCount number
+--- @return table
+--
+local function planRows(plan, fieldCount)
+    local total = #plan.Moved + #plan.Unchanged + #plan.Missing + #plan.Ambiguous + #plan.Skipped
+    return {
+        { "Fields in dump", tostring(fieldCount) },
+        { "Records", tostring(total) },
+        { "Moved", tostring(#plan.Moved) },
+        #plan.Unchanged > 0 and { "Already right", tostring(#plan.Unchanged) } or false,
+        #plan.Missing > 0 and { "Not in dump", namesOf(plan.Missing) } or false,
+        #plan.Ambiguous > 0 and { "Ambiguous", namesOf(plan.Ambiguous) } or false,
+        #plan.Skipped > 0 and { "No relative address", namesOf(plan.Skipped) } or false
+    }
+end
+
+--
+--- ∑ The dump both dump actions work from. A caller can hand the Markdown in,
+---   otherwise it is read from the clipboard. Says why when there is nothing
+---   usable, so the actions only have to stop.
+--- @param markdown string|nil
+--- @param label string # The action, for the log line.
+--- @return table|nil, string|nil # The fields and the title, or nil.
+--
+function Structures:ReadDump(markdown, label)
+    local log = self.Log
+    if markdown == nil then
+        local clipboard, err = self.CE:Call("readFromClipboard")
+        if type(clipboard) ~= "string" then
+            log:Error(label .. ": " .. tostring(err or "the clipboard holds no text") .. ".")
+            return nil
+        end
+        markdown = clipboard
+    end
+    local fields, title = Structures.ParseDump(markdown)
+    if #fields == 0 then
+        log:Warning(log:Block(label .. ": the dump has no fields", {
+            "Copy a Markdown table with a name column and an Offset column first,",
+            "for example a row like | bDualWield | 0xB8 | BoolProperty | 1 |."
+        }))
+        return nil
+    end
+    return fields, title
+end
+
+--
+--- ∑ The menu action. Moves the selected records onto the offsets of a
+---   Markdown dump. The dump is read from the clipboard unless a caller hands
+---   the text in.
+--- @param text string|nil
+--- @return boolean, table|nil # Whether records were moved, and the plan.
+--
+function Structures:UpdateOffsets(text)
+    local log = self.Log
+    local label = "Update offsets from dump"
+    local addressList = self.CE:AddressList()
+    if not addressList then
+        log:Error(label .. ": the address list is not available.")
+        return false
+    end
+    local records = self:OffsetTargets(addressList)
+    if #records == 0 then
+        log:Warning(label .. ": select the group or the records to update first.")
+        return false
+    end
+    local fields = self:ReadDump(text, label)
+    if not fields then return false end
+
+    local plan = self:PlanOffsets(records, fields)
+    if #plan.Moved == 0 then
+        log:Info(log:Block(label .. ": nothing to move", planRows(plan, #fields)))
+        return false, plan
+    end
+    if self.Settings.ConfirmDestructiveActions then
+        local notes = {}
+        if #plan.Unchanged > 0 then
+            notes[#notes + 1] = string.format("%d already match the dump.", #plan.Unchanged)
+        end
+        local untouched = {}
+        for _, list in ipairs({ plan.Missing, plan.Ambiguous, plan.Skipped }) do
+            for _, entry in ipairs(list) do untouched[#untouched + 1] = entry end
+        end
+        if #untouched > 0 then
+            notes[#notes + 1] = string.format("%d stay as they are: %s",
+                #untouched, namesOf(untouched, NAMES_IN_DIALOG))
+        end
+        local yes, reason = self.CE:Confirm("Move the selected records to the offsets in the dump?",
+            #plan.Moved, table.concat(notes, "\n"))
+        if not yes then
+            log:Info(label .. ": " .. (reason and ("blocked, " .. reason) or "cancelled") .. ".")
+            return false, plan
+        end
+    end
+
+    local applied, failures
+    local ok, runErr = self.CE:RunInMain(function()
+        applied, failures = self:ApplyOffsets(plan.Moved)
+    end)
+    if not ok then
+        log:Error(label .. " failed: " .. tostring(runErr))
+        return false, plan
+    end
+    self.CE:Repaint()
+
+    local rows = planRows(plan, #fields)
+    rows[#rows + 1] = ""
+    for _, entry in ipairs(plan.Moved) do
+        rows[#rows + 1] = { entry.Name, string.format("%s -> %s  (%s)", entry.Address, entry.New, entry.Field) }
+    end
+    for _, failure in ipairs(failures) do
+        rows[#rows + 1] = { "Failed", failure[1].Name .. ", " .. failure[2] }
+    end
+    local title = #failures > 0
+        and string.format("Offsets updated from dump, %d of %d", applied, #plan.Moved)
+        or "Offsets updated from dump"
+    if #failures > 0 then
+        log:Warning(log:Block(title, rows))
+    else
+        log:Info(log:Block(title, rows))
+    end
+    return applied > 0, plan
+end
+
+--------------------------------------------------------
+--                  Records from a dump               --
+--------------------------------------------------------
+
+--- What Cheat Engine type an Unreal property kind is read as.
+local PROPERTY_KINDS = {
+    BoolProperty = "Byte", ByteProperty = "Byte", Int8Property = "Byte",
+    Int16Property = "Word", UInt16Property = "Word",
+    IntProperty = "Dword", UInt32Property = "Dword",
+    Int64Property = "Qword", UInt64Property = "Qword",
+    FloatProperty = "Single", DoubleProperty = "Double",
+    StrProperty = "String"
+}
+
+--- What a type the table does not know is read as, by its size. An enum is
+--- one byte, an object reference eight, and both read fine this way.
+local SIZE_KINDS = { [1] = "Byte", [2] = "Word", [4] = "Dword", [8] = "Pointer" }
+
+--
+--- ∑ A dumped name as the words a person reads. "CurrentArmorPlates" becomes
+---   "Current Armor Plates", "bDualWield" becomes "Dual Wield" and
+---   "AimingFOVMultiplier" becomes "Aiming FOV Multiplier". The words still
+---   lead keyOf back to the field, so a record made from them can be moved by
+---   the next dump.
+--- @param name string
+--- @return string
+--
+local function wordsOf(name)
+    local plain = tostring(name or ""):gsub(GUID_SUFFIX, "")
+    if plain:match("^b%u") then plain = plain:sub(2) end
+    plain = plain:gsub("_", " ")
+    plain = plain:gsub("(%l)(%u)", "%1 %2")
+    plain = plain:gsub("(%u)(%u%l)", "%1 %2")
+    return trim((plain:gsub("%s+", " ")))
+end
+
+Structures.WordsOf = wordsOf
+
+--
+--- ∑ The record for one dumped field. Known property kinds get their own
+---   type. Anything else is read by its size, and what has no size Cheat
+---   Engine can read as one value, a struct of twelve bytes for example, is
+---   kept as bytes of that length rather than guessed into numbers.
+--- @param field table
+--- @param context table
+--- @return table
+--
+function Structures:DumpNode(field, context)
+    local types, settings = context.Types, self.Settings.Structures
+    local kind = PROPERTY_KINDS[field.Type or ""] or SIZE_KINDS[field.Size or 0]
+    local words = wordsOf(field.Name)
+    local node = {
+        Address = writeRelative(field.Offset, 4),
+        Description = self:Describe(field.Offset, words, nil, 0, context),
+        Named = true,
+        Kind = "value",
+        Children = {}
+    }
+    if kind == "Single" or kind == "Double" then
+        node.Type = types[kind]
+        node.Color = settings.FloatColor
+    elseif kind == "String" then
+        -- An FString holds a pointer to its characters, so the record follows it.
+        node.Type = types.String
+        node.String = { Size = settings.DumpStringLength, Unicode = true }
+        node.Offsets = { 0 }
+        node.Color = settings.StringColor
+    elseif kind == "Pointer" then
+        node.Type = types.Qword
+        node.ShowAsHex = true
+        node.Color = settings.ElementColor
+    elseif kind then
+        node.Type = types[kind]
+        node.Color = settings.IntegerColor
+    else
+        node.Type = types.ByteArray
+        node.Aob = { Size = math.max(1, field.Size or 1) }
+        node.Note = "kept as bytes"
+        node.Color = settings.ElementColor
+    end
+    return node
+end
+
+--
+--- ∑ The whole plan for a dump. A header at the base and one record per field
+---   in offset order. A field pasted twice is made once. The header takes the
+---   offset into its description when the base is one, the way its children
+---   carry theirs.
+--- @param fields table
+--- @param title string
+--- @param base string
+--- @return table, table # The root node, and { Records, Strings, Kept }.
+--
+function Structures:PlanDump(fields, title, base)
+    local context = { Types = self:Types() }
+    local settings = self.Settings.Structures
+    local offset = parseRelative(base)
+    local root = {
+        Description = offset and self:Describe(offset, title, nil, 0, context) or title,
+        Address = base,
+        Header = true,
+        Type = context.Types.Byte,
+        -- A dumped class is a block inside an object, the same as an inline
+        -- structure in Generate Structure Records, so it takes that colour.
+        Color = settings.PointerColor,
+        Named = true,
+        Kind = "root",
+        Children = {}
+    }
+    local ordered = {}
+    for index, field in ipairs(fields) do ordered[index] = { Field = field, Index = index } end
+    table.sort(ordered, function(a, b)
+        if a.Field.Offset ~= b.Field.Offset then return a.Field.Offset < b.Field.Offset end
+        return a.Index < b.Index
+    end)
+    local stats, seen = { Records = 1, Strings = 0, Kept = 0 }, {}
+    for _, item in ipairs(ordered) do
+        local field = item.Field
+        local key = field.Name .. "@" .. field.Offset
+        if not seen[key] then
+            seen[key] = true
+            local node = self:DumpNode(field, context)
+            root.Children[#root.Children + 1] = node
+            stats.Records = stats.Records + 1
+            if node.String then stats.Strings = stats.Strings + 1 end
+            if node.Note then stats.Kept = stats.Kept + 1 end
+        end
+    end
+    return root, stats
+end
+
+--
+--- ∑ The menu action. Builds a record group from a Markdown dump. A relative
+---   base like +00FC puts the group inside the selected record, because only
+---   there does the offset mean anything. Any other base starts a group at the
+---   top of the table.
+--- @param markdown string|nil # Nil reads the clipboard.
+--- @return boolean, userdata|nil # Whether records were created, and the header.
+--
+function Structures:GenerateFromDump(markdown)
+    local log = self.Log
+    local label = "Generate records from dump"
+    local fields, heading = self:ReadDump(markdown, label)
+    if not fields then return false end
+    local addressList = self.CE:AddressList()
+    if not addressList then
+        log:Error(label .. ": the address list is not available.")
+        return false
+    end
+    local title = wordsOf(heading or "")
+    if title == "" then title = "Structure" end
+
+    local base, inputErr = self.CE:Input("Generate Records From Dump",
+        "Base address for '" .. title .. "'.\n\n" ..
+        "An address, a symbol or a pointer path. A relative offset such as +00FC " ..
+        "places the records inside the selected record.",
+        self.Settings.Structures.DefaultBase)
+    if base == nil then
+        if inputErr then
+            log:Error(label .. ": " .. inputErr .. ".")
+        else
+            log:Info(label .. ": cancelled.")
+        end
+        return false
+    end
+    base = trim(base)
+    if base == "" then base = self.Settings.Structures.DefaultBase end
+
+    local parent = nil
+    if parseRelative(base) then parent = self.CE:Get(addressList, "SelectedRecord") end
+    local plan, stats = self:PlanDump(fields, title, base)
+
+    local root, created, buildErr
+    local ok, runErr = self.CE:RunInMain(function()
+        root, created, buildErr = self:Materialize(plan, addressList, parent)
+    end)
+    if not ok then
+        log:Error(label .. " failed: " .. tostring(runErr))
+        return false
+    end
+    if root then pcall(function() addressList.setSelectedRecord(root) end) end
+    self.CE:Repaint()
+    if buildErr then
+        log:Error(string.format("%s: stopped after %d of %d records. %s",
+            label, created or 0, stats.Records, buildErr))
+        return false
+    end
+    log:Info(log:Block("Records generated from dump", {
+        { "Title", title },
+        { "Base", base },
+        { "Under", parent and tostring(self.CE:Get(parent, "Description")) or "the top of the table" },
+        { "Records", tostring(created) },
+        stats.Strings > 0 and { "Strings", tostring(stats.Strings) } or false,
+        stats.Kept > 0 and { "Kept as bytes", tostring(stats.Kept) } or false
+    }))
+    return true, root
 end
 
 return Structures

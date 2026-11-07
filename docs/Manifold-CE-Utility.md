@@ -1,7 +1,7 @@
 # Manifold CE Utility
 
 > File: [`Manifold-CE-Utility/Manifold-CE-Utility.lua`](../Manifold-CE-Utility/Manifold-CE-Utility.lua)
-> Version: 2.1.0 · License: MIT · Authors: Leunsel, LeFiXER
+> Version: 2.2.0 · License: MIT · Authors: Leunsel, LeFiXER
 
 An autorun segment that extends the Cheat Engine user interface itself with a menu of
 frequently used actions. It has no dependency on the Manifold Framework and works on its own.
@@ -11,7 +11,7 @@ installed, and it contributes the menu entries that open [Manifold Table Files](
 
 Version 2.0.0 is a rewrite. The 1.x file was one flat script; 2.0.0 is an entry file plus a
 `-Modules` folder of `:New()` classes with dependency injection, the same shape as the Logger and
-Table Files segments. The reasons are in section 8.
+Table Files segments. The reasons are in section 9.
 
 ## 1. Installation
 
@@ -80,6 +80,8 @@ The entry `[— Manifold —]` appears in the main menu bar.
 | *(separator)* | | |
 | Open Structure Dissect | | `createStructureForm(nil, nil, nil)` |
 | Generate Structure Records | | Section 3 |
+| Generate Records From Dump | | Section 4.2 |
+| Update Offsets From Dump | | Section 4.3, destructive |
 | Remove All Structures | | Removes every global structure, destructive |
 | Open Table File Viewer | | `ManifoldTableFiles:Open()`, with an install hint when absent |
 | Open Log Console | | `ManifoldLogger:Open()`, with an install hint when absent |
@@ -95,9 +97,9 @@ The entry `[— Manifold —]` appears in the main menu bar.
 | Open Process Folder | | Explorer in the attached process's directory |
 | *(separator)* | | |
 | Settings | | Submenu, below |
-| About | | Version and status, section 7 |
+| About | | Version and status, section 8 |
 
-The four destructive entries ask for confirmation and name the number of entries they touch, as
+The five destructive entries ask for confirmation and name the number of entries they touch, as
 long as "Confirm Destructive Actions" is on. A missing dialog API blocks the action rather than
 letting it run unprompted.
 
@@ -112,7 +114,7 @@ letting it run unprompted.
 | *(separator)* | |
 | Reset Caption Animation | Rebuilds the timer and resets the caption |
 
-These three settings persist between Cheat Engine sessions, section 5.
+These three settings persist between Cheat Engine sessions, section 6.
 
 ## 3. Generate Structure Records
 
@@ -223,7 +225,138 @@ Structure records generated
 Rows that would read zero are left out. A failure mid-way reports how many of the planned
 records were created and what stopped it; the records made so far stay in the table.
 
-## 4. The other actions
+## 4. Markdown dumps
+
+Two actions work from a class dump written as Markdown. **Generate Records From Dump** builds the
+records for a class, and **Update Offsets From Dump** moves existing records to the offsets of a
+newer dump after a game update. Both read the dump from the clipboard. From Lua it can be handed in
+directly, and then the clipboard is not read:
+
+```lua
+ManifoldCEUtility:GenerateRecordsFromDump(markdownText)   -- returns ok, headerRecord
+ManifoldCEUtility:UpdateOffsetsFromDump(markdownText)     -- returns ok, plan
+```
+
+### 4.1 The dump
+
+Every Markdown table with a name column (`Field`, `Name`, `Property` or `Member`) and an `Offset`
+column is read, wherever the two columns are. Everything else in the text is ignored, so a whole
+dump file can be pasted as it is. Several tables count as one layout, which means a class pasted
+together with its parent classes covers the inherited fields too. Offsets are hexadecimal, with or
+without `0x`, as everywhere else in Cheat Engine. `Type` and `Size` columns are read when they are
+there, sizes in decimal the way dumps write them. The first heading is the dump's title.
+
+```
+# CrabDebuffState
+
+| Field | Offset | Type | Size |
+| --- | --- | --- | --- |
+| IceStack | 0x0 | IntProperty | 4 |
+| FireStack | 0x4 | IntProperty | 4 |
+```
+
+### 4.2 Generate Records From Dump
+
+1. Copy the dump's Markdown to the clipboard.
+2. To place the class inside an object, select the record of that object first.
+3. Click **Generate Records From Dump** and enter the base. A relative offset like `+00FC` puts the
+   new group under the selected record. An address, a symbol or a pointer path starts a group at the
+   top of the table. With nothing selected a relative base stays at the top as a block that can be
+   dragged under any record later.
+
+The header is an address group header named after the title in words. With a relative base it
+carries the offset in front, so `+00FC` and `# CrabHealthInfo` give `[00FC] — Crab Health Info`.
+Under it comes one record per field in offset order, its description in words and its address in
+four digits.
+
+| Dump row | Record |
+|---|---|
+| `CurrentArmorPlates \| 0x0 \| IntProperty \| 4` | `[0000] — Current Armor Plates`, 4 Bytes at `+0000` |
+| `CurrentHealth \| 0xC \| FloatProperty \| 4` | `[000C] — Current Health`, Float at `+000C` |
+| `bDualWield \| 0xB8 \| BoolProperty \| 1` | `[00B8] — Dual Wield`, Byte |
+| `AimingFOVMultiplier \| 0xF0 \| FloatProperty \| 4` | `[00F0] — Aiming FOV Multiplier`, Float |
+
+The type comes from the Type column.
+
+| Type | Record |
+|---|---|
+| `BoolProperty`, `ByteProperty`, `Int8Property` | Byte |
+| `Int16Property`, `UInt16Property` | 2 Bytes |
+| `IntProperty`, `UInt32Property` | 4 Bytes |
+| `Int64Property`, `UInt64Property` | 8 Bytes |
+| `FloatProperty`, `DoubleProperty` | Float, Double |
+| `StrProperty` | Unicode string of `DumpStringLength` characters behind one offset of 0 |
+| anything else, by its size | 1 Byte, 2 Bytes, 4 Bytes, 8 Bytes shown as hex, so an enum is a Byte and an object reference a pointer value |
+| anything else of another size | A byte array of that size, a `Vector` for example |
+
+Colours follow what a record holds. Whole numbers, enums and bools take `IntegerColor`
+(`0xDBEC19`), floats `FloatColor` (`0x8A73FF`), strings `StringColor` (`0x85EC3C`), pointer
+values and byte arrays `ElementColor`, and the header `PointerColor` (`0x61CDEA`), the colour an
+inline structure gets from Generate Structure Records. All of them are settings.
+
+The descriptions are written so that their names lead back to the dumped fields. A group made from
+one dump can therefore be moved by the next one with Update Offsets From Dump.
+
+### 4.3 Update Offsets From Dump
+
+After a game update the records still name the right fields, but the offsets behind them have
+moved. A dump of the class knows the new offsets. This action matches the two by name and moves
+each record to the offset its field has now.
+
+1. Select the group whose children are the fields, for example `[— Weapon —]`. Its direct children
+   are the records that get updated. Several records can be selected instead, and then exactly
+   those are updated.
+2. Copy the dump's Markdown to the clipboard.
+3. Click **Update Offsets From Dump**. A confirmation shows how many records move, how many already
+   match and which ones stay as they are.
+
+### 4.4 How names are matched
+
+The name of a record is its description without the offset in brackets in front and without the
+`-> Target` that Generate Structure Records puts behind a pointer. Both sides are then lowered and
+reduced to letters and digits. That is what lets a description be written the way a person reads it.
+
+| Record | Dump | Matches because |
+|---|---|---|
+| `[0102] — Fire Mode` | `FireMode` | Case and spaces do not count |
+| `[00B8] — Dual Wield` | `bDualWield` | The `b` in front of an Unreal bool may be left out |
+| `[0020] — Health` | `Health_12_0123…CDEF` | A Blueprint variable's number and GUID are ignored |
+
+A field's own name wins over the shortened bool name, so `Foo` in a dump that also has `bFoo`
+finds `Foo`. A name that two fields share at different offsets is ambiguous and is not guessed.
+A name that is not in the dump is not guessed either. Those records keep their offset and are
+named in the confirmation and in the report.
+
+### 4.5 What is written
+
+Only the relative address. `+0102` becomes `+010C`, in the same number of digits, more when the new
+offset needs them. The offset in the description's brackets moves along when it stated the old
+offset, and stays as written when it said something else. A record that is itself a pointer keeps
+its offsets. They are read before the address is written and put back after it, as text, so a
+symbol in an offset survives. Types, values, drop-down lists and everything else are not touched.
+
+The group's own base and pointer chain are not part of the update. A record whose address is not
+relative, like `game.exe+100`, is skipped and reported. A record that refuses its new address is
+reported, and the rest are still written. Running the update a second time finds nothing to move.
+
+### 4.6 The report
+
+```
+Offsets updated from dump
+  Fields in dump                : 53
+  Records                       : 34
+  Moved                         : 24
+  Already right                 : 3
+  Not in dump                   : Requires Unlock, Name, Description, Pickup Type, Loot Pool, Rarity, Pickup Tag
+
+  Fire Mode                     : +0102 -> +010C  (FireMode)
+  Fire From Root                : +0105 -> +010F  (bFireFromRoot)
+  …
+```
+
+Every move is listed with the field it matched, so the report is also the way back by hand.
+
+## 5. The other actions
 
 **Remove All Structures** walks `getStructureCount()` backwards calling
 `removeFromGlobalStructureList()` on each, so an index stays valid after the one above it is gone.
@@ -250,7 +383,7 @@ framework's `Manifold.UI:EnableCompactMode` touches.
 **Open Process Folder** takes `enumModules()[1].PathToFile` and opens its directory. With no
 process attached it says so instead of opening nothing.
 
-## 5. Settings
+## 6. Settings
 
 `Manifold-CE-Utility-Settings.lua` holds the defaults:
 
@@ -262,6 +395,8 @@ Persist = true,
 Shortcuts = { LuaEngine = "Ctrl+L", MemoryViewer = "", DeactivateScripts = "Ctrl+D",
               DeactivateEverything = "Ctrl+F", CompactMode = "Ctrl+Shift+F" },
 Structures = { HeaderColor = 0xD2FF00, ElementColor = 0xADAD5A, PointerColor = 0x61CDEA,
+               IntegerColor = 0xDBEC19, FloatColor = 0x8A73FF, StringColor = 0x85EC3C,
+               DumpStringLength = 255,
                MaxDepth = 4, IncludeUnnamed = false, OffsetInDescription = true, DefaultBase = "+0" }
 ```
 
@@ -274,7 +409,7 @@ local host = Host:New({
 })
 ```
 
-### 5.1 Persistence
+### 6.1 Persistence
 
 `AnimatedCaption`, `AnimationInterval`, `ConfirmDestructiveActions` and
 `Structures.IncludeUnnamed` are written through `getSettings("Manifold CE Utility")` whenever the
@@ -285,7 +420,7 @@ into a string. Cheat Engine answers an empty string, never nil, for a value that
 written; that is treated as absent, so a fresh install keeps every default. `Persist = false`
 keeps everything for the session only, which is what 1.x did.
 
-## 6. Logging
+## 7. Logging
 
 Lines go to the Manifold Logger channel `CE Utility` when `ManifoldLogger` exists, and to a
 timestamped `print` otherwise:
@@ -299,12 +434,14 @@ The channel is resolved on every call and re-resolved when the Logger host is re
 writing into a buffer no window shows. Multi-row reports use the Logger's `Block` renderer when
 it is there and an aligned fallback when it is not.
 
-## 7. The public object
+## 8. The public object
 
 `ManifoldCEUtility` is the host. Everything the menu does is a method on it:
 
 ```lua
 ManifoldCEUtility:GenerateStructureRecords()      -- returns ok, rootRecord
+ManifoldCEUtility:GenerateRecordsFromDump(markdown) -- returns ok, header, nil reads the clipboard
+ManifoldCEUtility:UpdateOffsetsFromDump(markdown) -- returns ok, plan, nil reads the clipboard
 ManifoldCEUtility:RemoveAllStructures()
 ManifoldCEUtility:DeactivateScripts()
 ManifoldCEUtility:DeactivateEverything()
@@ -327,7 +464,7 @@ ManifoldCEUtility:Shutdown()
 `About` logs the block and makes sure it can be seen: it opens the Logger console when lines go
 there, and shows a message box otherwise.
 
-## 8. Internal structure
+## 9. Internal structure
 
 | Module | Owns |
 |---|---|
@@ -335,7 +472,7 @@ there, and shows a message box otherwise.
 | `-Log` | The Logger channel or the `print` fallback, and `Block`. |
 | `-Settings` | Defaults, overrides, clamping, the registry store. |
 | `-Icons` | The 16x16 set: one `TImageList` per session, attached to the root item's `SubMenuImages`. |
-| `-Structures` | `List`, `Select`, `SuggestBase`, `Plan` (plan, prune, tally), `Materialize`, `Generate`, `RemoveAll`. |
+| `-Structures` | `List`, `Select`, `SuggestBase`, `Plan` (plan, prune, tally), `Materialize`, `Generate`, `RemoveAll`, and for dumps `ParseDump`, `ReadDump`, `OffsetTargets`, `PlanOffsets`, `ApplyOffsets`, `UpdateOffsets`, `DumpNode`, `PlanDump`, `GenerateFromDump`. |
 | `-Records` | `Collect`, `Active`, `Deactivate`, `FreeRange`, `Assign`, `Restore`, `NormalizeIDs`. |
 | `-Shell` | Windows, folders, compact mode. |
 | `-Menu` | The root entry built from the host's spec, check marks, the Tag sweep, the ticker. |
