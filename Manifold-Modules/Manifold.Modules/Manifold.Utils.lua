@@ -1,9 +1,19 @@
 local NAME = "Manifold.Utils.lua"
 local AUTHOR = {"Leunsel", "LeFiXER"}
-local VERSION = "1.1.1"
+local VERSION = "1.2.0"
 local DESCRIPTION = "Manifold Framework Utils"
 
 --[[
+    ∂ v1.2.0 (2026-11-08)
+        Table file tools for development. LinkHookFolders embeds every CEA
+        of the side-load subfolders Hooks\ and MainHooks\, which the Auto
+        Assembler does not search. VerifyTableFiles reports referenced but
+        missing files, embedded files that differ from their copy on disk,
+        files on disk that were never embedded and embedded files nothing
+        uses. SyncModulesFromDirectory refreshes the embedded Manifold.*.lua
+        from the repository. Files are compared byte for byte through
+        streams; reading them in text mode would turn CRLF into LF.
+
     ∂ v1.1.1 (2026-09-01)
         VerifyFileHash and RemoveTableFilesByExtension report once
         with the evidence under the verdict. Every line uses
@@ -694,6 +704,327 @@ function Utils:InitializeTable()
     self:SetTitle()
 end
 registerLuaFunctionHighlight('InitializeTable')
+
+--------------------------------------------------------
+--              Table Files (development)             --
+--------------------------------------------------------
+
+--
+--- ∑ The exact bytes of a stream as a string. Cheat Engine 7.5's Stream has
+---   read(count), which returns a byte table, and no readString. A byte count
+---   cuts nothing at a 0 byte and reads nothing past the end.
+--- @param stream userdata # A Cheat Engine Stream
+--- @return string
+--
+local function _streamText(stream)
+    if not stream or stream.Size == 0 then return "" end
+    local position = stream.Position
+    stream.Position = 0
+    local bytes = stream.read(stream.Size)
+    stream.Position = position
+    return bytes and byteTableToString(bytes) or ""
+end
+
+--
+--- ∑ The exact bytes of a file on disk. Read through a MemoryStream rather than
+---   io.open(..., "r"): text mode turns CRLF into LF, and every comparison with
+---   an embedded file would then report a difference that is not there.
+--- @param path string
+--- @return string|nil
+--
+local function _fileText(path)
+    local stream = createMemoryStream()
+    local ok = pcall(function() stream.loadFromFile(path) end)
+    local text = ok and _streamText(stream) or nil
+    stream.destroy()
+    return text
+end
+
+--
+--- ∑ The process folder the Auto Assembler side-loads from:
+---   %LOCALAPPDATA%\Manifold\CEA\<Target without extension>
+---   Built from the configured Target, so it works before attaching.
+--- @return string|nil
+--
+function Utils:GetSideLoadDirectory()
+    local target = self:GetTargetNoExt()
+    if not target or not customIO or not customIO.DataDir then return nil end
+    local folder = (rawget(_G, "autoAssembler") and autoAssembler.LocalFilesFolder) or "CEA"
+    return customIO.DataDir .. "\\" .. folder .. "\\" .. target
+end
+registerLuaFunctionHighlight('GetSideLoadDirectory')
+
+--
+--- ∑ Names of all files attached to the table. Cheat Engine has no call that
+---   lists them, so the entries of the Table menu are read and each one is
+---   confirmed with findTableFile.
+--- @return table # sorted list of names
+--
+function Utils:GetTableFileNames()
+    local names = {}
+    local miTable = MainForm.findComponentByName("miTable")
+    if not miTable then
+        logger:Error(MODULE_PREFIX .. " Menu item 'miTable' not found.")
+        return names
+    end
+    miTable.doClick()  -- the menu is filled when it opens
+    for i = 0, miTable.Count - 1 do
+        local caption = miTable.Item[i].Caption:match("^%s*(.-)%s*$")
+        if caption ~= "" and findTableFile(caption) then
+            names[#names + 1] = caption
+        end
+    end
+    table.sort(names, function(a, b) return a:lower() < b:lower() end)
+    return names
+end
+registerLuaFunctionHighlight('GetTableFileNames')
+
+--
+--- ∑ Adds or replaces one table file from disk. An unchanged file is left alone.
+--- @return string # "added", "replaced", "unchanged" or "failed"
+--
+local function _putTableFile(name, path)
+    local disk = _fileText(path)
+    if not disk then return "failed" end
+    local existing = findTableFile(name)
+    if existing then
+        if _streamText(existing.Stream) == disk then return "unchanged" end
+        existing.delete()
+        return createTableFile(name, path) and "replaced" or "failed"
+    end
+    return createTableFile(name, path) and "added" or "failed"
+end
+
+--
+--- ∑ Embeds every CEA file of the side-load subfolders into the table.
+---
+---   The Auto Assembler side-loads only from the process folder itself and
+---   then falls back to the table files, so a script kept in Hooks\ or
+---   MainHooks\ works for nobody until it is embedded, and a fix made there
+---   after embedding silently does not ship. This turns embedding into one
+---   action that can be repeated before every save.
+--- @param subFolders table|nil # folder names below the process folder; default { "MainHooks", "Hooks" }
+--- @return table|nil # { added = {}, replaced = {}, unchanged = {}, failed = {}, conflicts = {}, missingFolders = {} }
+--
+function Utils:LinkHookFolders(subFolders)
+    if not inMainThread() then
+        local result
+        synchronize(function() result = self:LinkHookFolders(subFolders) end)
+        return result
+    end
+    local baseDir = self:GetSideLoadDirectory()
+    if not baseDir then
+        logger:Error(MODULE_PREFIX .. " LinkHookFolders: no Target configured, so there is no side-load folder.")
+        return nil
+    end
+    subFolders = subFolders or { "MainHooks", "Hooks" }
+    local result = { added = {}, replaced = {}, unchanged = {}, failed = {}, conflicts = {}, missingFolders = {} }
+    local seen = {}
+    for _, sub in ipairs(subFolders) do
+        local dir = baseDir .. "\\" .. sub
+        if not customIO:DirectoryExists(dir) then
+            result.missingFolders[#result.missingFolders + 1] = dir
+        else
+            local files = getFileList(dir, "*.CEA", false) or {}
+            table.sort(files, function(a, b) return a:lower() < b:lower() end)
+            for _, path in ipairs(files) do
+                local name = extractFileName(path)
+                local key = name:lower()
+                if seen[key] then
+                    -- One name, two folders: whichever came first would win in
+                    -- the table, so neither guess is made silently.
+                    result.conflicts[#result.conflicts + 1] = string.format("%s (%s and %s)", name, seen[key], sub)
+                else
+                    seen[key] = sub
+                    local outcome = _putTableFile(name, path)
+                    table.insert(result[outcome], sub .. "\\" .. name)
+                end
+            end
+        end
+    end
+    logger:InfoBlock(MODULE_PREFIX .. " Linked hook folders into the table files", {
+        { "Folder",    baseDir },
+        { "Added",     #result.added .. (#result.added > 0 and (": " .. table.concat(result.added, ", ")) or "") },
+        { "Replaced",  #result.replaced .. (#result.replaced > 0 and (": " .. table.concat(result.replaced, ", ")) or "") },
+        { "Unchanged", #result.unchanged },
+    })
+    if #result.failed + #result.conflicts + #result.missingFolders > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " LinkHookFolders needs attention", {
+            { "Failed",          table.concat(result.failed, ", ") },
+            { "Name conflicts",  table.concat(result.conflicts, ", ") },
+            { "Missing folders", table.concat(result.missingFolders, ", ") },
+        })
+    end
+    local message = string.format(
+        "Hook folders linked into the table files.\n\nAdded: %d\nReplaced: %d\nUnchanged: %d",
+        #result.added, #result.replaced, #result.unchanged)
+    if #result.failed + #result.conflicts > 0 then
+        message = message .. string.format("\nFailed: %d\nName conflicts: %d (see the log)", #result.failed, #result.conflicts)
+    end
+    if #result.added + #result.replaced > 0 then
+        message = message .. "\n\nSave the table to keep the changes."
+    end
+    self:ShowInfo(message)
+    return result
+end
+registerLuaFunctionHighlight('LinkHookFolders')
+
+--
+--- ∑ The CEA names a script asks the Auto Assembler for, outside comments.
+--- @param script string
+--- @param into table # set of lower-case name -> original name
+--
+local function _collectReferences(script, into)
+    for line in (script .. "\n"):gmatch("([^\n]*)\n") do
+        local code = line:match("^%s*(.-)%s*$")
+        if not code:find("^%-%-") and not code:find("^//") then
+            for ref in code:gmatch("AutoAssemble%s*%(%s*[\"']([^\"']+)[\"']") do
+                if not ref:lower():find("%.cea$") then ref = ref .. ".CEA" end
+                into[ref:lower()] = into[ref:lower()] or ref
+            end
+        end
+    end
+end
+
+--
+--- ∑ Checks the table against itself before a release:
+---     - every CEA a script references is embedded,
+---     - every embedded CEA matches its side-load copy (root, MainHooks, Hooks),
+---     - every side-load CEA is embedded,
+---     - every embedded CEA is referenced by something.
+---   The second check is the one that catches a fix made on disk after the file
+---   was embedded.
+--- @param subFolders table|nil # default { "MainHooks", "Hooks" }
+--- @return table # { missing = {}, differs = {}, notEmbedded = {}, unreferenced = {} }
+--
+function Utils:VerifyTableFiles(subFolders)
+    if not inMainThread() then
+        local result
+        synchronize(function() result = self:VerifyTableFiles(subFolders) end)
+        return result
+    end
+    subFolders = subFolders or { "MainHooks", "Hooks" }
+    local embedded = {}
+    for _, name in ipairs(self:GetTableFileNames()) do embedded[name:lower()] = name end
+    -- References from the address list, then from embedded CEAs (a loader
+    -- such as _InitMainHooks.CEA references the files it assembles).
+    local references = {}
+    for i = 0, AddressList.Count - 1 do
+        local mr = AddressList.getMemoryRecord(i)
+        if mr and mr.Type == vtAutoAssembler and mr.Script then _collectReferences(mr.Script, references) end
+    end
+    for key, name in pairs(embedded) do
+        if key:find("%.cea$") then
+            local tableFile = findTableFile(name)
+            if tableFile then _collectReferences(_streamText(tableFile.Stream), references) end
+        end
+    end
+    -- Side-load copies on disk: root first, then the subfolders.
+    local disk = {}
+    local baseDir = self:GetSideLoadDirectory()
+    if baseDir then
+        local folders = { "" }
+        for _, sub in ipairs(subFolders) do folders[#folders + 1] = sub end
+        for _, sub in ipairs(folders) do
+            local dir = sub == "" and baseDir or (baseDir .. "\\" .. sub)
+            if customIO:DirectoryExists(dir) then
+                for _, path in ipairs(getFileList(dir, "*.CEA", false) or {}) do
+                    local key = extractFileName(path):lower()
+                    disk[key] = disk[key] or { path = path, folder = sub == "" and "(root)" or sub }
+                end
+            end
+        end
+    end
+    local result = { missing = {}, differs = {}, notEmbedded = {}, unreferenced = {} }
+    for key, name in pairs(references) do
+        if not embedded[key] then
+            result.missing[#result.missing + 1] = name .. (disk[key] and (" (on disk in " .. disk[key].folder .. ")") or "")
+        end
+    end
+    for key, name in pairs(embedded) do
+        if key:find("%.cea$") then
+            if not references[key] then result.unreferenced[#result.unreferenced + 1] = name end
+            if disk[key] then
+                local tableFile = findTableFile(name)
+                if tableFile and _streamText(tableFile.Stream) ~= _fileText(disk[key].path) then
+                    result.differs[#result.differs + 1] = name .. " (" .. disk[key].folder .. ")"
+                end
+            end
+        end
+    end
+    for key, entry in pairs(disk) do
+        if not embedded[key] then
+            result.notEmbedded[#result.notEmbedded + 1] = extractFileName(entry.path) .. " (" .. entry.folder .. ")"
+        end
+    end
+    for _, list in pairs(result) do table.sort(list) end
+    local problems = #result.missing + #result.differs + #result.notEmbedded
+    local function list(t) return #t > 0 and table.concat(t, ", ") or "none" end
+    local rows = {
+        { "Referenced, not embedded",    list(result.missing) },
+        { "Embedded, differs from disk", list(result.differs) },
+        { "On disk, not embedded",       list(result.notEmbedded) },
+        { "Embedded, never referenced",  list(result.unreferenced) },
+    }
+    if problems > 0 then
+        logger:WarningBlock(MODULE_PREFIX .. " Table file check found " .. problems .. " problem(s)", rows)
+    else
+        logger:InfoBlock(MODULE_PREFIX .. " Table file check passed", rows)
+    end
+    local message = string.format(
+        "Table file check\n\nReferenced, not embedded: %d\nEmbedded, differs from disk: %d\nOn disk, not embedded: %d\nEmbedded, never referenced: %d",
+        #result.missing, #result.differs, #result.notEmbedded, #result.unreferenced)
+    if problems > 0 then
+        self:ShowWarning(message .. "\n\nThe names are in the log. \"Link Hook Folders\" embeds the files from Hooks\\ and MainHooks\\.")
+    else
+        self:ShowInfo(message .. "\n\nEverything that is referenced is embedded and current.")
+    end
+    return result
+end
+registerLuaFunctionHighlight('VerifyTableFiles')
+
+--
+--- ∑ Replaces embedded framework modules (Manifold.*.lua) with the copies in a
+---   folder, usually the repository. Only modules the table already embeds are
+---   touched; nothing is added. The table Lua script has to run again for the
+---   new modules to load.
+--- @param dir string # folder holding Manifold.*.lua
+--- @return table|nil # { updated = {}, unchanged = {}, notFound = {}, failed = {} }
+--
+function Utils:SyncModulesFromDirectory(dir)
+    if not inMainThread() then
+        local result
+        synchronize(function() result = self:SyncModulesFromDirectory(dir) end)
+        return result
+    end
+    if type(dir) ~= "string" or not customIO:DirectoryExists(dir) then
+        logger:Error(MODULE_PREFIX .. " SyncModulesFromDirectory: folder not found: " .. tostring(dir))
+        self:ShowError("Module folder not found:\n" .. tostring(dir))
+        return nil
+    end
+    local result = { updated = {}, unchanged = {}, notFound = {}, failed = {} }
+    for _, name in ipairs(self:GetTableFileNames()) do
+        if name:find("^Manifold%..+%.lua$") then
+            local path = dir .. "\\" .. name
+            local outcome = customIO:FileExists(path) and _putTableFile(name, path) or "notFound"
+            if outcome == "replaced" then outcome = "updated" end
+            table.insert(result[outcome] or result.failed, name)
+        end
+    end
+    local function list(t) return #t > 0 and table.concat(t, ", ") or "none" end
+    logger:InfoBlock(MODULE_PREFIX .. " Synced embedded modules from " .. dir, {
+        { "Updated",   list(result.updated) },
+        { "Unchanged", #result.unchanged },
+        { "Not found", list(result.notFound) },
+        { "Failed",    list(result.failed) },
+    })
+    self:ShowInfo(string.format(
+        "Modules synced from:\n%s\n\nUpdated: %d\nUnchanged: %d\nNot found: %d%s",
+        dir, #result.updated, #result.unchanged, #result.notFound,
+        #result.updated > 0 and "\n\nSave the table, then run the table Lua script again to load them." or ""))
+    return result
+end
+registerLuaFunctionHighlight('SyncModulesFromDirectory')
 
 --------------------------------------------------------
 --                   Module End                       --
