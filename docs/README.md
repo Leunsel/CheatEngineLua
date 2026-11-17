@@ -1,6 +1,6 @@
 # Manifold Documentation
 
-Documentation for the eight segments of the
+Documentation for the eleven segments of the
 [`Leunsel/CheatEngineLua`](https://github.com/Leunsel/CheatEngineLua) repository.
 
 | Segment | Directory | Runs where | Purpose |
@@ -9,10 +9,13 @@ Documentation for the eight segments of the
 | Manifold CE Fixes | `Manifold-CE-Fixes/` | Cheat Engine `autorun` | Workarounds for defects in Cheat Engine itself |
 | Manifold CE Utility | `Manifold-CE-Utility/` | Cheat Engine `autorun` | Quality of life menu for the Cheat Engine UI itself |
 | Manifold Framework | `Manifold-Modules/` | Inside a Cheat Table (`luaFiles` or table files) | Modular runtime library for Cheat Tables |
+| Manifold Godot | `Manifold-Godot/` | Cheat Engine `autorun` | Godot 4 objects, classes and scene tree in Structure Dissect, symbols and a menu |
 | Manifold Logger | `Manifold-Logger/` | Cheat Engine `autorun` | Canvas-drawn log console any script can side-load |
+| Manifold RTTI | `Manifold-RTTI/` | Cheat Engine `autorun` | C++ class names from MSVC run-time type information in Structure Dissect and symbols |
 | Manifold SigMaker | `Manifold-SigMaker/` | Cheat Engine `autorun` | Array-of-bytes signature for the selected instruction, and the search back from one |
 | Manifold Table Files | `Manifold-TableFiles/` | Cheat Engine `autorun` | Editable window over the files attached to a Cheat Table |
 | Manifold Template Loader | `Manifold-TemplateLoader/` | Cheat Engine `autorun` | Template engine for Auto Assembler scripts |
+| Manifold UE | `Manifold-UE/` | Cheat Engine `autorun` | Unreal Engine 4/5 reflection in Structure Dissect, symbols and a type inspector |
 
 ## Entry points
 
@@ -33,8 +36,16 @@ directory and an overview of the modules.
 [Manifold Framework API Reference](Manifold-Framework-API.md) is the complete function reference
 for every module.
 
+[Manifold Godot](Manifold-Godot.md) covers installation, how a Godot 4 game is resolved, the
+Structure Dissect callbacks, the custom types, the offset, node and method symbols, the menu and
+the Lua API.
+
 [Manifold Logger](Manifold-Logger.md) covers the record model, channels, the canvas console, the
 bridges onto other producers and the log file.
+
+[Manifold RTTI](Manifold-RTTI.md) covers installation, where the type information comes from, the
+Structure Dissect callbacks and labels, the vftable symbols, the menu, the Lua API and the name
+decoding.
 
 [Manifold SigMaker](Manifold-SigMaker.md) covers installation, the menu entries and the shortcut,
 how a signature is built by probing the disassembler, the masking policy, the output parts, and
@@ -45,6 +56,9 @@ framework instance it carries.
 
 [Manifold Template Loader](Manifold-Template-Loader.md) covers the template syntax, context
 variables, the menu and hot reload.
+
+[Manifold UE](Manifold-UE.md) covers installation, how an Unreal Engine game is resolved, the
+Structure Dissect callbacks, the custom types, the offset symbols, the menu and the Lua API.
 
 [TODO](TODO.md) lists open work items from the code review, ordered by priority.
 
@@ -79,6 +93,21 @@ Cheat Engine starts
 │    ├─ publishes ManifoldLogger, adds a "Logger" main-menu entry
 │    ├─ bridges onto Manifold.Logger and the Template Loader when present
 │    └─ hands any script its own channel: ManifoldLogger:Channel("Name")
+│
+├─ autorun/Manifold-UE.lua                    Segment 9, Unreal Engine reflection
+│    ├─ publishes ManifoldUE, adds an "Unreal Engine" main-menu entry
+│    ├─ registers a structure name lookup, a dissect override and a symbol lookup
+│    └─ registers the custom types UE FName, UE FString and UE Object Index
+│
+├─ autorun/Manifold-RTTI.lua                  Segment 10, C++ run-time type information
+│    ├─ publishes ManifoldRTTI, adds an "RTTI" main-menu entry
+│    ├─ registers a structure name lookup, a dissect override and a symbol lookup
+│    └─ registers <Class>::vftable symbols, provides getRTTIClassName where missing
+│
+├─ autorun/Manifold-Godot.lua                 Segment 11, Godot 4 engine data
+│    ├─ publishes ManifoldGodot, adds a "Godot Engine" main-menu entry
+│    ├─ registers a structure name lookup, a dissect override and a symbol lookup
+│    └─ registers the custom types Godot StringName, Godot String and Godot ObjectID
 │
 ├─ autorun/Manifold-TemplateLoader-Main.lua   Segment 3, the Template Loader
 │    ├─ Host (persistent, survives a hot reload)
@@ -159,6 +188,32 @@ writes into whichever records now carry those numbers. Normalise before you star
 the middle of it, and re-execute `Manifold-AddressList.lua` if you have already done both. This is
 the same class of problem as [T9](TODO.md#t9-state-ids-collide-with-normalize-cheat-table-ids),
 where the framework's `Manifold.State` keys saved state by the same ids.
+
+Manifold RTTI, Manifold UE and Manifold Godot each register a structure name lookup, a dissect
+override and a symbol lookup. Hosts ask callbacks in the order they were registered and take the
+first answer, so the three keep to one rule each and the load order does not matter:
+
+- **Each engine script answers only in its own engine.** Manifold UE resolves on its own only in a
+  process that looks like Unreal (executable name and path, a CoreUObject module, or the
+  `/Script/CoreUObject` literal), Manifold Godot only in one whose executable carries the Godot 4
+  version literal. Anywhere else each gives up after one scan of the main module and stays quiet
+  for the rest of the process.
+- **RTTI steps aside.** Unreal and Godot objects carry MSVC run-time type information too. Before
+  RTTI names or fills an address it asks `ManifoldUE.claims` and `ManifoldGodot.claims` and leaves
+  everything either claims to it, including C++ objects embedded inside their objects. It never
+  calls `ManifoldUE.owner`, which resolves with the full search on every call.
+- **The symbols cannot meet.** RTTI only answers names that end in `::vftable`. Manifold UE
+  answers `<Type>_<Property>` and `GObjects`, `FNamePool`, `GNames`, `GameEngine`. Every Manifold
+  Godot symbol starts with `Godot`, apart from the optional engine method names `Class::method`,
+  of which none is `vftable`.
+- **Symbols stay with their process.** Each of the three unregisters the symbols it registered
+  when another process is opened, so the names of one game never label the next one.
+
+This was checked with all three loaded, in both load orders, in an Unreal Engine 4 game (Crab
+Champions), a Godot 4 game (Unrailed 2) and a plain C++ process. Unreal builds usually disable
+run-time type information, so there RTTI only ever sees the game's non-Unreal C++ objects (the
+Steam interfaces, for example); the claim check matters for Unreal games built with it and for
+every Godot game built with MSVC or clang-cl.
 
 The data directories do not collide. The Framework uses `%LOCALAPPDATA%\Manifold\` and the
 Template Loader uses `%LOCALAPPDATA%\Manifold\TemplateLoader\`. The Logger shares the Framework's

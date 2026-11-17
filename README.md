@@ -42,6 +42,23 @@ with a record tree drawn on a canvas, an inspector for pointers, scripts, drop-d
 hotkeys, a filter language, find and replace across the whole table, a check that says what is
 broken, and an undo history Cheat Engine itself does not have.
 
+[Manifold UE](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-UE)
+is an autorun script that teaches Cheat Engine the reflection data of Unreal Engine 4 and 5 games,
+without an SDK or offsets: Structure Dissect fills objects with their real property names, offsets
+get symbols that survive game updates, and an inspector lists types, properties and instances.
+
+[Manifold RTTI](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-RTTI)
+is an autorun script that reads the run-time type information of C++ games built with MSVC:
+Structure Dissect names objects after their class and moves to the object's start, pointer fields
+name the class they point to, `<Class>::vftable` symbols survive game updates, and a menu finds
+every object of a class.
+
+[Manifold Godot](https://github.com/Leunsel/CheatEngineLua/tree/main/Manifold-Godot)
+is an autorun script that teaches Cheat Engine the bookkeeping of Godot 4 games, without offsets:
+Structure Dissect names objects after their Godot class and fills the Object and Node members,
+nodes are reachable by path and get symbols that survive a restart, and the disassembler can name
+the engine's methods.
+
 The documentation for all of them lives in [`docs/`](docs/README.md).
 
 [GH SigMaker Patch](https://github.com/Leunsel/CheatEngineLua/tree/main/GH-SigMaker-Patch)
